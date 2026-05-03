@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import dynamic from "next/dynamic";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -12,6 +13,12 @@ const geistMono = localFont({
   variable: "--font-geist-mono",
   weight: "100 900",
 });
+
+// Dynamic import — WalletProvider needs window (no SSR)
+const WalletProvider = dynamic(
+  () => import("@/components/WalletProvider"),
+  { ssr: false }
+);
 
 export const metadata: Metadata = {
   title: "Aegis Ledger | Private Payroll & Treasury Platform",
@@ -39,7 +46,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <WalletProvider>{children}</WalletProvider>
       </body>
     </html>
   );

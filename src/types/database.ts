@@ -19,7 +19,7 @@ export interface Organization {
   updated_at: string;
 }
 
-export type PayrollRunStatus = "pending" | "processing" | "completed" | "failed";
+export type PayrollRunStatus = "pending" | "pending_signature" | "processing" | "completed" | "failed";
 
 export interface PayrollRun {
   id: string;

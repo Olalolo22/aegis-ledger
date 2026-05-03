@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useEffect } from "react";
 import ReactFlow, {
   Node,
   Edge,
@@ -12,6 +12,10 @@ import ReactFlow, {
   MarkerType,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import {
+  useAuditorEngine,
+  type AuditorEngineStatus,
+} from "@/hooks/useAuditorEngine";
 
 // ─── Custom Node Components ───────────────────────────────────
 
@@ -54,29 +58,23 @@ function DecryptedNode({
   );
 }
 
-// ─── Graph Data ───────────────────────────────────────────────
+// ─── Encrypted Placeholder Nodes ──────────────────────────────
 
 const generateHash = () =>
   Array.from({ length: 64 }, () =>
     "0123456789abcdef"[Math.floor(Math.random() * 16)]
   ).join("");
 
-// Simulated decrypted payroll data (what the compliance report reveals)
-const decryptedPayments = [
-  { amount: "5,000 USDC", detail: "→ Contractor A Wallet", label: "Payroll #1 — Contractor" },
-  { amount: "3,200 USDC", detail: "→ Contractor B Wallet", label: "Payroll #2 — Designer" },
-  { amount: "8,750 USDC", detail: "→ Contractor C Wallet", label: "Payroll #3 — Lead Dev" },
-  { amount: "2,400 USDC", detail: "→ Contractor D Wallet", label: "Payroll #4 — Marketing" },
-  { amount: "6,100 USDC", detail: "→ Contractor E Wallet", label: "Payroll #5 — Ops Lead" },
-];
-
-function createInitialNodes(): Node[] {
+function createPlaceholderNodes(): Node[] {
   return [
     {
       id: "treasury",
       type: "treasury",
       position: { x: 300, y: 0 },
-      data: { label: "AEGIS TREASURY", sublabel: "Shielded Pool — Cloak Protocol" },
+      data: {
+        label: "AEGIS TREASURY",
+        sublabel: "Shielded Pool — Cloak Protocol",
+      },
       draggable: true,
     },
     ...Array.from({ length: 5 }, (_, i) => ({
@@ -93,7 +91,7 @@ function createInitialNodes(): Node[] {
   ];
 }
 
-function createInitialEdges(): Edge[] {
+function createPlaceholderEdges(): Edge[] {
   return Array.from({ length: 5 }, (_, i) => ({
     id: `edge-${i}`,
     source: "treasury",
@@ -115,6 +113,17 @@ const nodeTypes = {
   decrypted: DecryptedNode,
 };
 
+// ─── Status Labels ────────────────────────────────────────────
+
+const STATUS_LABELS: Record<AuditorEngineStatus, string> = {
+  idle: "Ready",
+  loading_data: "Loading audit data...",
+  decrypting: "Decrypting UTXO commitments...",
+  formatting: "Building fund-flow graph...",
+  complete: "Decryption Complete",
+  error: "Decryption Failed",
+};
+
 // ─── Main Component ───────────────────────────────────────────
 
 interface AuditGraphProps {
@@ -122,85 +131,63 @@ interface AuditGraphProps {
 }
 
 export default function AuditGraph({ accessToken }: AuditGraphProps) {
-  const initialNodes = useMemo(() => createInitialNodes(), []);
-  const initialEdges = useMemo(() => createInitialEdges(), []);
+  const placeholderNodes = useMemo(() => createPlaceholderNodes(), []);
+  const placeholderEdges = useMemo(() => createPlaceholderEdges(), []);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [isDecrypting, setIsDecrypting] = useState(false);
-  const [isDecrypted, setIsDecrypted] = useState(false);
+  const [nodes, setNodes, onNodesChange] = useNodesState(placeholderNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(placeholderEdges);
+  const [hasApplied, setHasApplied] = useState(false);
 
-  const applyViewingKey = useCallback(async () => {
-    if (!accessToken || isDecrypting || isDecrypted) return;
+  const engine = useAuditorEngine();
 
-    setIsDecrypting(true);
+  // ─── Staggered Node Reveal Animation ──────────────────────
+  // When the engine produces new nodes, animate them in one by one
+  useEffect(() => {
+    if (engine.status !== "complete" || engine.nodes.length === 0) return;
 
-    try {
-      // Call the decrypt endpoint (in production, this actually decrypts)
-      // For the demo, we simulate the response since we need a real Cloak instance
-      const response = await fetch("/api/audit/decrypt", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ limit: 250 }),
-      });
+    // Start by showing only the treasury
+    const treasury = engine.nodes.find((n) => n.id === "treasury");
+    if (treasury) {
+      setNodes([treasury]);
+      setEdges([]);
+    }
 
-      // Whether the API succeeds or not, we animate the demo data
-      // In production, `data.audit.transactions` would populate the nodes
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Compliance report:", data);
+    // Stagger-reveal each recipient node + edge
+    const recipientNodes = engine.nodes.filter((n) => n.id !== "treasury");
+    const recipientEdges = engine.edges;
+
+    let cancelled = false;
+
+    const revealSequentially = async () => {
+      for (let i = 0; i < recipientNodes.length; i++) {
+        if (cancelled) break;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+
+        const node = recipientNodes[i];
+        const edge = recipientEdges[i];
+
+        setNodes((nds) => [...nds, node]);
+        if (edge) {
+          setEdges((eds) => [...eds, edge]);
+        }
       }
-    } catch {
-      // API may not be fully wired to Cloak in dev — continue with demo data
-    }
+    };
 
-    // ─── Animate Node Transformation ─────────────────────────
-    // Stagger the reveal: each node transforms 400ms after the previous
-    for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+    revealSequentially();
 
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.id === `utxo-${i}`) {
-            return {
-              ...node,
-              type: "decrypted",
-              data: {
-                label: decryptedPayments[i].label,
-                amount: decryptedPayments[i].amount,
-                detail: decryptedPayments[i].detail,
-              },
-            };
-          }
-          return node;
-        })
-      );
+    return () => {
+      cancelled = true;
+    };
+  }, [engine.status, engine.nodes, engine.edges, setNodes, setEdges]);
 
-      // Animate the edge too
-      setEdges((eds) =>
-        eds.map((edge) => {
-          if (edge.id === `edge-${i}`) {
-            return {
-              ...edge,
-              animated: true,
-              style: { stroke: "rgba(16, 185, 129, 0.5)", strokeWidth: 2 },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: "rgba(16, 185, 129, 0.6)",
-              },
-            };
-          }
-          return edge;
-        })
-      );
-    }
+  // ─── Apply Viewing Key ────────────────────────────────────
+  const applyViewingKey = useCallback(async () => {
+    if (!accessToken || hasApplied) return;
+    setHasApplied(true);
+    await engine.execute(accessToken);
+  }, [accessToken, hasApplied, engine]);
 
-    setIsDecrypting(false);
-    setIsDecrypted(true);
-  }, [accessToken, isDecrypting, isDecrypted, setNodes, setEdges]);
+  const isActive = engine.isLoadingData || engine.isDecrypting || engine.isFormatting;
 
   return (
     <div>
@@ -230,18 +217,27 @@ export default function AuditGraph({ accessToken }: AuditGraphProps) {
         </ReactFlow>
       </div>
 
-      <div style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center" }}>
+      {/* ─── Controls Bar ──────────────────────────────────── */}
+      <div
+        style={{
+          marginTop: 16,
+          display: "flex",
+          gap: 12,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <button
           className="btn-primary"
           onClick={applyViewingKey}
-          disabled={!accessToken || isDecrypting || isDecrypted}
+          disabled={!accessToken || isActive || engine.status === "complete"}
         >
-          {isDecrypting ? (
+          {isActive ? (
             <>
               <span className="spinner" />
-              Decrypting UTXOs...
+              {STATUS_LABELS[engine.status]}
             </>
-          ) : isDecrypted ? (
+          ) : engine.status === "complete" ? (
             <>🔓 Viewing Key Applied</>
           ) : (
             <>🔑 Apply Viewing Key</>
@@ -254,12 +250,119 @@ export default function AuditGraph({ accessToken }: AuditGraphProps) {
           </span>
         )}
 
-        {isDecrypted && (
+        {engine.status === "complete" && engine.summary && (
           <span className="badge badge-green">
-            ✓ 5 transactions decrypted
+            ✓ {engine.summary.filteredCount} transactions decrypted
+          </span>
+        )}
+
+        {engine.error && (
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--accent-red)",
+            }}
+          >
+            {engine.error}
           </span>
         )}
       </div>
+
+      {/* ─── Progress / Scope Info ──────────────────────────── */}
+      {engine.progress && (
+        <div
+          style={{
+            marginTop: 10,
+            fontSize: 11,
+            color: "var(--text-muted)",
+            fontFamily: "var(--font-geist-mono), monospace",
+          }}
+        >
+          {engine.progress}
+        </div>
+      )}
+
+      {/* ─── Audit Scope Badge ─────────────────────────────── */}
+      {engine.scope && engine.status === "complete" && (
+        <div
+          className="glass-card"
+          style={{
+            marginTop: 16,
+            padding: "12px 16px",
+            display: "flex",
+            gap: 24,
+            flexWrap: "wrap",
+            alignItems: "center",
+            borderColor: "rgba(16, 185, 129, 0.15)",
+          }}
+        >
+          <div>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Audit Window
+            </span>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-geist-mono), monospace",
+              }}
+            >
+              {new Date(engine.scope.valid_from).toLocaleDateString()} —{" "}
+              {new Date(engine.scope.valid_until).toLocaleDateString()}
+            </div>
+          </div>
+
+          <div>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Allowed Tokens
+            </span>
+            <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
+              {engine.scope.allowed_tokens.map((t) => (
+                <span key={t} className="badge badge-indigo" style={{ fontSize: 10 }}>
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {engine.summary && (
+            <>
+              <div>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  Total Outflows
+                </span>
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "var(--accent-green)",
+                    fontFamily: "var(--font-geist-mono), monospace",
+                  }}
+                >
+                  ${(engine.summary.totalWithdrawals / 1e6).toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  Protocol Fees
+                </span>
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--text-secondary)",
+                    fontFamily: "var(--font-geist-mono), monospace",
+                  }}
+                >
+                  ${(engine.summary.totalFees / 1e6).toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

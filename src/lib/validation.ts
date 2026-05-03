@@ -132,3 +132,106 @@ export const decryptRequestSchema = z
   .strict();
 
 export type DecryptRequest = z.infer<typeof decryptRequestSchema>;
+
+// ═══════════════════════════════════════════════════════════════
+// PAYROLL CONFIRM Schema (client-side signing callback)
+// ═══════════════════════════════════════════════════════════════
+
+// ─── Confirm Payroll Request ───────────────────────────────────
+export const payrollConfirmSchema = z
+  .object({
+    /** The payroll run ID returned from the initial POST /api/payroll */
+    payroll_run_id: z.string().uuid("payroll_run_id must be a valid UUID"),
+
+    /** Transaction signatures from client-side signing (base58 strings) */
+    tx_signatures: z
+      .array(
+        z
+          .string()
+          .min(80, "Transaction signature too short")
+          .max(100, "Transaction signature too long")
+          .regex(
+            /^[1-9A-HJ-NP-Za-km-z]+$/,
+            "Transaction signature must be base58"
+          )
+      )
+      .min(1, "Must have at least one transaction signature")
+      .max(100, "Maximum 100 transaction signatures per batch"),
+
+    /** UTXO commitment hashes produced during client-side ZK proving */
+    commitment_hashes: z
+      .array(
+        z
+          .string()
+          .min(1, "Commitment hash cannot be empty")
+          .max(128, "Commitment hash too long")
+      )
+      .min(1, "Must have at least one commitment hash")
+      .max(50, "Maximum 50 commitment hashes per batch"),
+  })
+  .strict();
+
+export type PayrollConfirmRequest = z.infer<typeof payrollConfirmSchema>;
+
+// ═══════════════════════════════════════════════════════════════
+// TREASURY SWAP Schemas (Private SOL→USDC swap via Orca)
+// ═══════════════════════════════════════════════════════════════
+
+// ─── Swap Quote Request ────────────────────────────────────────
+export const swapQuoteRequestSchema = z
+  .object({
+    /** Organization ID (UUID) */
+    org_id: z.string().uuid("org_id must be a valid UUID"),
+
+    /** Amount of SOL to swap, in lamports (string to support large values) */
+    amount_lamports: z
+      .string()
+      .regex(/^\d+$/, "amount_lamports must be a non-negative integer string")
+      .refine((val) => BigInt(val) > 0n, "Amount must be greater than zero"),
+
+    /** Slippage tolerance in basis points (1 bps = 0.01%) */
+    slippage_bps: z
+      .number()
+      .int()
+      .min(1, "Slippage must be at least 1 bps")
+      .max(5000, "Slippage must not exceed 50%")
+      .optional()
+      .default(100), // default 1%
+
+    /** Wallet pubkey of the admin initiating the swap */
+    initiated_by: solanaPubkeySchema,
+  })
+  .strict();
+
+export type SwapQuoteRequest = z.infer<typeof swapQuoteRequestSchema>;
+
+// ─── Swap Confirm Request ──────────────────────────────────────
+export const swapConfirmSchema = z
+  .object({
+    /** The swap ID returned from the initial POST /api/treasury/swap-quote */
+    swap_id: z.string().uuid("swap_id must be a valid UUID"),
+
+    /** Transaction signature from client-side signing (base58) */
+    tx_signature: z
+      .string()
+      .min(80, "Transaction signature too short")
+      .max(100, "Transaction signature too long")
+      .regex(
+        /^[1-9A-HJ-NP-Za-km-z]+$/,
+        "Transaction signature must be base58"
+      ),
+
+    /** UTXO commitment hash from the swap change output */
+    commitment_hash: z
+      .string()
+      .min(1, "Commitment hash cannot be empty")
+      .max(128, "Commitment hash too long"),
+
+    /** Output amount received (in USDC base units) */
+    output_amount: z
+      .string()
+      .regex(/^\d+$/, "output_amount must be a non-negative integer string"),
+  })
+  .strict();
+
+export type SwapConfirmRequest = z.infer<typeof swapConfirmSchema>;

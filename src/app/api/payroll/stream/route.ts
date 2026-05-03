@@ -6,8 +6,10 @@
  * that only commitment hashes and tx signatures are visible — amounts and
  * recipient addresses are NEVER exposed.
  *
- * This endpoint simulates a realistic 5-recipient payroll batch execution,
- * streaming each step with appropriate delays to create the hacker-terminal effect.
+ * Updated for NON-CUSTODIAL architecture:
+ * - No "loading treasury keypair" step (server has no keys)
+ * - Shows "client wallet signing" and "ZK proof generation" steps
+ * - Demonstrates the coordinator → sign → confirm flow
  */
 export async function GET() {
   const encoder = new TextEncoder();
@@ -44,7 +46,7 @@ export async function GET() {
         // ─── Phase 1: Initialization ─────────────────────────
         send("\x1b[38;5;69m╔══════════════════════════════════════════════════════════╗\x1b[0m");
         await delay(100);
-        send("\x1b[38;5;69m║\x1b[0m  \x1b[1;38;5;141m⟐ AEGIS LEDGER\x1b[0m  \x1b[38;5;245m—  Private Payroll Engine v1.0\x1b[0m       \x1b[38;5;69m║\x1b[0m");
+        send("\x1b[38;5;69m║\x1b[0m  \x1b[1;38;5;141m⟐ AEGIS LEDGER\x1b[0m  \x1b[38;5;245m—  Non-Custodial Payroll v2.0\x1b[0m       \x1b[38;5;69m║\x1b[0m");
         await delay(100);
         send("\x1b[38;5;69m╚══════════════════════════════════════════════════════════╝\x1b[0m");
         await delay(400);
@@ -55,21 +57,29 @@ export async function GET() {
         send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ OK\x1b[0m    RPC connected — slot \x1b[38;5;214m#" + (330000000 + Math.floor(Math.random() * 999999)) + "\x1b[0m");
         await delay(300);
 
-        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mINIT\x1b[0m    Loading treasury keypair...");
+        // NON-CUSTODIAL: No keypair loading — wallet connects client-side
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mWALLET\x1b[0m  Detecting connected Solana wallet...");
         await delay(400);
-        const treasuryPubkey = genPubkey();
-        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ OK\x1b[0m    Treasury: \x1b[38;5;141m" + treasuryPubkey.substring(0, 8) + "..." + treasuryPubkey.substring(36) + "\x1b[0m");
+        const walletPubkey = genPubkey();
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ OK\x1b[0m    Wallet: \x1b[38;5;141m" + walletPubkey.substring(0, 8) + "..." + walletPubkey.substring(36) + "\x1b[0m \x1b[38;5;245m(Phantom)\x1b[0m");
+        await delay(300);
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;214mSEC\x1b[0m     \x1b[38;5;40m✓ Non-custodial mode\x1b[0m — server holds NO signing keys");
         await delay(300);
 
-        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mINIT\x1b[0m    Acquiring UTXO selection mutex...");
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mCOORD\x1b[0m   Fetching Merkle proofs from Cloak indexer...");
         await delay(500);
-        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ LOCK\x1b[0m  Mutex acquired — TTL 60s");
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ OK\x1b[0m    Merkle root: \x1b[38;5;45m" + genHash().substring(0, 16) + "...\x1b[0m  leaves: \x1b[38;5;214m" + (1200 + Math.floor(Math.random() * 800)) + "\x1b[0m");
+        await delay(300);
+
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mCOORD\x1b[0m   Selecting & locking UTXOs...");
+        await delay(400);
+        send("\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ LOCK\x1b[0m  " + (3 + Math.floor(Math.random() * 3)) + " UTXOs locked — Redis SET NX, TTL 60s");
         await delay(200);
 
-        // ─── Phase 2: Batch Payroll ─────────────────────────
+        // ─── Phase 2: Client-Side Signing ────────────────────
         send("");
         send("\x1b[38;5;69m────────────────────────────────────────────────────────────\x1b[0m");
-        send("\x1b[1;38;5;214m  PAYROLL BATCH — 5 RECIPIENTS │ TOKEN: USDC\x1b[0m");
+        send("\x1b[1;38;5;214m  PAYROLL BATCH — 5 RECIPIENTS │ TOKEN: USDC │ CLIENT-SIGNED\x1b[0m");
         send("\x1b[38;5;69m────────────────────────────────────────────────────────────\x1b[0m");
         await delay(600);
 
@@ -88,14 +98,24 @@ export async function GET() {
           await delay(300);
 
           send(
-            "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mCLOAK\x1b[0m  Generating UTXO keypair..."
+            "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mZK\x1b[0m      Generating client-side ZK proof..."
+          );
+          await delay(600);
+
+          send(
+            "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ ZK\x1b[0m    Proof generated — witness: \x1b[38;5;45m" + genHash().substring(0, 12) + "...\x1b[0m"
           );
           await delay(250);
 
           send(
-            "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mCLOAK\x1b[0m  Depositing into shielded pool..."
+            "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;214mSIGN\x1b[0m    Requesting wallet signature..."
           );
-          await delay(800);
+          await delay(500);
+
+          send(
+            "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;40m✓ SIG\x1b[0m   Wallet approved — broadcasting..."
+          );
+          await delay(300);
 
           const depositSig = genSig();
           send(
@@ -130,10 +150,15 @@ export async function GET() {
           await delay(300);
         }
 
-        // ─── Phase 3: Completion ─────────────────────────────
+        // ─── Phase 3: Confirmation ───────────────────────────
         send("");
         send("\x1b[38;5;69m────────────────────────────────────────────────────────────\x1b[0m");
         await delay(200);
+
+        send(
+          "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mCONFIRM\x1b[0m Calling /api/payroll/confirm with signatures..."
+        );
+        await delay(400);
 
         send(
           "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mDB\x1b[0m     Writing payroll_run → status: \x1b[38;5;40mcompleted\x1b[0m"
@@ -146,7 +171,7 @@ export async function GET() {
         await delay(200);
 
         send(
-          "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mDB\x1b[0m     Audit log: \x1b[38;5;214mpayroll_completed\x1b[0m"
+          "\x1b[38;5;245m[" + new Date().toISOString() + "]\x1b[0m \x1b[38;5;69mDB\x1b[0m     Audit log: \x1b[38;5;214mpayroll_completed\x1b[0m (signing_method: \x1b[38;5;40mclient_wallet\x1b[0m)"
         );
         await delay(200);
 
@@ -160,12 +185,14 @@ export async function GET() {
         send("\x1b[38;5;40m║\x1b[0m  \x1b[1;38;5;40m✓ PAYROLL COMPLETE\x1b[0m                                       \x1b[38;5;40m║\x1b[0m");
         send("\x1b[38;5;40m║\x1b[0m  \x1b[38;5;245m5/5 recipients paid │ 10 transactions broadcast\x1b[0m        \x1b[38;5;40m║\x1b[0m");
         send("\x1b[38;5;40m║\x1b[0m  \x1b[38;5;245mAmounts: HIDDEN │ Recipients: HIDDEN │ ZK: VERIFIED\x1b[0m    \x1b[38;5;40m║\x1b[0m");
+        send("\x1b[38;5;40m║\x1b[0m  \x1b[38;5;245mSigning: CLIENT WALLET │ Server Keys: NONE\x1b[0m             \x1b[38;5;40m║\x1b[0m");
         send("\x1b[38;5;40m╚══════════════════════════════════════════════════════════╝\x1b[0m");
         await delay(200);
 
         send("");
         send("\x1b[38;5;245m[INFO] Only commitment hashes and transaction signatures are visible.\x1b[0m");
         send("\x1b[38;5;245m[INFO] Amounts, recipients, and stealth addresses remain fully shielded.\x1b[0m");
+        send("\x1b[38;5;245m[INFO] Server NEVER held signing keys — all transactions were client-signed.\x1b[0m");
         send("\x1b[38;5;245m[INFO] To audit this payroll, a time-scoped viewing key is required.\x1b[0m");
 
         // End the stream

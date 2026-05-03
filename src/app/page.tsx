@@ -3,9 +3,13 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 
-// Dynamic import for xterm.js (no SSR — requires DOM)
+// Dynamic imports (no SSR — require DOM / wallet context)
 const PayrollTerminal = dynamic(
   () => import("@/components/PayrollTerminal"),
+  { ssr: false }
+);
+const WalletButton = dynamic(
+  () => import("@/components/WalletButton"),
   { ssr: false }
 );
 
@@ -21,6 +25,13 @@ export default function DashboardPage() {
           </div>
           <div className="nav-links">
             <span className="badge badge-green">● Mainnet</span>
+            <WalletButton />
+            <Link href="/swap" className="btn-ghost">
+              🔄 Private Swap
+            </Link>
+            <Link href="/verify" className="btn-ghost">
+              📄 Verify Payslip
+            </Link>
             <Link href="/audit" className="btn-ghost">
               🔑 Audit Portal
             </Link>
@@ -56,11 +67,12 @@ export default function DashboardPage() {
           <div className="glass-card animate-fade-in animate-fade-in-delay-1" style={{ padding: 24 }}>
             <div style={{ fontSize: 28, marginBottom: 12 }}>🔐</div>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
-              Shielded Transfers
+              Non-Custodial Shielded Transfers
             </h3>
             <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-              Every payment passes through Cloak&apos;s ZK shielded pool. Amounts and
-              destinations are hidden on-chain — only UTXO commitment hashes are public.
+              The server never holds signing keys. Every payment is signed
+              client-side through your connected wallet, then routed through
+              Cloak&apos;s ZK shielded pool. Only UTXO commitment hashes are public.
             </p>
           </div>
 
