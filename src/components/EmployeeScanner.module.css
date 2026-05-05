@@ -1,0 +1,275 @@
+/* EmployeeScanner.module.css */
+
+.page {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 36px 32px;
+  background: #f4f5f7;
+  min-height: 100vh;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #8e98a6;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.h1 {
+  font-family: var(--serif);
+  font-size: 38px;
+  font-weight: 400;
+  letter-spacing: -1.5px;
+  color: #08090b;
+  line-height: 1.05;
+  margin-bottom: 36px;
+}
+.h1 em {
+  font-style: italic;
+  color: #64707f;
+  font-weight: 400;
+}
+
+/* ─── White cards ─── */
+.card {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 24px 28px;
+  border: 1px solid #e8ebee;
+  transition: opacity 0.3s;
+}
+.cardDisabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Wallet */
+.walletRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.fieldEyebrow {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: #8e98a6;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: block;
+  margin-bottom: 4px;
+}
+.walletAddr {
+  font-size: 15px;
+  font-weight: 600;
+  color: #08090b;
+}
+.walletBtn {
+  padding: 9px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.walletBtnDisconnected {
+  background: #08090b;
+  color: #ffffff;
+  border: 1.5px solid #08090b;
+}
+.walletBtnDisconnected:hover {
+  opacity: 0.85;
+}
+.walletBtnConnected {
+  background: #f4f5f7;
+  color: #3c4455;
+  border: 1.5px solid #e8ebee;
+}
+.walletBtnConnected:hover {
+  border-color: #bdc4ce;
+}
+.connectedBanner {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(0, 184, 122, 0.07);
+  border-radius: 7px;
+  border: 1px solid rgba(0, 184, 122, 0.18);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.connectedDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00b87a;
+  display: inline-block;
+}
+
+/* Key input */
+.keyRow {
+  display: flex;
+  gap: 10px;
+}
+.keyInput {
+  flex: 1;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #f4f5f7;
+  border: 1.5px solid #e8ebee;
+  font-size: 13px;
+  color: #08090b;
+  transition: all 0.15s;
+  font-family: var(--mono);
+}
+.keyInput:focus {
+  outline: none;
+  border-color: #0066ff;
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.07);
+}
+.scanBtn {
+  padding: 11px 22px;
+  border-radius: 10px;
+  background: #08090b;
+  color: #ffffff;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.scanBtn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.scanBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Merkle scan terminal (dark #08090b) ─── */
+.terminal {
+  background: #08090b;
+  border-radius: 18px;
+  overflow: hidden;
+}
+.termHeader {
+  padding: 12px 18px;
+  border-bottom: 1px solid #1e2229;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.termDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.termLabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.termBody {
+  padding: 14px 18px;
+  height: 200px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 2;
+}
+
+/* Notes result */
+.notesHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.notesDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00b87a;
+  display: inline-block;
+}
+
+/* ─── Payslip cards (white with 4px green left border) ─── */
+.payslipCard {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 22px 26px;
+  border: 1px solid #e8ebee;
+  position: relative;
+  overflow: hidden;
+}
+.payslipAccent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: #00b87a;
+}
+.payslipTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding-left: 14px;
+}
+.payslipAmount {
+  font-family: var(--serif);
+  font-size: 28px;
+  letter-spacing: -1px;
+  color: #08090b;
+}
+.payslipGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e8ebee;
+  padding-left: 14px;
+}
+.payslipFieldLabel {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: #8e98a6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Coming soon */
+.comingSoonWrap {
+  margin-top: 8px;
+}
+.comingSoonBtn {
+  width: 100%;
+  padding: 13px;
+  border-radius: 14px;
+  background: #f4f5f7;
+  color: #bdc4ce;
+  border: 1.5px dashed #e8ebee;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: not-allowed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.comingSoonDesc {
+  font-size: 11.5px;
+  color: #8e98a6;
+  line-height: 1.6;
+  margin-top: 8px;
+  padding: 0 4px;
+}

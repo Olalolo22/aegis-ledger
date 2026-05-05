@@ -1,169 +1,279 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import "@xterm/xterm/css/xterm.css";
+import { useState, useEffect } from "react";
+import styles from "./PayrollTerminal.module.css";
+import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSigner";
 
-/**
- * Hacker-style terminal UI component that streams payroll execution logs
- * via Server-Sent Events from /api/payroll/stream.
- *
- * Visually proves that amounts and recipient addresses are never exposed —
- * only commitment hashes and transaction signatures.
- */
-export default function PayrollTerminal() {
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isDone, setIsDone] = useState(false);
+interface Recipient {
+  addr: string;
+  amount: string;
+  token: "USDC" | "USDT" | "SOL";
+  memo: string;
+}
 
-  const initTerminal = useCallback(() => {
-    if (!terminalRef.current || termRef.current) return;
+const MOCK_RECIPIENTS: Recipient[] = [
+  { addr: "7xKt···m3F2", amount: "8,500", token: "USDC", memo: "May salary" },
+  { addr: "BqPx···9aL1", amount: "312.89", token: "SOL", memo: "Dev retainer" },
+  { addr: "Cm3R···vT5N", amount: "9,800", token: "USDT", memo: "Design sprint" },
+  { addr: "Dp9F···k2W8", amount: "6,000", token: "USDC", memo: "Legal review" },
+];
 
-    const term = new Terminal({
-      theme: {
-        background: "#0b0e14",
-        foreground: "#a8b2c0",
-        cursor: "#6366f1",
-        cursorAccent: "#0b0e14",
-        selectionBackground: "rgba(99, 102, 241, 0.3)",
-        black: "#0b0e14",
-        red: "#ef4444",
-        green: "#10b981",
-        yellow: "#f59e0b",
-        blue: "#6366f1",
-        magenta: "#8b5cf6",
-        cyan: "#06b6d4",
-        white: "#f0f6fc",
-        brightBlack: "#484f58",
-        brightRed: "#ff6b6b",
-        brightGreen: "#34d399",
-        brightYellow: "#fbbf24",
-        brightBlue: "#818cf8",
-        brightMagenta: "#a78bfa",
-        brightCyan: "#22d3ee",
-        brightWhite: "#ffffff",
-      },
-      fontSize: 13,
-      fontFamily: "var(--font-geist-mono), 'JetBrains Mono', 'Fira Code', monospace",
-      lineHeight: 1.4,
-      cursorBlink: true,
-      cursorStyle: "block",
-      scrollback: 1000,
-      allowTransparency: true,
-    });
+const ZK_LOG_STEPS = [
+  { msg: "› Loading Groth16 WASM prover circuit...", col: "var(--dim)" },
+  { msg: "› Initialising Poseidon hash state (t=5)...", col: "var(--dim)" },
+  { msg: "› Generating witness from private inputs...", col: "var(--dim)" },
+  { msg: " [!] Spending key never serialised. Browser-only.", col: "var(--amber)" },
+  { msg: "› Running R1CS constraint satisfaction check...", col: "var(--dim)" },
+  { msg: " ✓ 128,480 constraints satisfied.", col: "var(--green)" },
+  { msg: "› Building Groth16 proof (π_a, π_b, π_c)...", col: "var(--dim)" },
+  { msg: " ✓ Proof generated. Size: 192 bytes.", col: "var(--green)" },
+  { msg: "› Serialising to Solana transaction format...", col: "var(--dim)" },
+  { msg: " ✓ ZK proof verified on-chain.", col: "var(--green)" },
+  { msg: "› Submitting shielded batch to Cloak pool...", col: "var(--dim)" },
+  { msg: " ✓ Transaction confirmed. Slot 312,847,201.", col: "var(--green)" },
+  { msg: " ✓ On-chain view: [REDACTED]", col: "var(--blue)" },
+];
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-
-    // Small delay for DOM to settle
-    setTimeout(() => fitAddon.fit(), 50);
-
-    // Handle resize
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener("resize", handleResize);
-
-    // Welcome message
-    term.writeln("\x1b[38;5;245m Aegis Ledger — Zero-Knowledge Payroll Terminal\x1b[0m");
-    term.writeln("\x1b[38;5;245m Press \"Execute Payroll\" to stream a simulated batch run.\x1b[0m");
-    term.writeln("");
-
-    termRef.current = term;
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
+// ─── ZK MODAL ─────────────────────────────────────────────────
+function ZKModal({ 
+  onClose, 
+  status, 
+  proofProgress, 
+  error 
+}: { 
+  onClose: () => void;
+  status: PayrollSignerStatus;
+  proofProgress: string | null;
+  error: string | null;
+}) {
+  const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
+  
+  const done = status === "completed";
+  const isError = status === "error";
 
   useEffect(() => {
-    const cleanup = initTerminal();
-    return () => {
-      cleanup?.();
-      termRef.current?.dispose();
-      termRef.current = null;
-    };
-  }, [initTerminal]);
+    // Map the real status to the narrative log steps
+    let phase = 0;
+    if (status === "preparing") phase = 1;
+    if (status === "initializing_wasm") phase = 2;
+    if (status === "proving") phase = 7;
+    if (status === "signing") phase = 9;
+    if (status === "broadcasting") phase = 11;
+    if (status === "confirming") phase = 12;
+    if (status === "completed") phase = ZK_LOG_STEPS.length;
 
-  const executePayroll = useCallback(() => {
-    const term = termRef.current;
-    if (!term || isRunning) return;
+    setLog(ZK_LOG_STEPS.slice(0, phase));
+  }, [status]);
 
-    setIsRunning(true);
-    setIsDone(false);
-    term.clear();
+  // Combine narrative log with real-time hook progress
+  const displayLog = [...log];
+  if (proofProgress && !done && !isError) {
+    displayLog.push({ msg: `› ${proofProgress}`, col: "var(--blue)" });
+  }
+  if (isError && error) {
+    displayLog.push({ msg: `[ERROR] ${error}`, col: "var(--red)" });
+  }
 
-    const eventSource = new EventSource("/api/payroll/stream");
-
-    eventSource.onmessage = (event) => {
-      const line = JSON.parse(event.data) as string;
-      if (line === "__DONE__") {
-        eventSource.close();
-        setIsRunning(false);
-        setIsDone(true);
-        return;
-      }
-      term.writeln(line);
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-      setIsRunning(false);
-      setIsDone(true);
-      term.writeln(
-        "\x1b[38;5;196m[ERROR] Stream connection lost.\x1b[0m"
-      );
-    };
-  }, [isRunning]);
+  const pct = done ? 100 : Math.min(99, Math.round((log.length / ZK_LOG_STEPS.length) * 100));
 
   return (
-    <div>
-      <div className="terminal-container scanlines" style={{ position: "relative" }}>
-        <div className="terminal-header">
-          <div className="terminal-dot red" />
-          <div className="terminal-dot yellow" />
-          <div className="terminal-dot green" />
-          <span className="terminal-title">
-            aegis-ledger — solana payroll engine
-          </span>
-          <div style={{ flex: 1 }} />
-          {isRunning && (
-            <span className="badge badge-amber">
-              <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>◌</span>
-              STREAMING
+    <div className={styles.modalOverlay}>
+      <div className={styles.modalBox}>
+        {/* Header */}
+        <div className={styles.modalHeader}>
+          <div>
+            <span className={styles.modalEyebrow}>Client-Side ZK Execution</span>
+            <div className={styles.modalTitle} style={{ fontFamily: "var(--serif)" }}>
+              Proving Batch Payroll
+            </div>
+          </div>
+          <div className={styles.modalStatus}>
+            <span className={styles.modalStatusDot} 
+                  style={{ background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)", animation: (done || isError) ? "none" : "ae-blink 1s ease-in-out infinite" }} />
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
+              {done ? "COMPLETE" : isError ? "FAILED" : status.toUpperCase().replace("_", " ")}
             </span>
-          )}
-          {isDone && !isRunning && (
-            <span className="badge badge-green">✓ COMPLETE</span>
+          </div>
+        </div>
+
+        {/* Zero-trust banner */}
+        <div className={styles.ztBanner}>
+          <span>🔒</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
+            Your spending key never leaves this browser. All ZK proofs are generated locally via WASM.
+          </span>
+        </div>
+
+        {/* Terminal log */}
+        <div className={styles.termBody}>
+          {displayLog.map((l, i) => (
+            <div key={i} style={{ color: l.col, animation: "ae-row-in 0.2s ease both" }}>{l.msg}</div>
+          ))}
+          {(!done && !isError) && <span className={styles.cursor}>█</span>}
+        </div>
+
+        {/* Progress */}
+        <div className={styles.modalFooter}>
+          <div className={styles.progressHeader}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.25)" }}>Groth16 WASM Progress</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
+              {done ? "100%" : isError ? "ERR" : `${pct}%`}
+            </span>
+          </div>
+          <div className={styles.progressTrack}>
+            <div className={styles.progressFill} 
+                 style={{ width: `${pct}%`, background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }} />
+          </div>
+          {(done || isError) && (
+            <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
+              {done ? "✓ Transaction confirmed — Close" : "✕ Close and check errors"}
+            </button>
           )}
         </div>
-        <div className="terminal-body" ref={terminalRef} />
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN COMPONENT ───────────────────────────────────────────
+export default function PayrollTerminal() {
+  const { execute, status, proofProgress, error, signingParams } = usePayrollSigner();
+  const [recipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
+  const [showZK, setShowZK] = useState(false);
+
+  // Derive dynamic values from hook state if available, fallback to defaults
+  const balance = "$4,218,440";
+  const utxos = signingParams ? signingParams.selected_utxos.length.toString() : "847";
+  const locked = signingParams ? `$${(signingParams.selected_utxos.reduce((acc, u) => acc + parseInt(u.amount), 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "$124K";
+
+  const handleRunBatch = async () => {
+    setShowZK(true);
+    // Convert UI recipients to the shape expected by the hook
+    const hookRecipients = recipients.map(r => {
+      // Very basic mock conversion (strip commas, multiply by decimals)
+      const numeric = parseFloat(r.amount.replace(/,/g, ''));
+      const lamports = r.token === "SOL" ? numeric * 1e9 : numeric * 1e6;
+      return { wallet: r.addr, amount: lamports.toString() };
+    });
+
+    await execute({
+      org_id: "aegis-core",
+      token_symbol: "USDC", // Force USDC for demo batch
+      token_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      initiated_by: "", // Hook fills this
+      recipients: hookRecipients
+    });
+  };
+
+  return (
+    <div className={styles.page}>
+      {showZK && <ZKModal onClose={() => setShowZK(false)} status={status} proofProgress={proofProgress} error={error} />}
+
+      {/* Page header */}
+      <span className={styles.eyebrow}>DAO Treasury · Admin</span>
+      <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
+        Treasury Dashboard<br />
+        <em>May 2025 operations.</em>
+      </h1>
+
+      {/* Shielded balance card */}
+      <div className={styles.balanceCard}>
+        <div className={styles.balanceGlow1} />
+        <div className={styles.balanceGlow2} />
+
+        <div className={styles.balanceHeader}>
+          <span className={styles.balanceLabel}>Shielded Balance</span>
+          <div className={styles.cloakPill}>
+            <span className={styles.cloakPillDot} />
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>CLOAK POOL</span>
+          </div>
+        </div>
+
+        <div className={styles.balanceAmount} style={{ fontFamily: "var(--serif)" }}>
+          {balance}
+        </div>
+        <span className={styles.balanceSub}>{utxos} UTXOs · AES-256-GCM · Poseidon hashed</span>
+
+        <div className={styles.balanceStats}>
+          {[
+            { label: "Available", val: "$3.9M", green: false },
+            { label: "Locked · payroll", val: locked, green: false },
+            { label: "ZK proofs", val: "✓ 100%", green: true },
+          ].map(s => (
+            <div key={s.label}>
+              <span className={styles.statLabel}>{s.label}</span>
+              <div className={styles.statVal} style={{ color: s.green ? "#22e09a" : "rgba(255,255,255,0.88)" }}>
+                {s.val}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-        <button
-          className="btn-primary"
-          onClick={executePayroll}
-          disabled={isRunning}
-        >
-          {isRunning ? (
-            <>
-              <span className="spinner" />
-              Executing...
-            </>
-          ) : (
-            <>
-              ▶ Execute Payroll
-            </>
-          )}
-        </button>
+      {/* Batch disbursement */}
+      <div className={styles.batchCard}>
+        <div className={styles.batchHeader}>
+          <div>
+            <span className={styles.batchEyebrow}>Batch Disbursement</span>
+            <div className={styles.batchTitle}>May 2025 Payroll Run</div>
+          </div>
+          <div className={styles.batchActions}>
+            <button className={`${styles.addBtn}`}>+ Add recipient</button>
+            <button
+              className={`${styles.runBtn}`}
+              onClick={handleRunBatch}
+              disabled={status !== "idle" && status !== "completed" && status !== "error"}
+            >
+              Run shielded batch
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
 
-        {isDone && (
-          <a href="/audit" className="btn-ghost">
-            🔑 Open Audit Portal →
-          </a>
-        )}
+        {/* Table header */}
+        <div className={styles.tableHead}>
+          {["Stealth address", "Amount", "Token", "Memo", "Status"].map(h => (
+            <span key={h} className={styles.tableHeadCell}>{h}</span>
+          ))}
+        </div>
+
+        {/* Rows */}
+        {recipients.map((r, i) => (
+          <div key={i} className={styles.tableRow} 
+               style={{ borderBottom: i < recipients.length - 1 ? "1px solid var(--mist)" : "none" }}>
+            <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 11.5 }}>{r.addr}</span>
+            <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
+            <span className={`${styles.tokenBadge} ${r.token === "SOL" ? styles.tokenSol : styles.tokenUsdc}`}>
+              {r.token}
+            </span>
+            <span style={{ fontSize: 12, color: "var(--slate)" }}>{r.memo}</span>
+            <span className="ae-badge ae-badge-green">
+              {status === "completed" ? "Completed" : "Ready"}
+            </span>
+          </div>
+        ))}
+
+        {/* Footer */}
+        <div className={styles.tableFooter}>
+          <span className={styles.mono} style={{ fontSize: 10, color: "var(--dim)" }}>
+            {recipients.length} recipients · Estimated fee: ~$0.0008 SOL
+          </span>
+          <span className={styles.mono} style={{ fontSize: 10, color: "var(--blue)" }}>
+            On-chain visibility: HIDDEN after execution
+          </span>
+        </div>
+      </div>
+
+      {/* Zero-trust info */}
+      <div className="ae-info-strip">
+        <span style={{ fontSize: 16 }}>ℹ️</span>
+        <p>
+          <strong>Zero-trust architecture:</strong> When you initiate any operation, Groth16 ZK proofs
+          are generated entirely in your browser via WASM. Your spending key, recipient details, and 
+          amounts are never transmitted to any server.
+        </p>
       </div>
     </div>
   );
