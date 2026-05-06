@@ -4,18 +4,122 @@ import { useState, useCallback, useEffect } from "react";
 import ReactFlow, {
   Background,
   Controls,
-  MiniMap,
   Node,
   Edge,
   ConnectionMode,
   BackgroundVariant,
+  Handle,
+  Position,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import styles from "./AuditGraph.module.css";
 import { useAuditorEngine } from "@/hooks/useAuditorEngine";
 
+/* ── Custom ReactFlow Node Components ── */
+const glassStyle = {
+  background: 'rgba(15, 16, 28, 0.75)',
+  border: '1px solid rgba(255,255,255,0.06)',
+  borderRadius: 12,
+  padding: '14px 18px',
+  backdropFilter: 'blur(12px)',
+  minWidth: 160,
+  textAlign: 'center' as const,
+};
+
+function CustomTreasuryNode({ data }: { data: any }) {
+  return (
+    <div style={{ ...glassStyle, border: '1px solid rgba(0,184,122,0.25)', minWidth: 200 }}>
+      <Handle type="source" position={Position.Bottom} style={{ background: '#00b87a', width: 8, height: 8 }} />
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: '#00b87a', marginBottom: 4 }}>
+        {data.label}
+      </div>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--dim)' }}>
+        {data.sublabel}
+      </div>
+    </div>
+  );
+}
+
+function CustomEncryptedNode({ data }: { data: any }) {
+  return (
+    <div style={{ ...glassStyle, border: '1px solid rgba(255,255,255,0.04)' }}>
+      <Handle type="target" position={Position.Top} style={{ background: 'rgba(0,184,122,0.3)', width: 6, height: 6 }} />
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ghost)', marginBottom: 2 }}>
+        {data.label}
+      </div>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ghost)', opacity: 0.5 }}>
+        {data.amount}
+      </div>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ghost)', opacity: 0.4, marginTop: 2 }}>
+        {data.detail}
+      </div>
+    </div>
+  );
+}
+
+function CustomDecryptedNode({ data }: { data: any }) {
+  const accentColor = data.txType === 'swap' ? '#d97c0a' : '#00b87a';
+  return (
+    <div style={{ ...glassStyle, border: `1px solid ${accentColor}33` }}>
+      <Handle type="target" position={Position.Top} style={{ background: accentColor, width: 6, height: 6 }} />
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
+        {data.realLabel || data.label}
+      </div>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: accentColor, fontWeight: 500 }}>
+        {data.realAmount || data.amount}
+      </div>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--mid)', marginTop: 2 }}>
+        {data.realDetail || data.detail}
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = {
+  treasury: CustomTreasuryNode,
+  encrypted: CustomEncryptedNode,
+  decrypted: CustomDecryptedNode,
+};
+
 function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
   const [key, setKey] = useState("");
+  const [ttl, setTtl] = useState("--:--");
+
+  useEffect(() => {
+    if (!key) {
+      setTtl("--:--");
+      return;
+    }
+    try {
+      if (key === "demo-token") {
+        setTtl("15m 00s remaining");
+        return;
+      }
+      const parts = key.split(".");
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1]));
+        if (payload.valid_until) {
+          const ms = new Date(payload.valid_until).getTime() - Date.now();
+          if (ms <= 0) {
+            setTtl("Expired");
+          } else {
+            const hours = Math.floor(ms / 3600000);
+            const mins = Math.floor((ms % 3600000) / 60000);
+            const secs = Math.floor((ms % 60000) / 1000);
+            if (hours > 0) {
+              setTtl(`${hours}h ${mins}m remaining`);
+            } else {
+              setTtl(`${mins}m ${secs}s remaining`);
+            }
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    setTtl("Invalid format");
+  }, [key]);
 
   return (
     <div className={styles.loginWrap}>
@@ -39,7 +143,7 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
           <div className={styles.keyMeta}>
             {[
               { label: "Scope", val: "Q3 2025 · read-only", col: "var(--ink)" },
-              { label: "TTL", val: "14:32 remaining", col: "var(--amber)" },
+              { label: "TTL", val: ttl, col: "var(--amber)" },
               { label: "Session", val: "Redis-backed · auto-revoke", col: "var(--dim)" },
             ].map(r => (
               <div key={r.label} className={styles.keyMetaRow}>
@@ -102,9 +206,14 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
         clearInterval(interval); 
         return; 
       }
-      const mins = Math.floor(ms / 60000);
+      const hours = Math.floor(ms / 3600000);
+      const mins = Math.floor((ms % 3600000) / 60000);
       const secs = Math.floor((ms % 60000) / 1000);
-      setTtl(`${mins}:${secs.toString().padStart(2, '0')}`);
+      if (hours > 0) {
+        setTtl(`${hours}h ${mins}m`);
+      } else {
+        setTtl(`${mins}m ${secs}s`);
+      }
     }, 1000);
     return () => clearInterval(interval);
   }, [scope?.valid_until]);
@@ -112,15 +221,23 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   if (!authed) return <AuditorLogin onAuth={handleAuth} />;
 
   const isDone = status === "complete";
-  const quarters = ["Q1 2025", "Q2 2025", "Q3 2025", "Q4 2025"];
+  const quarters = ["Q1 2026", "Q2 2026", "Q3 2026", "Q4 2026"];
   const currentQ = quarters[Math.floor((timeline / 100) * (quarters.length - 1))];
+
+  const getSelectedDateStr = () => {
+    if (!scope?.valid_from || !scope?.valid_until) return "Loading...";
+    const start = new Date(scope.valid_from).getTime();
+    const end = new Date(scope.valid_until).getTime();
+    const selectedMs = start + ((end - start) * (timeline / 100));
+    return new Date(selectedMs).toLocaleDateString();
+  };
 
   // Map real transactions to UI shape
   const realTxs = transactions.map(tx => ({
     date: new Date(tx.timestamp).toISOString().split('T')[0],
     from: "DaoTreasury.sol",
-    to: tx.recipient ? `${tx.recipient.slice(0, 6)}...${tx.recipient.slice(-4)}` : "Unknown",
-    amount: `$${(Math.abs(tx.netAmount) / Math.pow(10, tx.decimals || 6)).toLocaleString()}`,
+    to: tx.recipient ? `${tx.recipient.slice(0, 4)}···${tx.recipient.slice(-4)}` : "Unknown",
+    amount: `$${(Math.abs(tx.netAmount) / Math.pow(10, tx.decimals || 6)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 9 })}`,
     type: tx.txType === "withdrawal" ? "Payroll" : "Transfer"
   }));
 
@@ -132,8 +249,50 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
     type: "0x01",
   }));
 
+  const displayNodes = rfNodes.map(n => {
+    if (n.id === "treasury") {
+      return {
+        ...n,
+        type: "treasury",
+        data: {
+          ...n.data,
+          label: decrypted ? "DAO Treasury" : "0xc8d2···3f9a",
+          sublabel: decrypted ? "Aegis Ledger — Verified" : "Shielded Pool — Cloak Protocol",
+        }
+      }
+    }
+
+    const isEmp = n.data?.label?.includes("Employee");
+    return {
+      ...n,
+      type: decrypted ? "decrypted" : "encrypted",
+      data: {
+        ...n.data,
+        label: decrypted 
+          ? (isEmp ? n.data.label.replace("Employee", "Payroll Batch") : n.data.label)
+          : `Commitment[0${(n.id.match(/\d+/) || ["83"])[0]}]`,
+        amount: decrypted ? n.data.amount : "HIDDEN",
+        detail: decrypted ? n.data.detail : "0xc8d2···3f9a",
+        txType: n.id.includes("deposit") ? "swap" : "withdrawal",
+      }
+    }
+  });
+
+  const displayEdges = rfEdges.map((e, index) => ({
+    ...e,
+    animated: true,
+    style: {
+      stroke: decrypted 
+        ? (e.id.includes("deposit") ? "#d97c0a" : "#00b87a")
+        : "rgba(0,184,122,0.3)",
+      strokeWidth: 2,
+      strokeDasharray: decrypted ? "none" : "5 5",
+    },
+    label: decrypted ? e.label : "HIDDEN",
+  }));
+
   const displayTxs = decrypted ? realTxs : CIPHERTEXT_TXS;
-  const showFlow = decrypted && isDone;
+  const showFlow = isDone;
 
   return (
     <div className={styles.page}>
@@ -153,9 +312,6 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
               Authenticated · {ttl} TTL
             </span>
           </div>
-          <button className={styles.revokeBtn} onClick={handleRevoke}>
-            Revoke session →
-          </button>
         </div>
       </div>
 
@@ -167,7 +323,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             <div className={styles.timelineTitle}>
               Valid period: {scope ? "Authorized Scope" : "Loading..."}
               <span className={styles.timelineSub}>
-                {scope ? ` · ${new Date(scope.valid_from).toLocaleDateString()} – ${new Date(scope.valid_until).toLocaleDateString()}` : ""}
+                {scope ? ` · ${new Date(scope.valid_from).toLocaleDateString()} – ${getSelectedDateStr()}` : ""}
               </span>
             </div>
           </div>
@@ -204,21 +360,28 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           </div>
           <div className={styles.flowCanvas}>
             {showFlow ? (
-              <ReactFlow
-                nodes={rfNodes}
-                edges={rfEdges}
-                connectionMode={ConnectionMode.Loose}
-                fitView
-                fitViewOptions={{ padding: 0.2 }}
-                nodesDraggable={true}
-                nodesConnectable={false}
-                elementsSelectable={true}
-                proOptions={{ hideAttribution: true }}
-              >
-                <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--mist)" />
-                <Controls showInteractive={false} />
-                <MiniMap nodeStrokeWidth={3} pannable zoomable />
-              </ReactFlow>
+              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                {!decrypted && (
+                  <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+                    <span className="ae-badge ae-badge-ghost">🔒 Encrypted Graph</span>
+                  </div>
+                )}
+                <ReactFlow
+                  nodes={displayNodes}
+                  edges={displayEdges}
+                  nodeTypes={nodeTypes}
+                  connectionMode={ConnectionMode.Loose}
+                  fitView
+                  fitViewOptions={{ padding: 0.2 }}
+                  nodesDraggable={true}
+                  nodesConnectable={false}
+                  elementsSelectable={true}
+                  proOptions={{ hideAttribution: true }}
+                >
+                  <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--mist)" />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              </div>
             ) : (
               <div className={styles.flowLocked}>
                 <div className={styles.flowLockedInner}>
@@ -302,7 +465,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             style={{ borderBottom: i < displayTxs.length - 1 ? "1px solid var(--mist)" : "none" }}>
             <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: decrypted ? "var(--slate)" : "var(--ghost)" }}>{row.date}</span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: decrypted ? "var(--mid)" : "var(--ghost)" }}>{row.from}</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: decrypted ? "var(--mid)" : "var(--ghost)" }}>{row.to}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: decrypted ? "var(--mid)" : "var(--ghost)" }}>{row.to}</span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, fontWeight: 500, color: decrypted ? "var(--ink)" : "var(--ghost)" }}>{row.amount}</span>
             <span className={`ae-badge ${
               !decrypted ? "ae-badge-ghost" : 

@@ -171,7 +171,7 @@ function buildReactFlowData(transactions: DecryptedTransaction[]): {
   nodes.push({
     id: "treasury",
     type: "treasury",
-    position: { x: 400, y: 0 },
+    position: { x: 400, y: 120 },
     data: {
       label: "AEGIS TREASURY",
       sublabel: "Shielded Pool — Cloak Protocol",
@@ -221,20 +221,24 @@ function buildReactFlowData(transactions: DecryptedTransaction[]): {
       ? startAngle + (index / (totalRecipients - 1)) * angleRange
       : Math.PI / 2; // center if only 1 recipient
 
-    const radius = 280;
+    const radius = 420;
     const x = 400 + Math.cos(angle) * radius * 1.8 - 80;
-    const y = 220 + Math.sin(angle) * radius * 0.8;
+    const y = 440 + Math.sin(angle) * radius * 0.8;
 
     nodes.push({
       id: nodeId,
       type: "decrypted",
       position: { x, y },
       data: {
-        label: data.txCount > 1
-          ? `Employee (${data.txCount} payments)`
-          : "Employee / Stealth Address",
-        amount: formatAmount(data.totalAmount, data.symbol),
-        detail: `→ ${truncateAddress(address)}`,
+        txType: "withdrawal",
+        cipherLabel: `Commitment[${(address || "00000000").slice(0, 8)}]`,
+        cipherAmount: "HIDDEN",
+        cipherDetail: "0xc8d2···3f9a",
+        realLabel: data.txCount > 1
+          ? `Payroll Batch (${data.txCount}x)`
+          : `Recipient (${truncateAddress(address)})`,
+        realAmount: formatAmount(data.totalAmount, data.symbol),
+        realDetail: `→ ${truncateAddress(address)}`,
       },
       draggable: true,
     });
@@ -245,6 +249,7 @@ function buildReactFlowData(transactions: DecryptedTransaction[]): {
       source: "treasury",
       target: nodeId,
       animated: true,
+      data: { realLabel: formatAmount(data.totalAmount, data.symbol) },
       label: formatAmount(data.totalAmount, data.symbol),
       labelStyle: {
         fontSize: 11,
@@ -277,7 +282,7 @@ function buildReactFlowData(transactions: DecryptedTransaction[]): {
       nodes.push({
         id: "deposits-summary",
         type: "decrypted",
-        position: { x: 350, y: 250 },
+        position: { x: 350, y: 380 },
         data: {
           label: `${depositTxs.length} Deposits Found`,
           amount: formatAmount(
@@ -428,7 +433,7 @@ export function useAuditorEngine(): AuditorEngineResult {
           auditScope = {
             org_id: "demo",
             valid_from: new Date(Date.now() - 30 * 86_400_000).toISOString(),
-            valid_until: new Date(Date.now() + 86_400_000).toISOString(),
+            valid_until: new Date(Date.now() + 15 * 60_000).toISOString(),
             allowed_tokens: ["USDC", "SOL"],
           };
         } else {

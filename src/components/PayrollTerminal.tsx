@@ -174,7 +174,7 @@ export default function PayrollTerminal() {
       <span className={styles.eyebrow}>DAO Treasury · Admin</span>
       <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
         Treasury Dashboard<br />
-        <em>May 2025 operations.</em>
+        <em>May 2026 operations.</em>
       </h1>
 
       <div className={styles.topGrid}>
@@ -221,7 +221,7 @@ export default function PayrollTerminal() {
         <div className={styles.batchHeader}>
           <div>
             <span className={styles.batchEyebrow}>Batch Disbursement</span>
-            <div className={styles.batchTitle}>May 2025 Payroll Run</div>
+            <div className={styles.batchTitle}>May 2026 Payroll Run</div>
           </div>
           <div className={styles.batchActions}>
             <button className={`${styles.addBtn}`}>+ Add recipient</button>

@@ -2,11 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import styles from "./EmployeeScanner.module.css";
 import { useNoteScanner } from "@/hooks/useNoteScanner";
 
 export default function EmployeeScanner() {
-  const { connected, publicKey, select, disconnect, wallets } = useWallet();
+  const { connected, publicKey, disconnect } = useWallet();
+  const { setVisible } = useWalletModal();
   const { scan, status, progress, payslips, error } = useNoteScanner();
   
   const [viewingKey, setViewingKey] = useState("");
@@ -20,8 +22,7 @@ export default function EmployeeScanner() {
     if (connected) {
       await disconnect();
     } else {
-      const phantom = wallets.find(w => w.adapter.name === 'Phantom');
-      if (phantom) select(phantom.adapter.name);
+      setVisible(true);
     }
   };
 
@@ -81,7 +82,7 @@ export default function EmployeeScanner() {
             className={`${styles.walletBtn} ${connected ? styles.walletBtnConnected : styles.walletBtnDisconnected}`}
             onClick={handleWalletToggle}
           >
-            {connected ? "Disconnect" : "Connect Phantom"}
+            {connected ? "Disconnect" : "Connect Wallet"}
           </button>
         </div>
         {connected && (
