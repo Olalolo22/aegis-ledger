@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import styles from "./PayrollTerminal.module.css";
 import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSigner";
+import PrivateSwapPanel from "./PrivateSwapPanel";
 
 interface Recipient {
   addr: string;
@@ -176,38 +177,43 @@ export default function PayrollTerminal() {
         <em>May 2025 operations.</em>
       </h1>
 
-      {/* Shielded balance card */}
-      <div className={styles.balanceCard}>
-        <div className={styles.balanceGlow1} />
-        <div className={styles.balanceGlow2} />
+      <div className={styles.topGrid}>
+        {/* Shielded balance card */}
+        <div className={styles.balanceCard}>
+          <div className={styles.balanceGlow1} />
+          <div className={styles.balanceGlow2} />
 
-        <div className={styles.balanceHeader}>
-          <span className={styles.balanceLabel}>Shielded Balance</span>
-          <div className={styles.cloakPill}>
-            <span className={styles.cloakPillDot} />
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>CLOAK POOL</span>
+          <div className={styles.balanceHeader}>
+            <span className={styles.balanceLabel}>Shielded Balance</span>
+            <div className={styles.cloakPill}>
+              <span className={styles.cloakPillDot} />
+              <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>CLOAK POOL</span>
+            </div>
+          </div>
+
+          <div className={styles.balanceAmount} style={{ fontFamily: "var(--serif)" }}>
+            {balance}
+          </div>
+          <span className={styles.balanceSub}>{utxos} UTXOs · AES-256-GCM · Poseidon hashed</span>
+
+          <div className={styles.balanceStats}>
+            {[
+              { label: "Available", val: "$3.9M", green: false },
+              { label: "Locked · payroll", val: locked, green: false },
+              { label: "ZK proofs", val: "✓ 100%", green: true },
+            ].map(s => (
+              <div key={s.label}>
+                <span className={styles.statLabel}>{s.label}</span>
+                <div className={styles.statVal} style={{ color: s.green ? "#22e09a" : "rgba(255,255,255,0.88)" }}>
+                  {s.val}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className={styles.balanceAmount} style={{ fontFamily: "var(--serif)" }}>
-          {balance}
-        </div>
-        <span className={styles.balanceSub}>{utxos} UTXOs · AES-256-GCM · Poseidon hashed</span>
-
-        <div className={styles.balanceStats}>
-          {[
-            { label: "Available", val: "$3.9M", green: false },
-            { label: "Locked · payroll", val: locked, green: false },
-            { label: "ZK proofs", val: "✓ 100%", green: true },
-          ].map(s => (
-            <div key={s.label}>
-              <span className={styles.statLabel}>{s.label}</span>
-              <div className={styles.statVal} style={{ color: s.green ? "#22e09a" : "rgba(255,255,255,0.88)" }}>
-                {s.val}
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* Private swap panel (right column) */}
+        <PrivateSwapPanel />
       </div>
 
       {/* Batch disbursement */}

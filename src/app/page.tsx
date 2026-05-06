@@ -1,123 +1,84 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 
-// Dynamic imports (no SSR — require DOM / wallet context)
-const PayrollTerminal = dynamic(
-  () => import("@/components/PayrollTerminal"),
-  { ssr: false }
+const PayrollTerminal = dynamic(() => import("@/components/PayrollTerminal"), { ssr: false });
+const EmployeeScanner = dynamic(() => import("@/components/EmployeeScanner"), { ssr: false });
+const AuditGraph = dynamic(() => import("@/components/AuditGraph"), { ssr: false });
+
+const NavBar = ({ view, setView }: { view: string, setView: (v: string) => void }) => {
+const tabs = [
+{ id: "admin", label: "Treasury", icon: "🏛" },
+{ id: "employee", label: "My Payslips", icon: "👤" },
+{ id: "auditor", label: "Audit Portal", icon: "🔍" },
+];
+return (
+<nav style={{
+position: "sticky", top: 0, zIndex: 100,
+height: 60, display: "flex", alignItems: "center", justifyContent: "space-between",
+padding: "0 32px", background: "rgba(255,255,255,0.95)",
+backdropFilter: "blur(20px)", borderBottom: "1px solid #e8ebee",
+}}>
+<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+<div style={{
+width: 30, height: 30, borderRadius: 7, background: "#08090b",
+display: "flex", alignItems: "center", justifyContent: "center",
+fontFamily: "Instrument Serif, serif", fontSize: 15, color: "#ffffff",
+}}>Æ</div>
+<span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.3px", color: "#08090b" }}>Aegis Ledger</span>
+<div style={{
+marginLeft: 8, fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#0066ff",
+background: "rgba(0,102,255,0.07)", border: "1px solid rgba(0,102,255,0.20)",
+padding: "3px 9px", borderRadius: 100, display: "flex", alignItems: "center", gap: 5,
+}}>
+<span style={{ width: 5, height: 5, borderRadius: "50%", background: "#0066ff", display: "inline-block" }} />
+CLOAK SHIELD
+</div>
+</div>
+
+<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+<span style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#bdc4ce", letterSpacing: 0.4, textTransform: "uppercase" }}>Demo: View as →</span>
+<div style={{ display: "flex", gap: 4, background: "#f4f5f7", borderRadius: 10, padding: 4, border: "1px solid #e8ebee" }}>
+{tabs.map(t => (
+<button key={t.id}
+onClick={() => setView(t.id)}
+style={{
+display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
+borderRadius: 7,
+border: view === t.id ? "1.5px solid #0066ff" : "1.5px solid transparent",
+background: view === t.id ? "#ffffff" : "none",
+fontSize: 12.5, fontWeight: 500,
+color: view === t.id ? "#08090b" : "#64707f",
+cursor: "pointer", transition: "all 0.15s",
+}}>
+<span style={{ fontSize: 13 }}>{t.icon}</span>
+{t.label}
+</button>
+))}
+</div>
+</div>
+
+<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+<div style={{ textAlign: "right" }}>
+<div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#8e98a6" }}>DAO WALLET</div>
+<div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#08090b", fontWeight: 500 }}>7xKt···m3F2</div>
+</div>
+<div style={{ width: 32, height: 32, borderRadius: 8, background: "#08090b", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffffff", fontSize: 14 }}>◆</div>
+</div>
+</nav>
 );
-const WalletButton = dynamic(
-  () => import("@/components/WalletButton"),
-  { ssr: false }
-);
+};
 
 export default function DashboardPage() {
+  const [view, setView] = useState("admin");
+
   return (
-    <div className="page-container">
-      <div className="page-content">
-        {/* ─── Navigation ─────────────────────────────────── */}
-        <nav className="nav-bar">
-          <div className="nav-logo">
-            <div className="nav-logo-icon">⟐</div>
-            <span className="nav-logo-text">Aegis Ledger</span>
-          </div>
-          <div className="nav-links">
-            <span className="badge badge-green">● Mainnet</span>
-            <WalletButton />
-            <Link href="/swap" className="btn-ghost">
-              🔄 Private Swap
-            </Link>
-            <Link href="/verify" className="btn-ghost">
-              📄 Verify Payslip
-            </Link>
-            <Link href="/audit" className="btn-ghost">
-              🔑 Audit Portal
-            </Link>
-          </div>
-        </nav>
-
-        {/* ─── Hero ───────────────────────────────────────── */}
-        <div className="animate-fade-in" style={{ marginBottom: 40 }}>
-          <h1 className="section-title" style={{ fontSize: 36, marginBottom: 8 }}>
-            Zero-Knowledge Payroll Engine
-          </h1>
-          <p className="section-subtitle" style={{ maxWidth: 600, fontSize: 15 }}>
-            Execute batch USDC payrolls where amounts and recipient addresses are
-            cryptographically hidden inside Cloak&apos;s shielded pool. Only commitment
-            hashes and transaction signatures are publicly visible.
-          </p>
-        </div>
-
-        {/* ─── Terminal ───────────────────────────────────── */}
-        <div className="animate-fade-in animate-fade-in-delay-1">
-          <PayrollTerminal />
-        </div>
-
-        {/* ─── Feature Cards ──────────────────────────────── */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: 16,
-            marginTop: 40,
-          }}
-        >
-          <div className="glass-card animate-fade-in animate-fade-in-delay-1" style={{ padding: 24 }}>
-            <div style={{ fontSize: 28, marginBottom: 12 }}>🔐</div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
-              Non-Custodial Shielded Transfers
-            </h3>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-              The server never holds signing keys. Every payment is signed
-              client-side through your connected wallet, then routed through
-              Cloak&apos;s ZK shielded pool. Only UTXO commitment hashes are public.
-            </p>
-          </div>
-
-          <div className="glass-card animate-fade-in animate-fade-in-delay-2" style={{ padding: 24 }}>
-            <div style={{ fontSize: 28, marginBottom: 12 }}>⚡</div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
-              Atomic Mutex Locks
-            </h3>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-              Redis SET NX with atomic Lua release prevents concurrent UTXO selection.
-              No double-spending, no race conditions — enterprise-grade concurrency.
-            </p>
-          </div>
-
-          <div className="glass-card animate-fade-in animate-fade-in-delay-3" style={{ padding: 24 }}>
-            <div style={{ fontSize: 28, marginBottom: 12 }}>🔑</div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
-              Dynamic Audit Portal
-            </h3>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-              Time-scoped viewing keys let regulators selectively decrypt a subgraph
-              of financial history — without exposing the entire ledger.
-            </p>
-          </div>
-        </div>
-
-        {/* ─── Footer ─────────────────────────────────────── */}
-        <div
-          style={{
-            marginTop: 60,
-            paddingTop: 24,
-            borderTop: "1px solid var(--border-glass)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            Aegis Ledger — Colosseum Frontier · Cloak Track
-          </span>
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            Built with Cloak Protocol · Solana · Next.js
-          </span>
-        </div>
-      </div>
-    </div>
+    <>
+      <NavBar view={view} setView={setView} />
+      {view === "admin" && <PayrollTerminal />}
+      {view === "employee" && <EmployeeScanner />}
+      {view === "auditor" && <AuditGraph />}
+    </>
   );
 }

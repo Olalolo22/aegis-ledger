@@ -1,17 +1,24 @@
 import type { Metadata } from "next";
+import { Instrument_Serif } from "next/font/google";
 import localFont from "next/font/local";
 import dynamic from "next/dynamic";
 import "./globals.css";
 
+const instrumentSerif = Instrument_Serif({
+  weight: ["400"],
+  style: ["normal", "italic"],
+  subsets: ["latin"],
+  variable: "--font-serif",
+});
+
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
+  variable: "--font-sans",
 });
+
 const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
+  variable: "--font-mono",
 });
 
 // Dynamic import — WalletProvider needs window (no SSR)
@@ -42,10 +49,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    <html lang="en" className={`${instrumentSerif.variable} ${geistSans.variable} ${geistMono.variable}`}>
+      <body>
         <WalletProvider>{children}</WalletProvider>
       </body>
     </html>

@@ -140,7 +140,7 @@ export default function PrivateSwapPanel({ orgId = "aegis-core" }: { orgId?: str
   };
 
   return (
-    <div className={styles.page}>
+    <>
       {showZK && (
         <ZKSwapModal 
           onClose={() => setShowZK(false)} 
@@ -150,126 +150,76 @@ export default function PrivateSwapPanel({ orgId = "aegis-core" }: { orgId?: str
         />
       )}
 
-      {/* Header */}
-      <span className={styles.eyebrow}>DAO Treasury · Private Swap</span>
-      <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
-        Shield Your Swap<br />
-        <em>Orca in-pool routing.</em>
-      </h1>
-
-      <div className={styles.grid}>
-        
-        {/* Swap panel */}
-        <div className={styles.swapCard}>
-          <div className={styles.swapCardHeader}>
-            <div>
-              <span className={styles.swapEyebrow}>Private Swap</span>
-              <div className={styles.swapTitle}>In-pool · Orca CLMM router</div>
-            </div>
-            <span className="ae-badge ae-badge-blue">SHIELDED</span>
+      {/* Swap panel */}
+      <div className={styles.swapCard} style={{ height: "100%" }}>
+        <div className={styles.swapCardHeader}>
+          <div>
+            <span className={styles.swapEyebrow}>Private Swap</span>
+            <div className={styles.swapTitle}>In-pool · Orca CLMM router</div>
           </div>
-
-          {/* From */}
-          <div className={styles.inputGroup}>
-            <label className={styles.inputLabel}>From</label>
-            <div className={styles.inputRow}>
-              <div className={styles.tokenIcon} style={{ background: "#2775ca" }}>$</div>
-              <input 
-                className={styles.amountInput} 
-                value={fromAmount}
-                onChange={e => setFromAmount(e.target.value)}
-              />
-              <span className={styles.tokenLabel}>USDC</span>
-            </div>
-          </div>
-
-          <div className={styles.arrow}>↓</div>
-
-          {/* To */}
-          <div className={styles.inputGroup}>
-            <label className={styles.inputLabel}>To (estimated)</label>
-            <div className={styles.inputRow}>
-              <div className={styles.tokenIcon} style={{ background: "linear-gradient(135deg,#9945ff,#14f195)" }}>◎</div>
-              <div className={styles.amountDisplay}>{toEstimate}</div>
-              <span className={styles.tokenLabel}>SOL</span>
-            </div>
-          </div>
-
-          {/* Route info */}
-          <div className={styles.routeInfo}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>
-              Route: Orca CLMM pool → cloak.wrapOutput()
-            </span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)" }}>
-              No AMM footprint
-            </span>
-          </div>
-
-          {/* Slippage */}
-          <div className={styles.slippageRow}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>Max slippage</span>
-            <div className={styles.slippageBtns}>
-              {["0.1", "0.5", "1.0"].map(s => (
-                <button key={s} onClick={() => setSlippage(s)} 
-                        className={`${styles.slippageBtn} ${slippage === s ? styles.slippageActive : ""}`}>
-                  {s}%
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button 
-            className={styles.execBtn} 
-            onClick={handleExecute}
-            disabled={!fromAmount || (status !== "idle" && status !== "success" && status !== "error")}
-          >
-            Execute Private Swap
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          <span className="ae-badge ae-badge-blue">SHIELDED</span>
         </div>
 
-        {/* Info panel */}
-        <div className={styles.infoPanel}>
-          <div className={styles.infoPanelHeader}>
-            <span className={styles.swapEyebrow}>Why private swaps?</span>
-            <div className={styles.swapTitle}>MEV protection</div>
-          </div>
-          
-          {[
-            { 
-              icon: "👁", 
-              title: "Public swaps telegraph strategy", 
-              desc: "Every AMM swap on Solana is visible before execution completes. Competitors parse your treasury movements in real time.",
-            },
-            { 
-              icon: "🛡", 
-              title: "In-pool routing stays shielded", 
-              desc: "Aegis routes your swap entirely inside the Cloak shielded UTXO pool. The output notes go directly into your shielded balance.",
-            },
-            { 
-              icon: "⚡", 
-              title: "No front-running surface", 
-              desc: "With no public AMM footprint, MEV bots have nothing to detect. Your swap executes at the quoted price.",
-            },
-          ].map(item => (
-            <div key={item.title} className={styles.infoItem}>
-              <span className={styles.infoIcon}>{item.icon}</span>
-              <div>
-                <div className={styles.infoTitle}>{item.title}</div>
-                <div className={styles.infoDesc}>{item.desc}</div>
-              </div>
-            </div>
-          ))}
-
-          <div className={styles.infoFooter}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--blue)" }}>
-              Powered by @cloak.dev/sdk · cloak.privateSwap()
-            </span>
+        {/* From */}
+        <div className={styles.inputGroup}>
+          <label className={styles.inputLabel}>From</label>
+          <div className={styles.inputRow}>
+            <div className={styles.tokenIcon} style={{ background: "#2775ca" }}>$</div>
+            <input 
+              className={styles.amountInput} 
+              value={fromAmount}
+              onChange={e => setFromAmount(e.target.value)}
+            />
+            <span className={styles.tokenLabel}>USDC</span>
           </div>
         </div>
+
+        <div className={styles.arrow}>↓</div>
+
+        {/* To */}
+        <div className={styles.inputGroup}>
+          <label className={styles.inputLabel}>To (estimated)</label>
+          <div className={styles.inputRow}>
+            <div className={styles.tokenIcon} style={{ background: "linear-gradient(135deg,#9945ff,#14f195)" }}>◎</div>
+            <div className={styles.amountDisplay}>{toEstimate}</div>
+            <span className={styles.tokenLabel}>SOL</span>
+          </div>
+        </div>
+
+        {/* Route info */}
+        <div className={styles.routeInfo}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6" }}>
+            Route: Orca CLMM pool → cloak.wrapOutput()
+          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#00b87a" }}>
+            No AMM footprint
+          </span>
+        </div>
+
+        {/* Slippage */}
+        <div className={styles.slippageRow}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6" }}>Max slippage</span>
+          <div className={styles.slippageBtns}>
+            {["0.1", "0.5", "1.0"].map(s => (
+              <button key={s} onClick={() => setSlippage(s)} 
+                      className={`${styles.slippageBtn} ${slippage === s ? styles.slippageActive : ""}`}>
+                {s}%
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button 
+          className={styles.execBtn} 
+          onClick={handleExecute}
+          disabled={!fromAmount || (status !== "idle" && status !== "success" && status !== "error")}
+        >
+          Execute Private Swap
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
       </div>
-    </div>
+    </>
   );
 }
