@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
+import { denominate } from "../lib/denominate";
 
 /**
  * Custom hook encapsulating the client-side non-custodial payroll signing flow.
@@ -126,6 +127,11 @@ async function loadCloakSDK() {
 
   return sdk;
 }
+
+// ─── Privacy Config ─────────────────────────────────────────────
+const USE_DENOMINATIONS = true;
+// Standard note sizes in base units (assuming 6 decimals for USDC/SOL)
+const STANDARD_DENOMINATIONS = [1000, 500, 100, 50, 10, 5, 1].map(d => d * 1_000_000);
 
 // ─── Hook ───────────────────────────────────────────────────────
 
@@ -263,106 +269,72 @@ export function usePayrollSigner(): PayrollSignerResult {
 
         for (let i = 0; i < totalRecipients; i++) {
           const recipient = params.recipients[i];
-          const amountLamports = BigInt(recipient.amount);
+          const amountLamports = Number(recipient.amount);
 
           setRecipientProgress({ current: i + 1, total: totalRecipients });
-          setProofProgress(
-            `Processing recipient ${i + 1}/${totalRecipients}: ` +
-              `generating ZK proof for ${recipient.wallet.slice(0, 8)}...`
-          );
 
-          // ─── 4a. Generate a note for this disbursement ─────
-          const note = await sdk.generateNote(
-            Number(amountLamports),
-            params.rpc_url?.includes("devnet") ? "devnet" : "mainnet"
-          );
-
-          // ─── 4b. Deposit into the shielded pool ────────────
-          setProofProgress(
-            `Recipient ${i + 1}/${totalRecipients}: depositing into shielded pool...`
-          );
-
-          setStatus("signing");
-          const depositResult = await cloakClient.deposit(
-            connection,
-            note,
-            {
-              onProgress: (phase: string, data?: { message?: string }) => {
-                setProofProgress(
-                  `Recipient ${i + 1}/${totalRecipients}: ${data?.message || phase}`
-                );
-              },
-              skipPreflight: false,
-            }
-          );
-
-          const depositedNote = depositResult.note;
-          const depositSig = depositResult.signature;
-
-          if (depositSig) {
-            collectedSignatures.push(String(depositSig));
-          }
-
-          // ─── 4c. Withdraw to recipient stealth address ─────
-          setStatus("proving");
-          setProofProgress(
-            `Recipient ${i + 1}/${totalRecipients}: generating withdrawal ZK proof...`
-          );
+          // ─── 4a. Split into uniform denominations ──────────
+          const noteValues = USE_DENOMINATIONS 
+            ? denominate(amountLamports, STANDARD_DENOMINATIONS)
+            : [amountLamports];
 
           const recipientPubkey = new PublicKey(recipient.wallet);
 
-          const withdrawResult = await cloakClient.withdraw(
-            connection,
-            depositedNote,
-            recipientPubkey,
-            {
-              withdrawAll: true,
-              onProgress: (phase: string, data?: { message?: string }) => {
-                const msg = data?.message || phase;
+          for (let j = 0; j < noteValues.length; j++) {
+            const noteVal = noteValues[j];
+            const noteLabel = noteValues.length > 1 ? ` (note ${j + 1}/${noteValues.length})` : "";
 
-                // Detect proof generation phase for precise isProving state
-                if (
-                  msg.includes("proof") ||
-                  msg.includes("Generating") ||
-                  msg.includes("groth16") ||
-                  msg.includes("snark")
-                ) {
-                  setStatus("proving");
-                } else if (
-                  msg.includes("sign") ||
-                  msg.includes("wallet") ||
-                  msg.includes("approval")
-                ) {
-                  setStatus("signing");
-                } else if (
-                  msg.includes("broadcast") ||
-                  msg.includes("confirm") ||
-                  msg.includes("sending")
-                ) {
-                  setStatus("broadcasting");
-                }
+            setProofProgress(
+              `Recipient ${i + 1}/${totalRecipients}${noteLabel}: ` +
+                `generating ZK proof for ${recipient.wallet.slice(0, 8)}...`
+            );
 
-                setProofProgress(
-                  `Recipient ${i + 1}/${totalRecipients}: ${msg}`
-                );
-              },
-            }
-          );
+            // Generate the note
+            const note = await sdk.generateNote(
+              noteVal,
+              params.rpc_url?.includes("devnet") ? "devnet" : "mainnet"
+            );
 
-          // Capture the withdrawal tx signature
-          const withdrawSig = withdrawResult.signature;
-          if (withdrawSig) {
-            collectedSignatures.push(String(withdrawSig));
+            // Deposit
+            setProofProgress(
+              `Recipient ${i + 1}/${totalRecipients}${noteLabel}: depositing...`
+            );
+            setStatus("signing");
+            const depositResult = await cloakClient.deposit(connection, note, {
+              onProgress: (p, d) => setProofProgress(`Recipient ${i + 1}/${totalRecipients}${noteLabel}: ${d?.message || p}`),
+            });
+
+            const depositedNote = depositResult.note;
+            if (depositResult.signature) collectedSignatures.push(String(depositResult.signature));
+
+            // Withdraw immediately to recipient
+            setStatus("proving");
+            setProofProgress(
+              `Recipient ${i + 1}/${totalRecipients}${noteLabel}: generating withdrawal ZK proof...`
+            );
+
+            const withdrawResult = await cloakClient.withdraw(
+              connection,
+              depositedNote,
+              recipientPubkey,
+              {
+                withdrawAll: true,
+                onProgress: (phase, data) => {
+                  const msg = data?.message || phase;
+                  if (msg.includes("proof") || msg.includes("Generating")) setStatus("proving");
+                  else if (msg.includes("sign") || msg.includes("approval")) setStatus("signing");
+                  else if (msg.includes("broadcast")) setStatus("broadcasting");
+                  
+                  setProofProgress(`Recipient ${i + 1}/${totalRecipients}${noteLabel}: ${msg}`);
+                },
+              }
+            );
+
+            if (withdrawResult.signature) collectedSignatures.push(String(withdrawResult.signature));
+            collectedCommitments.push(String(depositedNote.commitment || note.commitment));
           }
 
-          // Capture the commitment hash from the deposited note
-          // (TransferResult doesn't expose commitment directly)
-          const commitment = depositedNote.commitment || note.commitment;
-          collectedCommitments.push(String(commitment));
-
-          setProofProgress(
-            `Recipient ${i + 1}/${totalRecipients}: ✓ complete`
-          );
+          setProofProgress(`Recipient ${i + 1}/${totalRecipients}: ✓ complete`);
         }
 
         // ─── Step 5: Confirm with server ─────────────────────

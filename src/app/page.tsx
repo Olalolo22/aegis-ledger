@@ -3,15 +3,16 @@ import { useEffect } from "react";
 import "./landing.css";
 
 export default function LandingPage() {
-  useEffect(() => {
-    (window as any).selectSDK = function(id: string) {
-       ['a', 'b', 'c'].forEach(k => document.getElementById('sdk-' + k)?.classList.remove('selected'));
-       document.getElementById('sdk-' + id)?.classList.add('selected');
-    };
-  }, []);
+    useEffect(() => {
+        (window as any).selectSDK = function (id: string) {
+            ['a', 'b', 'c'].forEach(k => document.getElementById('sdk-' + k)?.classList.remove('selected'));
+            document.getElementById('sdk-' + id)?.classList.add('selected');
+        };
+    }, []);
 
-  return (
-    <div dangerouslySetInnerHTML={{ __html: `
+    return (
+        <div dangerouslySetInnerHTML={{
+            __html: `
 
     <!-- NAV -->
 
@@ -486,11 +487,11 @@ export default function LandingPage() {
             <a href="#">Cloak SDK</a>
             <a href="#">Architecture</a>
         </div>
-        <span class="footer-copy">© 2025 Aegis Ledger · Colosseum Hackathon</span>
+        <span class="footer-copy">© 2026 Aegis Ledger · Colosseum Hackathon</span>
     </footer>
 
     
 
 ` }} />
-  );
+    );
 }
