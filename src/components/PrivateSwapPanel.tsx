@@ -6,8 +6,8 @@ import { usePrivateSwap, type PrivateSwapStatus } from "@/hooks/usePrivateSwap";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
 
 const ZK_SWAP_STEPS = [
-  { msg: "› Fetching Orca CLMM pool state...", col: "var(--dim)" },
-  { msg: "› Wrapping swap output via cloak.wrapOutput()...", col: "var(--dim)" },
+  { msg: "› Fetching shielded pool state...", col: "var(--dim)" },
+  { msg: "› Preparing swap output notes...", col: "var(--dim)" },
   { msg: "› Loading Groth16 WASM prover circuit...", col: "var(--dim)" },
   { msg: " [!] Private inputs stay browser-local.", col: "var(--amber)" },
   { msg: "› Generating witness from swap parameters...", col: "var(--dim)" },
@@ -15,7 +15,7 @@ const ZK_SWAP_STEPS = [
   { msg: "› Building Groth16 proof (π_a, π_b, π_c)...", col: "var(--dim)" },
   { msg: " ✓ Proof generated. Size: 192 bytes.", col: "var(--green)" },
   { msg: "› Submitting shielded swap to Cloak pool...", col: "var(--dim)" },
-  { msg: " ✓ Swap confirmed. No AMM footprint on-chain.", col: "var(--green)" },
+  { msg: " ✓ Swap confirmed. Shielded routing complete.", col: "var(--green)" },
   { msg: " ✓ Output notes deposited into shielded pool.", col: "var(--blue)" },
 ];
 
@@ -83,7 +83,7 @@ function ZKSwapModal({
         <div className={styles.ztBanner}>
           <span>🔒</span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
-            Swap routed through Orca CLMM → shielded pool. No public AMM footprint.
+            Swap routed through shielded pool. Your spending key never leaves this browser.
           </span>
         </div>
 
