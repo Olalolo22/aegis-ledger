@@ -5,14 +5,34 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import styles from "./EmployeeScanner.module.css";
 import { useNoteScanner } from "@/hooks/useNoteScanner";
+import PrivacyAuditModal from "./PrivacyAuditModal";
+
+// ──────────────────────────────────────────────
+// Manual connection hook – preserves explicit
+// wallet selection without autoConnect
+// ──────────────────────────────────────────────
+function useExplicitWalletConnect() {
+  const { wallet, connect, connected, connecting } = useWallet();
+
+  useEffect(() => {
+    if (wallet && !connected && !connecting) {
+      connect().catch((err) => {
+        console.error('[Aegis] Manual connect failed:', err);
+      });
+    }
+  }, [wallet, connected, connecting, connect]);
+}
 
 export default function EmployeeScanner() {
+  useExplicitWalletConnect(); // ← triggers connect after user selects wallet
+
   const { connected, publicKey, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
   const { scan, status, progress, payslips, error } = useNoteScanner();
-  
+
   const [viewingKey, setViewingKey] = useState("");
   const [scanLog, setScanLog] = useState<{ msg: string; col: string }[]>([]);
+  const [auditTx, setAuditTx] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   const done = status === "complete";
@@ -35,12 +55,10 @@ export default function EmployeeScanner() {
   // Append real progress messages to the log
   useEffect(() => {
     if (progress?.message) {
-      // Determine color based on message content (heuristic)
       let col = "var(--dim)";
       if (progress.message.includes("✓")) col = "var(--green)";
       if (progress.message.includes("MISS")) col = "var(--slate)";
       if (progress.message.includes("failed") || progress.message.includes("Error")) col = "var(--red)";
-      
       setScanLog(prev => [...prev, { msg: `› ${progress.message}`, col }]);
     }
   }, [progress]);
@@ -97,7 +115,7 @@ export default function EmployeeScanner() {
 
       {/* Viewing key input */}
       <div className={`${styles.card} ${!connected ? styles.cardDisabled : ""}`}
-           style={{ marginBottom: 16 }}>
+        style={{ marginBottom: 16 }}>
         <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
         <div className={styles.keyRow}>
           <input
@@ -125,7 +143,7 @@ export default function EmployeeScanner() {
         <div className={`${styles.terminal} ae-fade-up`} style={{ marginBottom: 16 }}>
           <div className={styles.termHeader}>
             <span className={styles.termDot}
-                  style={{ background: done ? "var(--green)" : status === "error" ? "var(--red)" : "var(--blue)", animation: (done || status === "error") ? "none" : "ae-blink 1s ease-in-out infinite" }} />
+              style={{ background: done ? "var(--green)" : status === "error" ? "var(--red)" : "var(--blue)", animation: (done || status === "error") ? "none" : "ae-blink 1s ease-in-out infinite" }} />
             <span className={styles.termLabel}>
               {done ? "Scan complete" : status === "error" ? "Scan failed" : "Scanning Merkle tree (local)"}
             </span>
@@ -159,8 +177,22 @@ export default function EmployeeScanner() {
                     {p.amountFormatted} {p.tokenSymbol}
                   </div>
                 </div>
-                <span className="ae-badge ae-badge-green">DECRYPTED</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    onClick={() => setAuditTx(p.txSignature || p.commitmentHash)}
+                    className="ae-badge ae-badge-ghost hover:bg-blue-500/10 hover:text-blue-400 transition-colors cursor-pointer border border-transparent hover:border-blue-500/30"
+                  >
+                    PRIVACY AUDIT
+                  </button>
+                  <span className="ae-badge ae-badge-green">DECRYPTED</span>
+                </div>
               </div>
+
+              <PrivacyAuditModal
+                isOpen={!!auditTx}
+                onClose={() => setAuditTx(null)}
+                txId={auditTx || ""}
+              />
               <div className={styles.payslipGrid}>
                 {[
                   { label: "Token", val: p.tokenSymbol },

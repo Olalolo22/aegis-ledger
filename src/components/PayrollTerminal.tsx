@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import styles from "./PayrollTerminal.module.css";
 import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSigner";
 import PrivateSwapPanel from "./PrivateSwapPanel";
+import ProvingVisualizer from "./ProvingVisualizer";
+import PrivacyScoreCard from "./PrivacyScoreCard";
 
 interface Recipient {
   addr: string;
@@ -12,11 +14,13 @@ interface Recipient {
   memo: string;
 }
 
+const DEMO_ORG_ID = "b91a045c-27eb-44c1-8409-f62506b328a6";
+
 const MOCK_RECIPIENTS: Recipient[] = [
-  { addr: "7xKt···m3F2", amount: "8,500", token: "USDC", memo: "May salary" },
-  { addr: "BqPx···9aL1", amount: "312.89", token: "SOL", memo: "Dev retainer" },
-  { addr: "Cm3R···vT5N", amount: "9,800", token: "USDT", memo: "Design sprint" },
-  { addr: "Dp9F···k2W8", amount: "6,000", token: "USDC", memo: "Legal review" },
+  { addr: "6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC", amount: "8,500", token: "USDC", memo: "May salary" },
+  { addr: "8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH", amount: "312.89", token: "SOL", memo: "Dev retainer" },
+  { addr: "3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr", amount: "9,800", token: "USDT", memo: "Design sprint" },
+  { addr: "GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT", amount: "6,000", token: "USDC", memo: "Legal review" },
 ];
 
 const ZK_LOG_STEPS = [
@@ -36,19 +40,23 @@ const ZK_LOG_STEPS = [
 ];
 
 // ─── ZK MODAL ─────────────────────────────────────────────────
-function ZKModal({ 
-  onClose, 
-  status, 
-  proofProgress, 
-  error 
-}: { 
+function ZKModal({
+  onClose,
+  status,
+  proofProgress,
+  error,
+  recipientProgress
+}: {
   onClose: () => void;
   status: PayrollSignerStatus;
   proofProgress: string | null;
   error: string | null;
+  recipientProgress: { current: number; total: number } | null;
 }) {
   const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
-  
+  const maxPhaseRef = useRef(0);
+  const maxPctRef = useRef(0);
+
   const done = status === "completed";
   const isError = status === "error";
 
@@ -63,7 +71,21 @@ function ZKModal({
     if (status === "confirming") phase = 12;
     if (status === "completed") phase = ZK_LOG_STEPS.length;
 
-    setLog(ZK_LOG_STEPS.slice(0, phase));
+    // Only ever grow the log — never shrink when status cycles
+    // back to "proving" for the next recipient in a batch.
+    if (phase > maxPhaseRef.current) {
+      maxPhaseRef.current = phase;
+      setLog(ZK_LOG_STEPS.slice(0, phase));
+    }
+  }, [status]);
+
+  // Reset high-water marks when a new run starts
+  useEffect(() => {
+    if (status === "idle" || status === "preparing") {
+      maxPhaseRef.current = 0;
+      maxPctRef.current = 0;
+      setLog([]);
+    }
   }, [status]);
 
   // Combine narrative log with real-time hook progress
@@ -75,7 +97,37 @@ function ZKModal({
     displayLog.push({ msg: `[ERROR] ${error}`, col: "var(--red)" });
   }
 
-  const pct = done ? 100 : Math.min(99, Math.round((log.length / ZK_LOG_STEPS.length) * 100));
+  // Calculate progress percentage — only ever increases
+  let pct: number;
+  if (done) {
+    pct = 100;
+  } else if (recipientProgress && recipientProgress.total > 0 && !isError) {
+    // Recipient-based smooth progress (20% → 90% across all recipients)
+    const recipientIdx = Math.max(0, recipientProgress.current - 1);
+    const startPct = 20;
+    const endPct = 90;
+    const totalRange = endPct - startPct;
+    
+    const recipientBasePct = startPct + (totalRange * (recipientIdx / recipientProgress.total));
+    const currentRecipientChunk = totalRange / recipientProgress.total;
+    
+    let stepPct = 0;
+    if (status === "proving") stepPct = 0.3;
+    if (status === "signing") stepPct = 0.6;
+    if (status === "broadcasting") stepPct = 0.9;
+    if (status === "confirming") { pct = 95; } else {
+      pct = Math.round(recipientBasePct + (currentRecipientChunk * stepPct));
+    }
+    pct = pct!;
+  } else {
+    pct = Math.min(99, Math.round((log.length / ZK_LOG_STEPS.length) * 100));
+  }
+
+  // Never let pct decrease
+  if (pct > maxPctRef.current) {
+    maxPctRef.current = pct;
+  }
+  pct = maxPctRef.current;
 
   return (
     <div className={styles.modalOverlay}>
@@ -89,8 +141,8 @@ function ZKModal({
             </div>
           </div>
           <div className={styles.modalStatus}>
-            <span className={styles.modalStatusDot} 
-                  style={{ background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)", animation: (done || isError) ? "none" : "ae-blink 1s ease-in-out infinite" }} />
+            <span className={styles.modalStatusDot}
+              style={{ background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)", animation: (done || isError) ? "none" : "ae-blink 1s ease-in-out infinite" }} />
             <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
               {done ? "COMPLETE" : isError ? "FAILED" : status.toUpperCase().replace("_", " ")}
             </span>
@@ -104,6 +156,9 @@ function ZKModal({
             Your spending key never leaves this browser. All ZK proofs are generated locally via WASM.
           </span>
         </div>
+
+        {/* Enhanced Visualizer */}
+        <ProvingVisualizer isActive={status === "proving" || status === "initializing_wasm"} />
 
         {/* Terminal log */}
         <div className={styles.termBody}>
@@ -122,8 +177,8 @@ function ZKModal({
             </span>
           </div>
           <div className={styles.progressTrack}>
-            <div className={styles.progressFill} 
-                 style={{ width: `${pct}%`, background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }} />
+            <div className={styles.progressFill}
+              style={{ width: `${pct}%`, background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }} />
           </div>
           {(done || isError) && (
             <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
@@ -138,9 +193,10 @@ function ZKModal({
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────
 export default function PayrollTerminal() {
-  const { execute, status, proofProgress, error, signingParams } = usePayrollSigner();
+  const { execute, status, proofProgress, error, signingParams, recipientProgress } = usePayrollSigner();
   const [recipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
+  const [hasRunDenominations, setHasRunDenominations] = useState(false);
 
   // Derive dynamic values from hook state if available, fallback to defaults
   const balance = "$4,218,440";
@@ -157,8 +213,9 @@ export default function PayrollTerminal() {
       return { wallet: r.addr, amount: lamports.toString() };
     });
 
+    setHasRunDenominations(true);
     await execute({
-      org_id: "aegis-core",
+      org_id: DEMO_ORG_ID,
       token_symbol: "USDC", // Force USDC for demo batch
       token_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       initiated_by: "", // Hook fills this
@@ -168,7 +225,7 @@ export default function PayrollTerminal() {
 
   return (
     <div className={styles.page}>
-      {showZK && <ZKModal onClose={() => setShowZK(false)} status={status} proofProgress={proofProgress} error={error} />}
+      {showZK && <ZKModal onClose={() => setShowZK(false)} status={status} proofProgress={proofProgress} error={error} recipientProgress={recipientProgress} />}
 
       {/* Page header */}
       <span className={styles.eyebrow}>DAO Treasury · Admin</span>
@@ -212,8 +269,10 @@ export default function PayrollTerminal() {
           </div>
         </div>
 
-        {/* Private swap panel (right column) */}
-        <PrivateSwapPanel />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1 }}>
+          <PrivacyScoreCard usingDenominations={hasRunDenominations} />
+          <PrivateSwapPanel />
+        </div>
       </div>
 
       {/* Batch disbursement */}
@@ -232,7 +291,7 @@ export default function PayrollTerminal() {
             >
               Run shielded batch
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
@@ -247,9 +306,9 @@ export default function PayrollTerminal() {
 
         {/* Rows */}
         {recipients.map((r, i) => (
-          <div key={i} className={styles.tableRow} 
-               style={{ borderBottom: i < recipients.length - 1 ? "1px solid var(--mist)" : "none" }}>
-            <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 11.5 }}>{r.addr}</span>
+          <div key={i} className={styles.tableRow}
+            style={{ borderBottom: i < recipients.length - 1 ? "1px solid var(--mist)" : "none" }}>
+            <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 11.5 }}>{r.addr.slice(0, 4)}···{r.addr.slice(-4)}</span>
             <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
             <span className={`${styles.tokenBadge} ${r.token === "SOL" ? styles.tokenSol : styles.tokenUsdc}`}>
               {r.token}
@@ -277,7 +336,7 @@ export default function PayrollTerminal() {
         <span style={{ fontSize: 16 }}>ℹ️</span>
         <p>
           <strong>Zero-trust architecture:</strong> When you initiate any operation, Groth16 ZK proofs
-          are generated entirely in your browser via WASM. Your spending key, recipient details, and 
+          are generated entirely in your browser via WASM. Your spending key, recipient details, and
           amounts are never transmitted to any server.
         </p>
       </div>

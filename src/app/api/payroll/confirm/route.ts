@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
 
   const { payroll_run_id, tx_signatures, commitment_hashes } = parsed.data;
 
+
+
   // ─── 2. Verify Payroll Run Exists & Is Pending ──────────────
   const supabase = createServiceClient();
 
@@ -63,10 +65,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (payrollRun.status !== "pending_signature") {
+  if (payrollRun.status !== "pending") {
     return NextResponse.json(
       {
-        error: `Payroll run is in '${payrollRun.status}' state — expected 'pending_signature'`,
+        error: `Payroll run is in '${payrollRun.status}' state — expected 'pending'`,
         code: "INVALID_STATE",
       },
       { status: 409 }

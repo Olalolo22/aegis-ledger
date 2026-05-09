@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import styles from "./PrivateSwapPanel.module.css";
 import { usePrivateSwap, type PrivateSwapStatus } from "@/hooks/usePrivateSwap";
+import { useTokenPrices } from "@/hooks/useTokenPrices";
 
 const ZK_SWAP_STEPS = [
   { msg: "› Fetching Orca CLMM pool state...", col: "var(--dim)" },
@@ -115,21 +116,50 @@ function ZKSwapModal({
   );
 }
 
-export default function PrivateSwapPanel({ orgId = "aegis-core" }: { orgId?: string }) {
+export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f62506b328a6" }: { orgId?: string }) {
   const { execute, status, proofProgress, error, quote } = usePrivateSwap();
+  const { getRate, isLive } = useTokenPrices();
   
-  const [fromAmount, setFromAmount] = useState("22500");
+  const TOKENS = ["SOL", "USDC", "USDT"] as const;
+  type Token = typeof TOKENS[number];
+
+  const [fromAmount, setFromAmount] = useState("");
+  const [inputToken, setInputToken] = useState<Token>("SOL");
+  const [outputToken, setOutputToken] = useState<Token>("USDC");
   const [slippage, setSlippage] = useState("0.5");
   const [showZK, setShowZK] = useState(false);
 
-  // Use the real quote if available, fallback to mock estimate before execution
+  // Cycle to the next token, skipping the "other" token
+  const cycleToken = (current: Token, avoid: Token): Token => {
+    const idx = TOKENS.indexOf(current);
+    let next = TOKENS[(idx + 1) % TOKENS.length];
+    if (next === avoid) next = TOKENS[(idx + 2) % TOKENS.length];
+    return next;
+  };
+
+  const handleFlip = () => {
+    setInputToken(outputToken);
+    setOutputToken(inputToken);
+  };
+
+  // Live exchange rate from CoinGecko (with fallback)
+  const exchangeRate = getRate(inputToken, outputToken);
+
   const toEstimate = quote 
-    ? (Number(quote.estimatedOutputAmount) / 1e6).toFixed(2)
-    : fromAmount ? (parseFloat(fromAmount.replace(/,/g, "")) / 96.72).toFixed(2) : "0";
+    ? (Number(quote.estimatedOutputAmount) / 1e6).toFixed(4)
+    : fromAmount ? (parseFloat(fromAmount.replace(/,/g, "")) * exchangeRate).toFixed(4) : "0.00";
+
+  const tokenIcon = (t: Token) => {
+    if (t === "SOL") return { bg: "linear-gradient(135deg,#9945ff,#14f195)", sym: "◎" };
+    if (t === "USDC") return { bg: "#2775ca", sym: "$" };
+    return { bg: "#26a17b", sym: "₮" };
+  };
 
   const handleExecute = async () => {
     setShowZK(true);
-    const amountLamports = (parseFloat(fromAmount.replace(/,/g, "")) * 1e9).toString();
+    const numeric = parseFloat(fromAmount.replace(/,/g, ""));
+    const decimals = inputToken === "SOL" ? 1e9 : 1e6;
+    const amountLamports = (numeric * decimals).toString();
     const slippageBps = parseFloat(slippage) * 100;
     
     await execute({
@@ -155,22 +185,49 @@ export default function PrivateSwapPanel({ orgId = "aegis-core" }: { orgId?: str
         <div className={styles.swapCardHeader}>
           <div>
             <span className={styles.swapEyebrow}>Private Swap</span>
-            <div className={styles.swapTitle}>In-pool · Orca CLMM router</div>
+            <div className={styles.swapTitle}>Shielded pool routing</div>
           </div>
-          <span className="ae-badge ae-badge-blue">SHIELDED</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              width: 5, height: 5, borderRadius: "50%", display: "inline-block",
+              background: isLive ? "#22e09a" : "#f59e0b",
+              boxShadow: isLive ? "0 0 6px #22e09a" : "none",
+            }} />
+            <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: isLive ? "#22e09a" : "#f59e0b" }}>
+              {isLive ? "LIVE" : "CACHED"}
+            </span>
+          </div>
         </div>
 
         {/* From */}
         <div className={styles.inputGroup}>
-          <label className={styles.inputLabel}>From</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label className={styles.inputLabel}>From</label>
+            <button 
+              style={{ background: "none", border: "none", color: "var(--blue)", fontSize: 10, cursor: "pointer", fontFamily: "var(--mono)" }}
+              onClick={handleFlip}
+            >
+              ⇄ Flip
+            </button>
+          </div>
           <div className={styles.inputRow}>
-            <div className={styles.tokenIcon} style={{ background: "#2775ca" }}>$</div>
+            <div className={styles.tokenIcon} style={{ background: tokenIcon(inputToken).bg }}>
+              {tokenIcon(inputToken).sym}
+            </div>
             <input 
               className={styles.amountInput} 
               value={fromAmount}
+              placeholder="0.00"
               onChange={e => setFromAmount(e.target.value)}
             />
-            <span className={styles.tokenLabel}>USDC</span>
+            <button 
+              className={styles.tokenLabel}
+              style={{ cursor: "pointer", background: "none", border: "none", color: "inherit", fontFamily: "inherit", fontSize: "inherit" }}
+              onClick={() => setInputToken(cycleToken(inputToken, outputToken))}
+              title="Click to change token"
+            >
+              {inputToken} ▾
+            </button>
           </div>
         </div>
 
@@ -180,19 +237,30 @@ export default function PrivateSwapPanel({ orgId = "aegis-core" }: { orgId?: str
         <div className={styles.inputGroup}>
           <label className={styles.inputLabel}>To (estimated)</label>
           <div className={styles.inputRow}>
-            <div className={styles.tokenIcon} style={{ background: "linear-gradient(135deg,#9945ff,#14f195)" }}>◎</div>
-            <div className={styles.amountDisplay}>{toEstimate}</div>
-            <span className={styles.tokenLabel}>SOL</span>
+            <div className={styles.tokenIcon} style={{ background: tokenIcon(outputToken).bg }}>
+              {tokenIcon(outputToken).sym}
+            </div>
+            <div className={styles.amountDisplay} style={{ opacity: fromAmount ? 1 : 0.4 }}>
+              {toEstimate}
+            </div>
+            <button 
+              className={styles.tokenLabel}
+              style={{ cursor: "pointer", background: "none", border: "none", color: "inherit", fontFamily: "inherit", fontSize: "inherit" }}
+              onClick={() => setOutputToken(cycleToken(outputToken, inputToken))}
+              title="Click to change token"
+            >
+              {outputToken} ▾
+            </button>
           </div>
         </div>
 
-        {/* Route info */}
-        <div className={styles.routeInfo}>
+        {/* Rate info */}
+        <div className={styles.routeInfo} style={{ justifyContent: "space-between" }}>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6" }}>
-            Route: Orca CLMM pool → cloak.wrapOutput()
+            1 {inputToken} ≈ {exchangeRate < 0.01 ? exchangeRate.toFixed(6) : exchangeRate.toFixed(4)} {outputToken}
           </span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#00b87a" }}>
-            No AMM footprint
+            Shielded routing
           </span>
         </div>
 

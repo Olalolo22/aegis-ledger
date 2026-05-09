@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
 
   const { swap_id, tx_signature, commitment_hash, output_amount } = parsed.data;
 
+
+
   // ─── 2. Verify Swap Record Exists & Is Pending ──────────────
   const supabase = createServiceClient();
 
@@ -62,10 +64,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (swapRecord.status !== "pending_signature") {
+  if (swapRecord.status !== "pending") {
     return NextResponse.json(
       {
-        error: `Swap is in '${swapRecord.status}' state — expected 'pending_signature'`,
+        error: `Swap is in '${swapRecord.status}' state — expected 'pending'`,
         code: "INVALID_STATE",
       },
       { status: 409 }

@@ -174,6 +174,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const [localToken, setLocalToken] = useState<string>(accessToken || "");
   const [authed, setAuthed] = useState(!!accessToken);
   const [decrypted, setDecrypted] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [timeline, setTimeline] = useState(50);
 
   const { execute, status, progress, scope, nodes: rfNodes, edges: rfEdges, transactions, summary, error } = useAuditorEngine();
@@ -193,6 +194,19 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
     setAuthed(false);
     setLocalToken("");
     window.location.reload(); // Simple state reset
+  };
+
+  const handleDecryptToggle = () => {
+    if (decrypted) {
+      setDecrypted(false);
+      return;
+    }
+    setScanning(true);
+    // The "decryption" only happens after the 1s scan animation finishes
+    setTimeout(() => {
+      setDecrypted(true);
+      setScanning(false);
+    }, 1000);
   };
 
   const [ttl, setTtl] = useState("--:--");
@@ -377,10 +391,35 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                   nodesConnectable={false}
                   elementsSelectable={true}
                   proOptions={{ hideAttribution: true }}
+                  style={{ filter: decrypted ? 'hue-rotate(120deg) brightness(1.2) contrast(1.1)' : 'none', transition: 'filter 0.5s ease' }}
                 >
                   <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--mist)" />
                   <Controls showInteractive={false} />
                 </ReactFlow>
+
+                <style>{`
+                  @keyframes scanDown {
+                    from { top: 0%; opacity: 0; }
+                    10% { opacity: 1; }
+                    90% { opacity: 1; }
+                    to { top: 100%; opacity: 0; }
+                  }
+                `}</style>
+
+                {scanning && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '2px',
+                    background: 'linear-gradient(90deg, transparent, #00ffcc, #00ffcc, transparent)',
+                    boxShadow: '0 0 20px #00ffcc, 0 0 40px #00ffcc',
+                    zIndex: 100,
+                    pointerEvents: 'none',
+                    animation: 'scanDown 1s linear forwards'
+                  }} />
+                )}
               </div>
             ) : (
               <div className={styles.flowLocked}>
@@ -412,9 +451,9 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             </div>
             <button
               className={styles.toggle}
-              onClick={() => setDecrypted(!decrypted)}
-              style={{ background: decrypted ? "var(--green)" : "var(--mist)" }}
-              disabled={!isDone}
+              onClick={handleDecryptToggle}
+              style={{ background: decrypted ? "var(--green)" : (scanning ? "var(--blue)" : "var(--mist)") }}
+              disabled={!isDone || scanning}
               aria-label="Toggle decrypt"
             >
               <span className={styles.toggleThumb}
