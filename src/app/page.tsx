@@ -42,10 +42,8 @@ export default function LandingPage() {
         </div>
     </nav>
 
-    <!-- ─── HERO ─────────────────────────────────────────────── -->
-
-    <div class="hero reveal">
-        <div class="hero-left">
+    <!-- ─── HERO ───────────────�    <div class="hero reveal">
+        <div class="hero-center">
             <div class="hero-eyebrow reveal" style="transition-delay: 0.1s;">
                 <span class="hero-dot"></span>
                 Solana Colosseum · Cloak Track
@@ -55,7 +53,7 @@ export default function LandingPage() {
                 treasury is<br>
                 <em>an open book.</em>
             </h1>
-            <p class="hero-sub reveal" style="transition-delay: 0.3s;">
+            <p class="hero-sub reveal" style="transition-delay: 0.3s; margin-left: auto; margin-right: auto;">
                 Aegis Ledger is a B2B private treasury and payroll engine for DAOs. Execute payroll, swaps, and
                 disbursements inside a shielded UTXO pool — invisible on-chain, cryptographically auditable off-chain.
             </p>
@@ -72,77 +70,7 @@ export default function LandingPage() {
                 </div>
             </div>
         </div>
-
-        <div class="hero-mockup reveal" style="transition-delay: 0.4s;">
-            <div class="mockup-stack">
-
-                
-                <!-- Treasury Card -->
-                <div class="card-treasury reveal" style="transition-delay: 0.5s;">
-                    <div class="card-t-header">
-                        <div>
-                            <div class="card-t-label">Shielded treasury</div>
-                        </div>
-                        <div class="card-t-shield">
-                            🔒 CLOAK POOL
-                        </div>
-                    </div>
-                    <div class="card-t-amount">\$4,218,440</div>
-                    <div class="card-t-sub">Pool depth: 847 UTXOs · AES-256-GCM encrypted</div>
-                    <div class="card-t-grid">
-                        <div>
-                            <div class="card-t-stat-label">Available</div>
-                            <div class="card-t-stat-val">\$3.9M</div>
-                        </div>
-                        <div>
-                            <div class="card-t-stat-label">Locked (payroll)</div>
-                            <div class="card-t-stat-val">\$124K</div>
-                        </div>
-                        <div>
-                            <div class="card-t-stat-label">ZK proofs</div>
-                            <div class="card-t-stat-val green">✓ 100%</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Batch Run Card -->
-                <div class="card-batch reveal" style="transition-delay: 0.6s;">
-                    <div class="card-b-header">
-                        <span class="card-b-title">Batch payroll run — May 2025</span>
-                        <div class="card-b-status">
-                            <span
-                                style="width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block"></span>
-                            SHIELDED
-                        </div>
-                    </div>
-                    <div class="recipients">
-                        <div class="recip-row">
-                            <span class="recip-addr">7xKt···m3F2</span>
-                            <span><span class="recip-amount">\$8,500</span><span class="recip-token">USDC</span></span>
-                        </div>
-                        <div class="recip-row">
-                            <span class="recip-addr">BqPx···9aL1</span>
-                            <span><span class="recip-amount">312.89</span><span class="recip-token">SOL</span></span>
-                        </div>
-                        <div class="recip-row">
-                            <span class="recip-addr">Cm3R···vT5N</span>
-                            <span><span class="recip-amount">\$9,800</span><span class="recip-token">USDT</span></span>
-                        </div>
-                    </div>
-                    <div class="card-b-footer">
-                        <span class="card-b-footer-l">18 recipients · batch fee ~\$0.0008</span>
-                        <span class="card-b-footer-r">On-chain amount: HIDDEN</span>
-                    </div>
-                </div>
-
-                <!-- Audit key -->
-                <div class="card-audit reveal" style="transition-delay: 0.7s;">
-                    <div class="audit-icon">🔑</div>
-                    <div class="audit-key">
-                        <div class="audit-key-label">Auditor viewing key</div>
-                        <div class="audit-key-val">vk_aegis_3f9a···c2d1</div>
-                    </div>
-                    <span class="audit-action">Reveal ledger →</span>
+    </div>ass="audit-action">Reveal ledger →</span>
                 </div>
 
             </div>
@@ -222,6 +150,85 @@ export default function LandingPage() {
                 <div class="feat-desc">Redis SET NX mutex locks scoped per org_id with atomic Lua release prevent UTXO
                     selection races. Groth16 ZK proofs verified server-side before any on-chain submission.</div>
                 <div class="feat-tag">Redis + Poseidon hash</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ─── PRODUCT SHOWCASE ─────────────────────────────────── -->
+
+    <section id="showcase" style="background:var(--paper); border-top: 1px solid var(--mist); border-bottom: 1px solid var(--mist); padding: 100px 48px;">
+        <div class="section-eyebrow reveal text-center">Product Preview</div>
+        <h2 class="section-h2 serif reveal text-center mx-auto" style="transition-delay: 0.1s; margin-bottom: 60px;">A curated tour of the Aegis interface.</h2>
+        
+        <div class="showcase-grid">
+            <!-- Item 1 -->
+            <div class="showcase-item reveal">
+                <div class="showcase-visual">
+                    <div class="card-treasury">
+                        <div class="card-t-header">
+                            <div>
+                                <div class="card-t-label">Shielded treasury</div>
+                            </div>
+                            <div class="card-t-shield">🔒 CLOAK POOL</div>
+                        </div>
+                        <div class="card-t-amount">\$4,218,440</div>
+                        <div class="card-t-sub">Pool depth: 847 UTXOs · AES-256-GCM</div>
+                        <div class="card-t-grid">
+                            <div><div class="card-t-stat-label">Available</div><div class="card-t-stat-val">\$3.9M</div></div>
+                            <div><div class="card-t-stat-label">Locked</div><div class="card-t-stat-val">\$124K</div></div>
+                            <div><div class="card-t-stat-label">ZK proofs</div><div class="card-t-stat-val green">✓ 100%</div></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="showcase-content">
+                    <div class="feat-num">PREVIEW 01</div>
+                    <h3 class="feat-title">Shielded Treasury Dashboard</h3>
+                    <p class="feat-desc">All treasury balances are shielded by default. While the public sees a random Cloak program address, the DAO admin sees a real-time decrypted breakdown of available and locked capital.</p>
+                </div>
+            </div>
+
+            <!-- Item 2 -->
+            <div class="showcase-item reveal" style="transition-delay: 0.1s;">
+                <div class="showcase-content">
+                    <div class="feat-num">PREVIEW 02</div>
+                    <h3 class="feat-title">ZK Batch Execution</h3>
+                    <p class="feat-desc">Execute multi-recipient payroll in a single atomic batch. Our engine generates Groth16 ZK proofs in your browser—ensuring no keys or plaintext data ever touch our servers.</p>
+                </div>
+                <div class="showcase-visual">
+                    <div class="card-batch">
+                        <div class="card-b-header">
+                            <span class="card-b-title">Batch payroll run — May 2025</span>
+                            <div class="card-b-status">SHIELDED</div>
+                        </div>
+                        <div class="recipients">
+                            <div class="recip-row"><span class="recip-addr">7xKt···m3F2</span><span class="recip-amount">\$8,500 USDC</span></div>
+                            <div class="recip-row"><span class="recip-addr">BqPx···9aL1</span><span class="recip-amount">312.89 SOL</span></div>
+                        </div>
+                        <div class="card-b-footer">
+                            <span class="card-b-footer-l">18 recipients · fee ~\$0.0008</span>
+                            <span class="card-b-footer-r">Amount: HIDDEN</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Item 3 -->
+            <div class="showcase-item reveal" style="transition-delay: 0.2s;">
+                <div class="showcase-visual">
+                    <div class="card-audit">
+                        <div class="audit-icon">🔑</div>
+                        <div class="audit-key">
+                            <div class="audit-key-label">Auditor viewing key</div>
+                            <div class="audit-key-val">vk_aegis_3f9a···c2d1</div>
+                        </div>
+                        <span class="audit-action">Reveal ledger →</span>
+                    </div>
+                </div>
+                <div class="showcase-content">
+                    <div class="feat-num">PREVIEW 03</div>
+                    <h3 class="feat-title">Compliance via Viewing Keys</h3>
+                    <p class="feat-desc">Privacy doesn't mean lack of oversight. Issue time-scoped cryptographic viewing keys to regulators or tax authorities, allowing them to verify payroll without compromising future privacy.</p>
+                </div>
             </div>
         </div>
     </section>
