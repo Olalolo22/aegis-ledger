@@ -153,19 +153,17 @@ export default function LandingPage() {
                     <div class="stat-num serif"><span>100%</span></div>
                     <div class="stat-desc">of DAO treasury movements are publicly visible on-chain — including payroll
                         amounts, recipient wallets, and swap sizes.</div>
-                    <div class="stat-source">Source: Solana Explorer, any block</div>
+                    <div class="stat-source">Source: <a href="https://explorer.solana.com" target="_blank" style="color:inherit;text-decoration:underline">Solana Explorer</a></div>
                 </div>
                 <div class="stat-cell">
-                    <div class="stat-num serif">\$47<span>M</span></div>
-                    <div class="stat-desc">lost by DAOs in 2024 to front-running and MEV on treasury swaps made through
-                        public AMMs.</div>
-                    <div class="stat-source">Source: Chainalysis MEV report</div>
+                    <div class="stat-num serif">\$370<span>M</span></div>
+                    <div class="stat-desc">captured by sandwich bots in the last 16 months from high-slippage swaps on public AMMs.</div>
+                    <div class="stat-source">Source: <a href="https://sandwiched.me" target="_blank" style="color:inherit;text-decoration:underline">Sandwiched.me Analysis</a></div>
                 </div>
                 <div class="stat-cell">
-                    <div class="stat-num serif">6<span>hrs</span></div>
-                    <div class="stat-desc">median time for competitor DAOs to react to a large treasury move, using
-                        on-chain analytics to front-run governance decisions.</div>
-                    <div class="stat-source">Source: Nansen DAO tracker</div>
+                    <div class="stat-num serif">&lt; 1<span>sec</span></div>
+                    <div class="stat-desc">the time it takes for a private searcher to identify and front-run your public treasury swap.</div>
+                    <div class="stat-source">Source: <a href="https://www.helius.dev/blog/solana-mev-in-a-nutshell" target="_blank" style="color:inherit;text-decoration:underline">Helius Research</a></div>
                 </div>
             </div>
         </div>
@@ -354,10 +352,10 @@ export default function LandingPage() {
             <span class="footer-name">Aegis Ledger</span>
         </div>
         <div class="footer-links">
-            <a href="#">Docs</a>
-            <a href="#">GitHub</a>
-            <a href="#">Cloak SDK</a>
-            <a href="#">Architecture</a>
+            <a href="https://x.com/aegis_ledger" target="_blank">X (Twitter)</a>
+            <a href="https://github.com/Olalolo22/aegis-ledger" target="_blank">GitHub</a>
+            <a href="https://cloak.ag" target="_blank">Cloak SDK</a>
+            <a href="#how">Architecture</a>
         </div>
         <span class="footer-copy">© 2026 Aegis Ledger · Colosseum Hackathon</span>
     </footer>
