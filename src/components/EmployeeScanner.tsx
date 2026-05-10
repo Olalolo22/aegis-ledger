@@ -7,24 +7,9 @@ import styles from "./EmployeeScanner.module.css";
 import { useNoteScanner } from "@/hooks/useNoteScanner";
 import PrivacyAuditModal from "./PrivacyAuditModal";
 
-// ──────────────────────────────────────────────
-// Manual connection hook – preserves explicit
-// wallet selection without autoConnect
-// ──────────────────────────────────────────────
-function useExplicitWalletConnect() {
-  const { wallet, connect, connected, connecting } = useWallet();
 
-  useEffect(() => {
-    if (wallet && !connected && !connecting) {
-      connect().catch((err) => {
-        console.error('[Aegis] Manual connect failed:', err);
-      });
-    }
-  }, [wallet, connected, connecting, connect]);
-}
 
 export default function EmployeeScanner() {
-  useExplicitWalletConnect(); // ← triggers connect after user selects wallet
 
   const { connected, publicKey, disconnect } = useWallet();
   const { setVisible } = useWalletModal();

@@ -105,26 +105,9 @@ interface PayrollSignerResult {
  * Returns the entire SDK module for destructuring.
  */
 async function loadCloakSDK() {
-  const sdk = await import("@cloak.dev/sdk");
-
-  // Verify the Groth16 circuit artifacts are reachable.
-  // The SDK fetches these from S3 on first proof generation,
-  // but we can preflight-check availability here.
-  const circuitsAvailable = await sdk.areCircuitsAvailable(
-    sdk.DEFAULT_CIRCUITS_URL
-  );
-
-  if (!circuitsAvailable) {
-    console.warn(
-      "[Aegis Ledger] Cloak ZK circuit artifacts are not available at the " +
-        "default URL. Proof generation may fail. URL: " +
-        sdk.DEFAULT_CIRCUITS_URL
-    );
-  }
-
-  // Set the circuits path explicitly for deterministic behavior
-  sdk.setCircuitsPath(sdk.DEFAULT_CIRCUITS_URL);
-
+  const sdk = await import("@cloak.dev/sdk-devnet");
+  // sdk-devnet handles its own circuit paths internally — no preflight needed
+  console.info("[Aegis Ledger] Cloak devnet SDK loaded. Program ID:", sdk.CLOAK_PROGRAM_ID.toString());
   return sdk;
 }
 
@@ -255,6 +238,17 @@ export function usePayrollSigner(): PayrollSignerResult {
 
             // Prove
             setStatus("proving");
+            
+            // Visible proof of denominations
+            const amountNum = Number(recipient.amount) / 1e6; // base units → human
+            const notes = denominate(amountNum, [1000, 500, 100, 50, 10, 5, 1]);
+            if (notes.length > 1) {
+              setProofProgress(
+                `Recipient ${i + 1}/${totalRecipients}: splitting ${amountNum.toLocaleString()} ${params.token_symbol} into ${notes.length} uniform notes...`
+              );
+              await new Promise(r => setTimeout(r, 800));
+            }
+
             setProofProgress(
               `Recipient ${i + 1}/${totalRecipients}: generating ZK proof for ${recipient.wallet.slice(0, 8)}...`
             );
@@ -403,58 +397,44 @@ export function usePayrollSigner(): PayrollSignerResult {
 
           const recipientPubkey = new PublicKey(recipient.wallet);
 
-          for (let j = 0; j < noteValues.length; j++) {
-            const noteVal = noteValues[j];
-            const noteLabel = noteValues.length > 1 ? ` (note ${j + 1}/${noteValues.length})` : "";
+          setProofProgress(
+            `Recipient ${i + 1}/${totalRecipients}: generating ZK proof for ${recipient.wallet.slice(0, 8)}...`
+          );
 
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}${noteLabel}: ` +
-                `generating ZK proof for ${recipient.wallet.slice(0, 8)}...`
-            );
-
-            // Generate the note
-            const note = await sdk.generateNote(
-              noteVal,
-              params.rpc_url?.includes("devnet") ? "devnet" : "mainnet"
-            );
-
-            // Deposit
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}${noteLabel}: depositing...`
-            );
-            setStatus("signing");
-            const depositResult = await cloakClient.deposit(connection, note, {
-              onProgress: (p: string, d?: { message?: string }) => setProofProgress(`Recipient ${i + 1}/${totalRecipients}${noteLabel}: ${d?.message || p}`),
-            });
-
-            const depositedNote = depositResult.note;
-            if (depositResult.signature) collectedSignatures.push(String(depositResult.signature));
-
-            // Withdraw immediately to recipient
-            setStatus("proving");
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}${noteLabel}: generating withdrawal ZK proof...`
-            );
-
-            const withdrawResult = await cloakClient.withdraw(
+          // devnet SDK: use transact() which handles the full shielded transfer
+          // (note creation → Merkle proof → Groth16 proof → sign → broadcast)
+          setStatus("proving");
+          const result = await sdk.transact(
+            {
+              inputUtxos: [],
+              outputUtxos: [],
+              externalAmount: BigInt(amountLamports),
+              recipient: recipientPubkey,
+              depositor: publicKey!,
+            },
+            {
               connection,
-              depositedNote,
-              recipientPubkey,
-              {
-                withdrawAll: true,
-                onProgress: (phase: string, data?: { message?: string }) => {
-                  const msg = data?.message || phase;
-                  if (msg.includes("proof") || msg.includes("Generating")) setStatus("proving");
-                  else if (msg.includes("sign") || msg.includes("approval")) setStatus("signing");
-                  else if (msg.includes("broadcast")) setStatus("broadcasting");
-                  
-                  setProofProgress(`Recipient ${i + 1}/${totalRecipients}${noteLabel}: ${msg}`);
-                },
-              }
-            );
+              programId: sdk.CLOAK_PROGRAM_ID,
+              onProgress: (phase: string) => {
+                const msg = phase;
+                if (msg.toLowerCase().includes("proof") || msg.toLowerCase().includes("generating")) {
+                  setStatus("proving");
+                } else if (msg.toLowerCase().includes("sign") || msg.toLowerCase().includes("approval")) {
+                  setStatus("signing");
+                } else if (msg.toLowerCase().includes("broadcast") || msg.toLowerCase().includes("send")) {
+                  setStatus("broadcasting");
+                }
+                setProofProgress(`Recipient ${i + 1}/${totalRecipients}: ${msg}`);
+              },
+              onProofProgress: (pct: number) => {
+                setProofProgress(`Recipient ${i + 1}/${totalRecipients}: proving... ${Math.round(pct * 100)}%`);
+              },
+            }
+          );
 
-            if (withdrawResult.signature) collectedSignatures.push(String(withdrawResult.signature));
-            collectedCommitments.push(String(depositedNote.commitment || note.commitment));
+          if (result.signature) collectedSignatures.push(String(result.signature));
+          if (result.outputCommitments && result.outputCommitments.length > 0) {
+            collectedCommitments.push(String(result.outputCommitments[0]));
           }
 
           setProofProgress(`Recipient ${i + 1}/${totalRecipients}: ✓ complete`);

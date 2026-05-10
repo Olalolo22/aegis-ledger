@@ -4,10 +4,7 @@ import "./landing.css";
 
 export default function LandingPage() {
     useEffect(() => {
-        (window as any).selectSDK = function (id: string) {
-            ['a', 'b', 'c'].forEach(k => document.getElementById('sdk-' + k)?.classList.remove('selected'));
-            document.getElementById('sdk-' + id)?.classList.add('selected');
-        };
+        // Any global init if needed
     }, []);
 
     return (
@@ -18,7 +15,7 @@ export default function LandingPage() {
 
     <nav>
         <a class="nav-brand" href="#">
-            <div class="nav-mark">Æ</div>
+            <img src="/logo.svg" alt="Aegis Logo" class="nav-mark" style="border: none; padding: 0;" />
             <span class="nav-name">Aegis Ledger</span>
         </a>
         <ul class="nav-links">
@@ -26,7 +23,6 @@ export default function LandingPage() {
             <li><a href="#solution">Solution</a></li>
             <li><a href="#how">How it works</a></li>
             <li><a href="#compare">Compare</a></li>
-            <li><a href="#sdk">SDK options</a></li>
         </ul>
         <div class="nav-cta">
             <span class="cloak-badge">⚡ Cloak Track</span>
@@ -260,8 +256,8 @@ export default function LandingPage() {
 
     <section id="compare">
         <div class="section-eyebrow">Compare</div>
-        <h2 class="section-h2 serif">Aegis vs. the alternatives.</h2>
-        <p class="section-sub">Every other DAO treasury tool exposes your strategy. Aegis is the only one that doesn't.
+        <h2 class="section-h2 serif">Aegis vs. standard multisigs.</h2>
+        <p class="section-sub">Standard treasury tools are transparent by default. Aegis Ledger provides the only end-to-end shielded operations layer on Solana.
         </p>
         <div class="comp-table-wrap">
             <table class="comp-table">
@@ -270,8 +266,7 @@ export default function LandingPage() {
                         <th style="width:220px">Feature</th>
                         <th class="aegis-col" style="width:160px">
                             <span style="display:inline-flex;align-items:center;gap:6px;">
-                                <span
-                                    style="width:16px;height:16px;background:var(--ink);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:9px;color:white;">Æ</span>
+                                <img src="/logo.svg" alt="Aegis Logo" style="width:16px;height:16px;border-radius:4px;display:inline-block;" />
                                 Aegis Ledger
                             </span>
                         </th>
@@ -332,9 +327,9 @@ export default function LandingPage() {
                     </tr>
                     <tr>
                         <td class="feat-label">Batch fee</td>
-                        <td class="aegis-col">~\$0.0008</td>
-                        <td>\$2–15</td>
-                        <td>0.1%</td>
+                        <td class="aegis-col">0.005 SOL + 0.3%</td>
+                        <td>$2–15 (Gas)</td>
+                        <td>Free*</td>
                         <td>0.25%</td>
                         <td>Manual</td>
                     </tr>
@@ -342,129 +337,6 @@ export default function LandingPage() {
             </table>
         </div>
     </section>
-
-    <!-- ─── SDK DECISION ──────────────────────────────────────── -->
-
-    <div style="background:var(--paper);border-top:1px solid var(--mist);border-bottom:1px solid var(--mist);" id="sdk">
-        <section>
-            <div class="section-eyebrow">SDK integration decision</div>
-            <h2 class="section-h2 serif">Three remaining Cloak features. One build slot.</h2>
-            <p class="section-sub">We have bandwidth for one or two more Cloak SDK integrations. Click each to see the
-                evaluation across real-world utility, hackathon impact, and implementation risk.</p>
-            <div class="sdk-grid">
-
-                
-                <div class="sdk-card" id="sdk-a" onclick="selectSDK('a')">
-                    <div class="sdk-rec-badge">★ Recommended</div>
-                    <div class="sdk-letter sdk-la serif">A</div>
-                    <div class="sdk-title">Note Scanner</div>
-                    <div class="sdk-sub">Employee portal</div>
-                    <div class="sdk-desc">Client-side UI where contractors connect their wallet and their browser
-                        locally decrypts their payslips using their viewing key. Zero server access, zero data leakage.
-                    </div>
-                    <div class="sdk-scores">
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">B2B utility</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:100%"></div>
-                            </div>
-                            <span class="sdk-score-val">5/5</span>
-                        </div>
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">Hackathon wow</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:70%"></div>
-                            </div>
-                            <span class="sdk-score-val">3.5/5</span>
-                        </div>
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">Build risk</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:20%;background:var(--emerald)"></div>
-                            </div>
-                            <span class="sdk-score-val">Low</span>
-                        </div>
-                    </div>
-                    <div class="sdk-verdict">Build this first. Pairs directly with your existing batch disbursement
-                        flow. Contractors self-serve with zero backend trust. Highest real-world B2B utility, lowest
-                        implementation risk, natural extension of what you've already built.</div>
-                </div>
-
-                <div class="sdk-card" id="sdk-b" onclick="selectSDK('b')">
-                    <div class="sdk-letter sdk-lb serif">B</div>
-                    <div class="sdk-title">Private Withdrawals</div>
-                    <div class="sdk-sub">Anonymous off-ramping</div>
-                    <div class="sdk-desc">Destroy shielded salary notes and mint SPL tokens to a brand-new, completely
-                        unconnected burner wallet — permanently breaking the heuristic chain link between identity and
-                        payment.</div>
-                    <div class="sdk-scores">
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">B2B utility</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:80%"></div>
-                            </div>
-                            <span class="sdk-score-val">4/5</span>
-                        </div>
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">Hackathon wow</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:100%"></div>
-                            </div>
-                            <span class="sdk-score-val">5/5</span>
-                        </div>
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">Build risk</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:50%;background:var(--amber)"></div>
-                            </div>
-                            <span class="sdk-score-val">Medium</span>
-                        </div>
-                    </div>
-                    <div class="sdk-verdict">Your hackathon showstopper. Build second if bandwidth allows. The
-                        burn-to-mint moment is visually decisive and conceptually airtight. Judges evaluating Cloak
-                        track will immediately grasp the privacy guarantee. Extends privateSwap naturally.</div>
-                </div>
-
-                <div class="sdk-card" id="sdk-c" onclick="selectSDK('c')">
-                    <div class="sdk-letter sdk-lc serif">C</div>
-                    <div class="sdk-title">Client-Side ZK Proofs</div>
-                    <div class="sdk-sub">WASM Groth16 / Poseidon</div>
-                    <div class="sdk-desc">Move Groth16 provers and Poseidon hashing out of Next.js and into browser
-                        WASM. The server never sees private inputs. Absolute trustlessness — cryptographic, not
-                        organizational.</div>
-                    <div class="sdk-scores">
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">B2B utility</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:60%"></div>
-                            </div>
-                            <span class="sdk-score-val">3/5</span>
-                        </div>
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">Hackathon wow</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:90%"></div>
-                            </div>
-                            <span class="sdk-score-val">4.5/5</span>
-                        </div>
-                        <div class="sdk-score-row">
-                            <span class="sdk-score-label">Build risk</span>
-                            <div class="sdk-score-bar">
-                                <div class="sdk-score-fill" style="width:90%;background:var(--red)"></div>
-                            </div>
-                            <span class="sdk-score-val">High</span>
-                        </div>
-                    </div>
-                    <div class="sdk-verdict">Target post-hackathon. Browser WASM Groth16 carries 3–8s proof latency —
-                        real UX friction during a live demo. Architecturally groundbreaking but risks demo instability.
-                        Ship the architecture diagram instead of the live feature during the judging window.</div>
-                </div>
-
-            </div>
-            
-
-        </section>
-    </div>
 
     <!-- ─── CTA ───────────────────────────────────────────────── -->
 
@@ -478,7 +350,7 @@ export default function LandingPage() {
 
     <footer>
         <div class="footer-brand">
-            <div class="footer-mark">Æ</div>
+            <img src="/logo.svg" alt="Aegis Logo" class="footer-mark" style="border: none; padding: 0;" />
             <span class="footer-name">Aegis Ledger</span>
         </div>
         <div class="footer-links">

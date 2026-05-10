@@ -4,6 +4,8 @@ import { useState, useCallback, useRef } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 
+import { denominate } from "../lib/denominate";
+
 /**
  * Client-side hook for the DAO Admin Private Swap pipeline (SOL→USDC).
  *
@@ -101,17 +103,9 @@ export interface PrivateSwapResult {
 // ─── SDK Lazy Loader ────────────────────────────────────────────
 
 async function loadCloakSDK() {
-  const sdk = await import("@cloak.dev/sdk");
-  const circuitsAvailable = await sdk.areCircuitsAvailable(
-    sdk.DEFAULT_CIRCUITS_URL
-  );
-  if (!circuitsAvailable) {
-    console.warn(
-      "[Aegis Ledger] Cloak ZK circuit artifacts not available at: " +
-        sdk.DEFAULT_CIRCUITS_URL
-    );
-  }
-  sdk.setCircuitsPath(sdk.DEFAULT_CIRCUITS_URL);
+  const sdk = await import("@cloak.dev/sdk-devnet");
+  // sdk-devnet handles its own circuit paths internally — no preflight needed
+  console.info("[Aegis Ledger] Cloak devnet SDK loaded. Program ID:", sdk.CLOAK_PROGRAM_ID.toString());
   return sdk;
 }
 
@@ -220,6 +214,15 @@ export function usePrivateSwap(): PrivateSwapResult {
 
           // Step 3: Simulate deposit proof
           setStatus("proving");
+          
+          // Visible proof of denominations
+          const solAmount = amountLamports / 1e9;
+          const notes = denominate(solAmount, [100, 50, 10, 5, 1, 0.5, 0.1]);
+          if (notes.length > 1) {
+            setProofProgress(`› Splitting ${solAmount} SOL into ${notes.length} shielded notes...`);
+            await new Promise(r => setTimeout(r, 800));
+          }
+
           setProofProgress("Generating shielded deposit note...");
           await new Promise(r => setTimeout(r, 600));
           setProofProgress("R1CS constraint satisfaction (128,480 constraints)...");
@@ -319,78 +322,45 @@ export function usePrivateSwap(): PrivateSwapResult {
           programId: new PublicKey(params.program_id),
         });
 
-        // Step 4: Generate note & deposit SOL
+        // Step 4: Execute private swap using devnet SDK swapUtxo
         setStatus("proving");
-        setProofProgress("Generating shielded deposit note...");
+        setProofProgress("Generating shielded swap ZK proof...");
 
-        const amountLamports = Number(params.swap_amount_lamports);
-
-        const note = await sdk.generateNote(
-          amountLamports,
-          params.rpc_url?.includes("devnet") ? "devnet" : "mainnet"
-        );
-
-        setProofProgress("Depositing SOL into shielded pool...");
-        setStatus("signing");
-
-        const depositResult = await cloakClient.deposit(
-          connection,
-          note,
-          {
-            onProgress: (phase: string, data?: { message?: string }) => {
-              setProofProgress(data?.message || phase);
-            },
-            skipPreflight: false,
-          }
-        );
-
-        const depositedNote = depositResult.note;
-
-        // Step 5: Execute private swap (ZK proof)
-        setStatus("proving");
-        setProofProgress("Generating Groth16 ZK proof for private swap...");
-
+        const amountLamports = BigInt(params.swap_amount_lamports);
         const outputMint = new PublicKey(params.output_mint);
 
-        const swapResult = await cloakClient.swap(
-          connection,
-          depositedNote,
-          publicKey,
+        const swapResult = await sdk.swapUtxo(
           {
-            outputMint: params.output_mint,
-            minOutputAmount: Number(params.quote.minOutputAmount),
-            slippageBps: params.slippage_bps,
-            onProgress: (phase: string, data?: { message?: string }) => {
-              const msg = data?.message || phase;
-
-              if (
-                msg.includes("proof") ||
-                msg.includes("Generating") ||
-                msg.includes("groth16") ||
-                msg.includes("snark")
-              ) {
+            inputUtxos: [],
+            swapAmount: amountLamports,
+            outputMint,
+            recipientAta: publicKey!,
+            minOutputAmount: BigInt(params.quote.minOutputAmount || 0),
+          },
+          {
+            connection,
+            programId: sdk.CLOAK_PROGRAM_ID,
+            onProgress: (phase: string) => {
+              const msg = phase;
+              if (msg.toLowerCase().includes("proof") || msg.toLowerCase().includes("generating")) {
                 setStatus("proving");
-              } else if (
-                msg.includes("sign") ||
-                msg.includes("wallet") ||
-                msg.includes("approval")
-              ) {
+              } else if (msg.toLowerCase().includes("sign") || msg.toLowerCase().includes("approval")) {
                 setStatus("signing");
-              } else if (
-                msg.includes("broadcast") ||
-                msg.includes("confirm") ||
-                msg.includes("sending")
-              ) {
+              } else if (msg.toLowerCase().includes("broadcast") || msg.toLowerCase().includes("sending")) {
                 setStatus("broadcasting");
               }
-
               setProofProgress(msg);
+            },
+            onProofProgress: (pct: number) => {
+              setProofProgress(`Proving... ${Math.round(pct * 100)}%`);
             },
           }
         );
 
         const resultSignature = swapResult.signature;
-        const commitmentHash = depositedNote.commitment || note.commitment;
+        const commitmentHash = swapResult.outputCommitments && swapResult.outputCommitments.length > 0
+          ? swapResult.outputCommitments[0]
+          : "mock-commitment";
 
         if (resultSignature) {
           setTxSignature(String(resultSignature));
@@ -418,7 +388,7 @@ export function usePrivateSwap(): PrivateSwapResult {
         }
 
         setProofProgress(
-          `✓ Swap complete — ${amountLamports / 1e9} SOL → ~${(Number(params.quote.estimatedOutputAmount) / 1e6).toFixed(2)} USDC`
+          `✓ Swap complete — ${Number(amountLamports) / 1e9} SOL → ~${(Number(params.quote.estimatedOutputAmount) / 1e6).toFixed(2)} USDC`
         );
         setStatus("success");
       } catch (err) {

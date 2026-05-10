@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { CLOAK_PROGRAM_ID } from "@cloak.dev/sdk";
+import { CLOAK_PROGRAM_ID } from "@cloak.dev/sdk-devnet";
 
 /**
  * Server-side Cloak SDK helpers — DATA COORDINATOR ONLY.

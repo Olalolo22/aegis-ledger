@@ -4,7 +4,7 @@ import {
   CLOAK_PROGRAM_ID,
   scanTransactions,
   toComplianceReport,
-} from "@cloak.dev/sdk";
+} from "@cloak.dev/sdk-devnet";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getConnection } from "@/lib/cloak";
 import { decryptViewingKey } from "@/lib/crypto";

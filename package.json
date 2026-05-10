@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@cloak.dev/sdk": "^0.1.5",
+    "@cloak.dev/sdk-devnet": "^0.1.5-devnet.1",
     "@solana/wallet-adapter-backpack": "^0.1.14",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-phantom": "^0.9.29",

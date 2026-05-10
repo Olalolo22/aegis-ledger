@@ -325,12 +325,12 @@ function generateDemoTransactions(): DecryptedTransaction[] {
       netAmount: -4_985_000_000,
       runningBalance: 45_000_000_000,
       timestamp: now - 2 * day,
-      recipient: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      recipient: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
       commitment: "a1b2c3d4e5f6789012345678901234567890abcdef01234567890abcdef012345",
       signature: "5UGPnAEXYpJm4x9Z3nJyK123456789abcdef",
       symbol: "USDC",
       decimals: 6,
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
     },
     {
       txType: "withdrawal",
@@ -344,7 +344,7 @@ function generateDemoTransactions(): DecryptedTransaction[] {
       signature: "6VHQoBFYqKn5y0A4P2oLzM234567890bcdefg",
       symbol: "USDC",
       decimals: 6,
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
     },
     {
       txType: "withdrawal",
@@ -358,7 +358,7 @@ function generateDemoTransactions(): DecryptedTransaction[] {
       signature: "7WIRpCGZrLo6z1B5Q3pMaN345678901cdefgh",
       symbol: "USDC",
       decimals: 6,
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
     },
     {
       txType: "withdrawal",
@@ -372,7 +372,7 @@ function generateDemoTransactions(): DecryptedTransaction[] {
       signature: "8XJSpDHAsMP7a2C6R4qNbO456789012defghi",
       symbol: "USDC",
       decimals: 6,
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
     },
     {
       txType: "withdrawal",
@@ -386,7 +386,7 @@ function generateDemoTransactions(): DecryptedTransaction[] {
       signature: "9YKTqEIBtNQ8b3D7S5rOcP567890123efghij",
       symbol: "USDC",
       decimals: 6,
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
     },
   ];
 }

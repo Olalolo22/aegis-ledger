@@ -27,7 +27,7 @@ import {
   scanNotesForWallet,
   deriveViewKey,
   bigintToHex,
-} from "@cloak.dev/sdk";
+} from "@cloak.dev/sdk-devnet";
 import type { DecryptedPayslip, ScanSummary } from "@/types/payslip";
 import { MINT_TO_SYMBOL, TOKEN_DECIMALS } from "@/types/payslip";
 

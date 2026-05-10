@@ -256,8 +256,13 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
 
         {/* Rate info */}
         <div className={styles.routeInfo} style={{ justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6", display: "flex", alignItems: "center", gap: 4 }}>
             1 {inputToken} ≈ {exchangeRate < 0.01 ? exchangeRate.toFixed(6) : exchangeRate.toFixed(4)} {outputToken}
+            {!isLive && (
+              <span title="Using fallback/cached prices. Real-time fetch failed." style={{ color: "#f5a623", cursor: "help" }}>
+                ⚠
+              </span>
+            )}
           </span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#00b87a" }}>
             Shielded routing

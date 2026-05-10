@@ -16,7 +16,8 @@ export const TOKEN_DECIMALS: Record<string, number> = {
 
 /** Known token mint addresses → symbols */
 export const MINT_TO_SYMBOL: Record<string, string> = {
-  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: "USDC",
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: "USDC", // Mainnet
+  "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf": "USDC", // Devnet
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: "USDT",
   So11111111111111111111111111111111111111112: "SOL",
 };

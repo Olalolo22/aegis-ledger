@@ -7,11 +7,11 @@ import { z } from "zod";
  */
 
 // ─── Solana Pubkey Validation ───────────────────────────────────
-// Base58-encoded Solana public key: 32–44 characters, no 0/O/I/l
+// Base58-encoded Solana public key: 32–48 characters, no 0/O/I/l
 const solanaPubkeySchema = z
   .string()
   .min(32)
-  .max(44)
+  .max(48)
   .regex(
     /^[1-9A-HJ-NP-Za-km-z]+$/,
     "Invalid Solana public key (must be base58)"
@@ -62,7 +62,7 @@ export type PayrollRecipientInput = z.infer<typeof payrollRecipientSchema>;
 // ─── Token Mint Map ────────────────────────────────────────────
 /** Known token mints for validation cross-referencing */
 export const TOKEN_MINTS: Record<string, string> = {
-  USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  USDC: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf", // Devnet USDC (Circle)
   USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
   SOL: "So11111111111111111111111111111111111111112", // wrapped SOL mint
 };

@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import {
   generateUtxoKeypair,
   getNkFromUtxoPrivateKey,
-} from "@cloak.dev/sdk";
+} from "@cloak.dev/sdk-devnet";
 import { createServiceClient } from "@/lib/supabase/server";
 import { generateKeyRequestSchema } from "@/lib/validation";
 import {

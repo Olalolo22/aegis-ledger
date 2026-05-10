@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
-import { CLOAK_PROGRAM_ID, NATIVE_SOL_MINT } from "@cloak.dev/sdk";
+import { CLOAK_PROGRAM_ID, NATIVE_SOL_MINT } from "@cloak.dev/sdk-devnet";
 import { acquireMutex, releaseMutex } from "@/lib/redis";
 import {
   getConnection,
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
             },
           ],
           input_mint: "So11111111111111111111111111111111111111112",
-          output_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          output_mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf", // Devnet USDC (Circle)
           swap_amount_lamports: amount_lamports,
           slippage_bps,
           quote: {

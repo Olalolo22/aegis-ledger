@@ -194,14 +194,56 @@ function ZKModal({
 // ─── MAIN COMPONENT ───────────────────────────────────────────
 export default function PayrollTerminal() {
   const { execute, status, proofProgress, error, signingParams, recipientProgress } = usePayrollSigner();
-  const [recipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
+  const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
   const [hasRunDenominations, setHasRunDenominations] = useState(false);
+  const [completedRuns, setCompletedRuns] = useState(0);
+  const [showAddRow, setShowAddRow] = useState(false);
+  const [newRow, setNewRow] = useState<Recipient>({ addr: "", amount: "", token: "USDC", memo: "" });
+  const prevStatusRef = useRef(status);
 
-  // Derive dynamic values from hook state if available, fallback to defaults
-  const balance = "$4,218,440";
-  const utxos = signingParams ? signingParams.selected_utxos.length.toString() : "847";
-  const locked = signingParams ? `$${(signingParams.selected_utxos.reduce((acc, u) => acc + parseInt(u.amount), 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "$124K";
+  // Track when a batch completes to decrement balance
+  useEffect(() => {
+    if (prevStatusRef.current !== "completed" && status === "completed") {
+      setCompletedRuns(prev => prev + 1);
+    }
+    prevStatusRef.current = status;
+  }, [status]);
+
+  // Reactive balance — locked = pre-run batch total, clears to $0 after completion
+  const BASE_BALANCE = 4_218_440;
+  const batchTotal = recipients.reduce((sum, r) => {
+    const numeric = parseFloat(r.amount.replace(/,/g, ""));
+    return sum + (isNaN(numeric) ? 0 : numeric);
+  }, 0);
+  const currentBalance = BASE_BALANCE - (batchTotal * completedRuns);
+  const balance = `$${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const utxos = String(847 - (completedRuns * recipients.length));
+  // locked = what's currently reserved. In a UTXO pool, you lock the entire consumed notes (UTXOs),
+  // not just the batch total. We sum the selected UTXOs from the API.
+  const utxoSum = signingParams?.selected_utxos 
+    ? signingParams.selected_utxos.reduce((sum, u) => sum + parseInt(u.amount), 0) / 1e6
+    : 0;
+
+  const isRunning = status !== "idle" && status !== "completed" && status !== "error";
+  const lockedAmount = status === "completed"
+    ? 0
+    : isRunning
+      ? (utxoSum > 0 ? utxoSum : batchTotal) // use true UTXO sum if available, else batch total
+      : completedRuns > 0 ? 0 : 124_000; // $124K pre-run placeholder, $0 after
+  const locked = lockedAmount === 0 ? "$0" : `$${lockedAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const available = `$${((currentBalance - lockedAmount) / 1_000_000).toFixed(1)}M`;
+
+  const handleAddRecipient = () => {
+    if (!newRow.addr || !newRow.amount) return;
+    setRecipients(prev => [...prev, { ...newRow }]);
+    setNewRow({ addr: "", amount: "", token: "USDC", memo: "" });
+    setShowAddRow(false);
+  };
+
+  const handleDeleteRecipient = (index: number) => {
+    setRecipients(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleRunBatch = async () => {
     setShowZK(true);
@@ -217,7 +259,7 @@ export default function PayrollTerminal() {
     await execute({
       org_id: DEMO_ORG_ID,
       token_symbol: "USDC", // Force USDC for demo batch
-      token_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      token_mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf", // Devnet USDC (Circle)
       initiated_by: "", // Hook fills this
       recipients: hookRecipients
     });
@@ -255,7 +297,7 @@ export default function PayrollTerminal() {
 
           <div className={styles.balanceStats}>
             {[
-              { label: "Available", val: "$3.9M", green: false },
+              { label: "Available", val: available, green: false },
               { label: "Locked · payroll", val: locked, green: false },
               { label: "ZK proofs", val: "✓ 100%", green: true },
             ].map(s => (
@@ -270,7 +312,7 @@ export default function PayrollTerminal() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1 }}>
-          <PrivacyScoreCard usingDenominations={hasRunDenominations} />
+          <PrivacyScoreCard usingDenominations={hasRunDenominations} hasRuns={completedRuns > 0} />
           <PrivateSwapPanel />
         </div>
       </div>
@@ -283,7 +325,9 @@ export default function PayrollTerminal() {
             <div className={styles.batchTitle}>May 2026 Payroll Run</div>
           </div>
           <div className={styles.batchActions}>
-            <button className={`${styles.addBtn}`}>+ Add recipient</button>
+            <button className={`${styles.addBtn}`} onClick={() => setShowAddRow(s => !s)}>
+              {showAddRow ? "✕ Cancel" : "+ Add recipient"}
+            </button>
             <button
               className={`${styles.runBtn}`}
               onClick={handleRunBatch}
@@ -299,15 +343,16 @@ export default function PayrollTerminal() {
 
         {/* Table header */}
         <div className={styles.tableHead}>
-          {["Stealth address", "Amount", "Token", "Memo", "Status"].map(h => (
+          {["Stealth address", "Amount", "Token", "Memo", "Status", ""].map(h => (
             <span key={h} className={styles.tableHeadCell}>{h}</span>
           ))}
         </div>
 
         {/* Rows */}
         {recipients.map((r, i) => (
-          <div key={i} className={styles.tableRow}
-            style={{ borderBottom: i < recipients.length - 1 ? "1px solid var(--mist)" : "none" }}>
+          <div className={styles.tableRow}
+            style={{ borderBottom: i < recipients.length - 1 || showAddRow ? "1px solid var(--mist)" : "none",
+              gridTemplateColumns: "1fr 120px 80px 1fr 100px 36px" }}>
             <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 11.5 }}>{r.addr.slice(0, 4)}···{r.addr.slice(-4)}</span>
             <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
             <span className={`${styles.tokenBadge} ${r.token === "SOL" ? styles.tokenSol : styles.tokenUsdc}`}>
@@ -317,10 +362,52 @@ export default function PayrollTerminal() {
             <span className="ae-badge ae-badge-green">
               {status === "completed" ? "Completed" : "Ready"}
             </span>
+            <button
+              onClick={() => handleDeleteRecipient(i)}
+              disabled={status !== "idle" && status !== "completed" && status !== "error"}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "#bdc4ce", fontSize: 14, lineHeight: 1, padding: 4,
+                opacity: (status !== "idle" && status !== "completed" && status !== "error") ? 0.3 : 1,
+              }}
+              title="Remove recipient"
+            >✕</button>
           </div>
         ))}
 
-        {/* Footer */}
+        {/* Add-recipient inline form */}
+        {showAddRow && (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 120px 80px 1fr 100px 36px",
+            padding: "10px 28px", gap: 8, alignItems: "center",
+            background: "rgba(0,102,255,0.03)",
+            borderBottom: "1px solid #e8ebee",
+          }}>
+            <input placeholder="Wallet address (base58)" value={newRow.addr}
+              onChange={e => setNewRow(p => ({ ...p, addr: e.target.value }))}
+              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+            <input placeholder="Amount" value={newRow.amount}
+              onChange={e => setNewRow(p => ({ ...p, amount: e.target.value }))}
+              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+            <select value={newRow.token} onChange={e => setNewRow(p => ({ ...p, token: e.target.value as "USDC" | "USDT" | "SOL" }))}
+              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6 }}>
+              <option>USDC</option><option>USDT</option><option>SOL</option>
+            </select>
+            <input placeholder="Memo" value={newRow.memo}
+              onChange={e => setNewRow(p => ({ ...p, memo: e.target.value }))}
+              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+            <button onClick={handleAddRecipient}
+              disabled={!newRow.addr || !newRow.amount}
+              style={{
+                padding: "6px 12px", borderRadius: 6, background: "#08090b",
+                color: "#fff", border: "none", fontFamily: "var(--mono)",
+                fontSize: 11, cursor: "pointer", fontWeight: 600,
+                opacity: (!newRow.addr || !newRow.amount) ? 0.4 : 1,
+              }}>Add</button>
+            <span />
+          </div>
+        )}
         <div className={styles.tableFooter}>
           <span className={styles.mono} style={{ fontSize: 10, color: "var(--dim)" }}>
             {recipients.length} recipients · Estimated fee: ~$0.0008 SOL
