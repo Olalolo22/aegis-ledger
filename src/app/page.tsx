@@ -4,7 +4,18 @@ import "./landing.css";
 
 export default function LandingPage() {
     useEffect(() => {
-        // Any global init if needed
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    // Optional: observer.unobserve(entry.target) to only animate once
+                }
+            });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+        
+        return () => observer.disconnect();
     }, []);
 
     return (
@@ -33,26 +44,26 @@ export default function LandingPage() {
 
     <!-- ─── HERO ─────────────────────────────────────────────── -->
 
-    <div class="hero">
+    <div class="hero reveal">
         <div class="hero-left">
-            <div class="hero-eyebrow">
+            <div class="hero-eyebrow reveal" style="transition-delay: 0.1s;">
                 <span class="hero-dot"></span>
                 Solana Colosseum · Cloak Track
             </div>
-            <h1 class="serif">
+            <h1 class="serif reveal" style="transition-delay: 0.2s;">
                 Your DAO's<br>
                 treasury is<br>
                 <em>an open book.</em>
             </h1>
-            <p class="hero-sub">
+            <p class="hero-sub reveal" style="transition-delay: 0.3s;">
                 Aegis Ledger is a B2B private treasury and payroll engine for DAOs. Execute payroll, swaps, and
                 disbursements inside a shielded UTXO pool — invisible on-chain, cryptographically auditable off-chain.
             </p>
-            <div class="hero-actions">
+            <div class="hero-actions reveal" style="transition-delay: 0.4s;">
                 <a href="/dashboard" class="btn-lg" style="text-decoration:none;display:inline-block">Request early access</a>
                 <button class="btn-lg-ghost">See the architecture →</button>
             </div>
-            <div class="hero-social">
+            <div class="hero-social reveal" style="transition-delay: 0.5s;">
                 <span class="trust-line">Trusted by teams at</span>
                 <div class="trust-orgs">
                     <span class="trust-org">MetaDAO</span>
@@ -62,12 +73,12 @@ export default function LandingPage() {
             </div>
         </div>
 
-        <div class="hero-mockup">
+        <div class="hero-mockup reveal" style="transition-delay: 0.4s;">
             <div class="mockup-stack">
 
                 
                 <!-- Treasury Card -->
-                <div class="card-treasury">
+                <div class="card-treasury reveal" style="transition-delay: 0.5s;">
                     <div class="card-t-header">
                         <div>
                             <div class="card-t-label">Shielded treasury</div>
@@ -95,7 +106,7 @@ export default function LandingPage() {
                 </div>
 
                 <!-- Batch Run Card -->
-                <div class="card-batch">
+                <div class="card-batch reveal" style="transition-delay: 0.6s;">
                     <div class="card-b-header">
                         <span class="card-b-title">Batch payroll run — May 2025</span>
                         <div class="card-b-status">
@@ -125,7 +136,7 @@ export default function LandingPage() {
                 </div>
 
                 <!-- Audit key -->
-                <div class="card-audit">
+                <div class="card-audit reveal" style="transition-delay: 0.7s;">
                     <div class="audit-icon">🔑</div>
                     <div class="audit-key">
                         <div class="audit-key-label">Auditor viewing key</div>
@@ -144,23 +155,23 @@ export default function LandingPage() {
 
     <div class="problem-section" id="problem">
         <div class="problem-inner">
-            <div class="section-eyebrow">The problem</div>
-            <h2 class="section-h2 serif">Every on-chain treasury move leaks your strategy.</h2>
-            <p class="section-sub">When DAOs run payroll or swap treasury assets on public chains, they broadcast their
+            <div class="section-eyebrow reveal">The problem</div>
+            <h2 class="section-h2 serif reveal" style="transition-delay: 0.1s;">Every on-chain treasury move leaks your strategy.</h2>
+            <p class="section-sub reveal" style="transition-delay: 0.2s;">When DAOs run payroll or swap treasury assets on public chains, they broadcast their
                 runway, vendor relationships, and token strategy to every competitor watching the mempool.</p>
             <div class="stats-grid">
-                <div class="stat-cell">
+                <div class="stat-cell reveal" style="transition-delay: 0.3s;">
                     <div class="stat-num serif"><span>100%</span></div>
                     <div class="stat-desc">of DAO treasury movements are publicly visible on-chain — including payroll
                         amounts, recipient wallets, and swap sizes.</div>
                     <div class="stat-source">Source: <a href="https://explorer.solana.com" target="_blank" style="color:inherit;text-decoration:underline">Solana Explorer</a></div>
                 </div>
-                <div class="stat-cell">
+                <div class="stat-cell reveal" style="transition-delay: 0.4s;">
                     <div class="stat-num serif">\$370<span>M</span></div>
                     <div class="stat-desc">captured by sandwich bots in the last 16 months from high-slippage swaps on public AMMs.</div>
                     <div class="stat-source">Source: <a href="https://sandwiched.me" target="_blank" style="color:inherit;text-decoration:underline">Sandwiched.me Analysis</a></div>
                 </div>
-                <div class="stat-cell">
+                <div class="stat-cell reveal" style="transition-delay: 0.5s;">
                     <div class="stat-num serif">&lt; 1<span>sec</span></div>
                     <div class="stat-desc">the time it takes for a private searcher to identify and front-run your public treasury swap.</div>
                     <div class="stat-source">Source: <a href="https://www.helius.dev/blog/solana-mev-in-a-nutshell" target="_blank" style="color:inherit;text-decoration:underline">Helius Research</a></div>
@@ -172,13 +183,13 @@ export default function LandingPage() {
     <!-- ─── SOLUTION ──────────────────────────────────────────── -->
 
     <section id="solution">
-        <div class="section-eyebrow">The solution</div>
-        <h2 class="section-h2 serif">Shield every move. Prove every payment.</h2>
-        <p class="section-sub">Aegis Ledger runs your treasury operations inside a Cloak shielded UTXO pool. Everything
+        <div class="section-eyebrow reveal">The solution</div>
+        <h2 class="section-h2 serif reveal" style="transition-delay: 0.1s;">Shield every move. Prove every payment.</h2>
+        <p class="section-sub reveal" style="transition-delay: 0.2s;">Aegis Ledger runs your treasury operations inside a Cloak shielded UTXO pool. Everything
             happens privately — but authorized auditors can cryptographically verify any transaction with a viewing key.
         </p>
         <div class="features-grid">
-            <div class="feature-cell">
+            <div class="feature-cell reveal" style="transition-delay: 0.3s;">
                 <div class="feat-num">01</div>
                 <span class="feat-icon">🛡</span>
                 <div class="feat-title">Shielded batch payroll</div>
@@ -186,7 +197,7 @@ export default function LandingPage() {
                     their amount. Everyone else — including your competitors watching the mempool — sees nothing.</div>
                 <div class="feat-tag">cloak.privateBatch()</div>
             </div>
-            <div class="feature-cell">
+            <div class="feature-cell reveal" style="transition-delay: 0.4s;">
                 <div class="feat-num">02</div>
                 <span class="feat-icon">⇄</span>
                 <div class="feat-title">Private treasury swaps</div>
@@ -195,7 +206,7 @@ export default function LandingPage() {
                     batch.</div>
                 <div class="feat-tag">cloak.privateSwap()</div>
             </div>
-            <div class="feature-cell">
+            <div class="feature-cell reveal" style="transition-delay: 0.5s;">
                 <div class="feat-num">03</div>
                 <span class="feat-icon">◈</span>
                 <div class="feat-title">Cryptographic audit access</div>
@@ -204,7 +215,7 @@ export default function LandingPage() {
                     by default.</div>
                 <div class="feat-tag">AES-256-GCM + HKDF</div>
             </div>
-            <div class="feature-cell">
+            <div class="feature-cell reveal" style="transition-delay: 0.6s;">
                 <div class="feat-num">04</div>
                 <span class="feat-icon">⚙</span>
                 <div class="feat-title">Concurrency-safe execution</div>
@@ -219,28 +230,28 @@ export default function LandingPage() {
 
     <div style="background:var(--paper);border-top:1px solid var(--mist);border-bottom:1px solid var(--mist);" id="how">
         <section>
-            <div class="section-eyebrow">How it works</div>
-            <h2 class="section-h2 serif">From payroll CSV to shielded settlement in four steps.</h2>
+            <div class="section-eyebrow reveal">How it works</div>
+            <h2 class="section-h2 serif reveal" style="transition-delay: 0.1s;">From payroll CSV to shielded settlement in four steps.</h2>
             <div class="how-grid" style="margin-top:48px;">
-                <div class="how-step">
+                <div class="how-step reveal" style="transition-delay: 0.2s;">
                     <div class="how-num serif">01</div>
                     <div class="how-title">Deposit to pool</div>
                     <div class="how-desc">Treasury USDC enters the Cloak shielded UTXO pool. From this point, all
                         operations are private. The deposit is the last visible on-chain event.</div>
                 </div>
-                <div class="how-step">
+                <div class="how-step reveal" style="transition-delay: 0.3s;">
                     <div class="how-num serif">02</div>
                     <div class="how-title">Configure operations</div>
                     <div class="how-desc">Set up payroll recipients, swap targets, and disbursement rules through the
                         Aegis dashboard. All configuration stays server-side — never touches the public chain.</div>
                 </div>
-                <div class="how-step">
+                <div class="how-step reveal" style="transition-delay: 0.4s;">
                     <div class="how-num serif">03</div>
                     <div class="how-title">Execute shielded batch</div>
                     <div class="how-desc">A single atomic Cloak transaction privately swaps, splits, and disburses to
                         all recipients. On-chain: amounts hidden, recipients hidden, routing hidden.</div>
                 </div>
-                <div class="how-step">
+                <div class="how-step reveal" style="transition-delay: 0.5s;">
                     <div class="how-num serif">04</div>
                     <div class="how-title">Issue audit keys</div>
                     <div class="how-desc">Grant time-limited cryptographic viewing access to your auditors. They can
@@ -253,11 +264,11 @@ export default function LandingPage() {
     <!-- ─── COMPARISON ────────────────────────────────────────── -->
 
     <section id="compare">
-        <div class="section-eyebrow">Compare</div>
-        <h2 class="section-h2 serif">Aegis vs. standard multisigs.</h2>
-        <p class="section-sub">Standard treasury tools are transparent by default. Aegis Ledger provides the only end-to-end shielded operations layer on Solana.
+        <div class="section-eyebrow reveal">Compare</div>
+        <h2 class="section-h2 serif reveal" style="transition-delay: 0.1s;">Aegis vs. standard multisigs.</h2>
+        <p class="section-sub reveal" style="transition-delay: 0.2s;">Standard treasury tools are transparent by default. Aegis Ledger provides the only end-to-end shielded operations layer on Solana.
         </p>
-        <div class="comp-table-wrap">
+        <div class="comp-table-wrap reveal" style="transition-delay: 0.3s;">
             <table class="comp-table">
                 <thead>
                     <tr>
@@ -339,9 +350,9 @@ export default function LandingPage() {
     <!-- ─── CTA ───────────────────────────────────────────────── -->
 
     <div class="cta-section">
-        <h2 class="serif">Stop telegraphing.<br><em>Start shielding.</em></h2>
-        <p>Built for the Solana Colosseum Hackathon · Cloak Track · Powered by cloak.ag/sdk</p>
-        <a href="/dashboard" class="btn-white" style="text-decoration:none;display:inline-block">Request early access →</a>
+        <h2 class="serif reveal">Stop telegraphing.<br><em>Start shielding.</em></h2>
+        <p class="reveal" style="transition-delay: 0.1s;">Built for the Solana Colosseum Hackathon · Cloak Track · Powered by cloak.ag/sdk</p>
+        <a href="/dashboard" class="btn-white reveal" style="text-decoration:none;display:inline-block;transition-delay: 0.2s;">Request early access →</a>
     </div>
 
     <!-- ─── FOOTER ────────────────────────────────────────────── -->
