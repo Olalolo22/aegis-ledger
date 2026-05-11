@@ -379,6 +379,51 @@ export default function PayrollTerminal() {
           </div>
         )}
       </div>
+
+      {/* Auditor Access Utility */}
+      <div className={styles.batchCard} style={{ marginTop: 24, border: '1px solid var(--border-glass)', background: 'rgba(99, 102, 241, 0.03)' }}>
+        <div className={styles.batchHeader}>
+          <div>
+            <span className={styles.batchEyebrow} style={{ color: 'var(--blue)' }}>Auditor Access Control</span>
+            <div className={styles.batchTitle}>Scoped Key Generation</div>
+          </div>
+          <button 
+            className={styles.runBtn}
+            style={{ background: 'var(--blue)', color: 'white' }}
+            onClick={async () => {
+              try {
+                const res = await fetch("/api/audit/generate-key", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    org_id: DEMO_ORG_ID,
+                    auditor_identity: "Internal Audit Team",
+                    valid_from: new Date().toISOString(),
+                    valid_until: new Date(Date.now() + 86400000).toISOString(), // 24h
+                    allowed_tokens: ["USDC", "SOL"]
+                  })
+                });
+                const data = await res.json();
+                if (data.viewing_key) {
+                  // In a real app, the server doesn't return the raw key, 
+                  // but for the demo, we'll simulate the "Magic Link" generation.
+                  const mockKey = `vk_aegis_${data.viewing_key.key_id.slice(0, 8)}${Math.random().toString(36).slice(2, 10)}`;
+                  alert(`REAL AUDITOR KEY GENERATED\n\nID: ${data.viewing_key.id}\nKey ID: ${data.viewing_key.key_id}\n\nSince this is a demo, please use the "Use demo key" button in the portals to see the pre-populated 2026 audit data. To show a real on-chain scan, you would use this Scoped Key.`);
+                }
+              } catch (e) {
+                console.error("Failed to generate key:", e);
+              }
+            }}
+          >
+            Generate Real Viewing Key
+          </button>
+        </div>
+        <div style={{ padding: '0 28px 24px', fontSize: 12, color: 'var(--dim)', lineHeight: 1.5 }}>
+          This utility generates a time-scoped cryptographic viewing key for the organization. 
+          The key is encrypted using the <strong>AEGIS_MASTER_SECRET</strong> and stored in Supabase. 
+          Use this to demonstrate the "Zero-Knowledge" access request flow to judges.
+        </div>
+      </div>
     </div>
   );
 }

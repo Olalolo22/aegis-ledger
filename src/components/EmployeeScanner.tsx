@@ -31,10 +31,11 @@ export default function EmployeeScanner() {
     }
   };
 
-  const startScan = async () => {
-    if (!viewingKey || scanning) return;
+  const startScan = async (overrideKey?: string) => {
+    const keyToUse = overrideKey || viewingKey;
+    if (!keyToUse || scanning) return;
     setScanLog([]);
-    await scan(viewingKey);
+    await scan(keyToUse);
   };
 
   // Append real progress messages to the log
@@ -101,7 +102,25 @@ export default function EmployeeScanner() {
       {/* Viewing key input */}
       <div className={`${styles.card} ${!connected ? styles.cardDisabled : ""}`}
         style={{ marginBottom: 16 }}>
-        <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
+          <button 
+            className={styles.demoLink}
+            onClick={() => { setViewingKey("demo-token"); }}
+            disabled={!connected}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: 'var(--blue)', 
+              fontSize: 10, 
+              fontFamily: 'var(--mono)', 
+              cursor: 'pointer',
+              textDecoration: 'underline'
+            }}
+          >
+            Use demo key
+          </button>
+        </div>
         <div className={styles.keyRow}>
           <input
             className={styles.keyInput}
@@ -128,15 +147,33 @@ export default function EmployeeScanner() {
         <div className={`${styles.terminal} ae-fade-up`} style={{ marginBottom: 16 }}>
           <div className={styles.termHeader}>
             <span className={styles.termDot}
-              style={{ background: done ? "var(--green)" : status === "error" ? "var(--red)" : "var(--blue)", animation: (done || status === "error") ? "none" : "ae-blink 1s ease-in-out infinite" }} />
+              style={{ background: done ? (payslips.length > 0 ? "var(--green)" : "var(--slate)") : status === "error" ? "var(--red)" : "var(--blue)", animation: (done || status === "error") ? "none" : "ae-blink 1s ease-in-out infinite" }} />
             <span className={styles.termLabel}>
-              {done ? "Scan complete" : status === "error" ? "Scan failed" : "Scanning Merkle tree (local)"}
+              {done ? (payslips.length > 0 ? "Scan complete" : "Scan complete (No notes found)") : status === "error" ? "Scan failed" : "Scanning Merkle tree (local)"}
             </span>
           </div>
           <div ref={logRef} className={styles.termBody}>
             {scanLog.map((l, i) => (
               <div key={i} style={{ color: l.col, animation: "ae-row-in 0.2s ease both" }}>{l.msg}</div>
             ))}
+            
+            {/* Suggest Demo Mode if nothing found */}
+            {done && payslips.length === 0 && viewingKey !== "demo-token" && (
+              <div style={{ marginTop: 12, padding: 12, border: '1px dashed var(--border-glass)', borderRadius: 8, animation: 'ae-fade-up 0.4s ease both' }}>
+                <p style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
+                  No live shielded notes found for this viewing key on the relay. 
+                  This is expected if no transactions have been broadcast to this organization yet.
+                </p>
+                <button 
+                  onClick={() => { setViewingKey("demo-token"); startScan("demo-token"); }}
+                  className="ae-badge ae-badge-blue"
+                  style={{ cursor: 'pointer', border: 'none', padding: '6px 12px' }}
+                >
+                  🚀 TRY DEMO MODE
+                </button>
+              </div>
+            )}
+
             {(!done && status !== "error") && <span style={{ color: "rgba(255,255,255,0.2)", animation: "ae-pulse 1s ease-in-out infinite" }}>█</span>}
           </div>
         </div>

@@ -95,6 +95,47 @@ export function useNoteScanner(): NoteScannerResult {
       abortRef.current = controller;
 
       try {
+        // ─── Step 0: Check for Demo Mode ──────────────────────
+        if (viewingKeyInput === "demo-token") {
+          setStatus("scanning");
+          setProgress({
+            phase: "fetching",
+            current: 0,
+            total: 100,
+            decryptedSoFar: 0,
+            message: "⚠️ Using Demo Key: Fetching mock encrypted pool...",
+          });
+          await new Promise(r => setTimeout(r, 1000));
+          
+          const mockTotal = 42;
+          for (let i = 0; i < mockTotal; i++) {
+            if (controller.signal.aborted) return;
+            const progress = Math.round((i / mockTotal) * 100);
+            const found = i > 5 ? (i > 25 ? 2 : 1) : 0;
+            
+            setProgress({
+              phase: "decrypting",
+              current: i + 1,
+              total: mockTotal,
+              decryptedSoFar: found,
+              message: `Scanning Merkle leaf ${i + 1}/${mockTotal}... ${found > 0 ? '✓ FOUND' : 'MISS'}`,
+            });
+            await new Promise(r => setTimeout(r, 80));
+          }
+
+          const mockPayslips = generateDemoPayslips();
+          setPayslips(mockPayslips);
+          setSummary({
+            totalCommitments: mockTotal,
+            decryptedCount: mockPayslips.length,
+            failedCount: mockTotal - mockPayslips.length,
+            totalAmountByToken: { "USDC": "1,250.00" },
+            scanDurationMs: 4500,
+          });
+          setStatus("complete");
+          return;
+        }
+
         // ─── Step 1: Parse the viewing key ────────────────────
         setStatus("parsing_key");
 
@@ -108,10 +149,8 @@ export function useNoteScanner(): NoteScannerResult {
           return;
         }
 
-        // ─── Step 2: Scan notes ──────────────────────────────
+        // ─── Step 2: Scan notes (Live Mode) ──────────────────
         setStatus("scanning");
-
-        // The scanner fetches encrypted notes from the Cloak relay,
         // not the Solana RPC directly — the relay indexes the shielded pool
         const relayUrl =
           process.env.NEXT_PUBLIC_CLOAK_RELAY_URL ||
@@ -163,4 +202,33 @@ export function useNoteScanner(): NoteScannerResult {
     summary,
     error,
   };
+}
+
+function generateDemoPayslips(): DecryptedPayslip[] {
+  return [
+    {
+      id: "demo-1",
+      amountFormatted: "850.00",
+      amountRaw: "850000000",
+      tokenSymbol: "USDC",
+      tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      date: new Date("2026-04-15").toISOString(),
+      memo: "Q1 Performance Bonus",
+      txSignature: "5abc...def0",
+      commitmentHash: "cloak:8f75...812d",
+      leafIndex: 442,
+    },
+    {
+      id: "demo-2",
+      amountFormatted: "400.00",
+      amountRaw: "400000000",
+      tokenSymbol: "USDC",
+      tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      date: new Date("2026-05-01").toISOString(),
+      memo: "Weekly Payroll Disbursement",
+      txSignature: "2xyz...abc9",
+      commitmentHash: "cloak:3c91...f2e4",
+      leafIndex: 510,
+    }
+  ];
 }
