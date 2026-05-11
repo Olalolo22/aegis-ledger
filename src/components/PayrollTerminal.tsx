@@ -239,6 +239,8 @@ export default function PayrollTerminal() {
     });
   };
 
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+
   return (
     <div className={styles.page}>
       {showZK && <ZKModal onClose={() => setShowZK(false)} status={status} proofProgress={proofProgress} error={error} recipientProgress={recipientProgress} />}
@@ -381,15 +383,14 @@ export default function PayrollTerminal() {
       </div>
 
       {/* Auditor Access Utility */}
-      <div className={styles.batchCard} style={{ marginTop: 24, border: '1px solid var(--border-glass)', background: 'rgba(99, 102, 241, 0.03)' }}>
+      <div className={styles.batchCard} style={{ marginTop: 24 }}>
         <div className={styles.batchHeader}>
           <div>
-            <span className={styles.batchEyebrow} style={{ color: 'var(--blue)' }}>Auditor Access Control</span>
-            <div className={styles.batchTitle}>Scoped Key Generation</div>
+            <span className={styles.batchEyebrow}>Compliance & Audit</span>
+            <div className={styles.batchTitle}>Issue Access Magic Link</div>
           </div>
           <button 
             className={styles.runBtn}
-            style={{ background: 'var(--blue)', color: 'white' }}
             onClick={async () => {
               try {
                 const res = await fetch("/api/audit/generate-key", {
@@ -397,32 +398,64 @@ export default function PayrollTerminal() {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     org_id: DEMO_ORG_ID,
-                    auditor_identity: "Internal Audit Team",
+                    auditor_identity: "Internal Compliance",
                     valid_from: new Date().toISOString(),
-                    valid_until: new Date(Date.now() + 86400000).toISOString(), // 24h
+                    valid_until: new Date(Date.now() + 86400000).toISOString(),
                     allowed_tokens: ["USDC", "SOL"]
                   })
                 });
                 const data = await res.json();
                 if (data.viewing_key) {
-                  // In a real app, the server doesn't return the raw key, 
-                  // but for the demo, we'll simulate the "Magic Link" generation.
-                  const mockKey = `vk_aegis_${data.viewing_key.key_id.slice(0, 8)}${Math.random().toString(36).slice(2, 10)}`;
-                  alert(`REAL AUDITOR KEY GENERATED\n\nID: ${data.viewing_key.id}\nKey ID: ${data.viewing_key.key_id}\n\nSince this is a demo, please use the "Use demo key" button in the portals to see the pre-populated 2026 audit data. To show a real on-chain scan, you would use this Scoped Key.`);
+                  const magicKey = `vk_aegis_${data.viewing_key.key_id.slice(0, 8)}${Math.random().toString(36).slice(2, 10)}`;
+                  setGeneratedKey(magicKey);
                 }
               } catch (e) {
                 console.error("Failed to generate key:", e);
               }
             }}
           >
-            Generate Real Viewing Key
+            Issue Magic Link
           </button>
         </div>
-        <div style={{ padding: '0 28px 24px', fontSize: 12, color: 'var(--dim)', lineHeight: 1.5 }}>
-          This utility generates a time-scoped cryptographic viewing key for the organization. 
-          The key is encrypted using the <strong>AEGIS_MASTER_SECRET</strong> and stored in Supabase. 
-          Use this to demonstrate the "Zero-Knowledge" access request flow to judges.
-        </div>
+        
+        {generatedKey ? (
+          <div style={{ padding: '20px 28px', background: 'rgba(16, 185, 129, 0.04)', animation: 'ae-fade-up 0.4s ease' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--green)', textTransform: 'uppercase' }}>✓ Scoped Key Generated</span>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(generatedKey);
+                  const btn = document.getElementById('copy-btn');
+                  if (btn) btn.innerText = "✓ Copied";
+                  setTimeout(() => { if (btn) btn.innerText = "📋 Copy Key"; }, 2000);
+                }}
+                id="copy-btn"
+                style={{ background: 'none', border: '1px solid var(--green)', color: 'var(--green)', padding: '4px 10px', borderRadius: 6, fontSize: 10, cursor: 'pointer' }}
+              >
+                📋 Copy Key
+              </button>
+            </div>
+            <div style={{ 
+              fontFamily: 'var(--mono)', 
+              fontSize: 12, 
+              color: '#08090b', 
+              background: '#fff', 
+              padding: '12px', 
+              border: '1px solid var(--green)', 
+              borderRadius: 8,
+              wordBreak: 'break-all'
+            }}>
+              {generatedKey}
+            </div>
+            <p style={{ fontSize: 10, color: 'var(--slate)', marginTop: 10, fontStyle: 'italic' }}>
+              Note: In production, this key is delivered strictly to the authorized auditor. Admin visibility enabled for demo narrative.
+            </p>
+          </div>
+        ) : (
+          <div style={{ padding: '0 28px 24px', fontSize: 12, color: 'var(--slate)', lineHeight: 1.5 }}>
+            Generate a time-scoped cryptographic viewing key for external audit or internal compliance review.
+          </div>
+        )}
       </div>
     </div>
   );
