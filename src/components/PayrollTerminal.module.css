@@ -40,6 +40,22 @@
   gap: 20px;
   margin-bottom: 24px;
 }
+@media (max-width: 900px) {
+  .topGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reveal_dashboard {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.visible_reveal {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
 
 /* ─── Shielded balance card (stays dark) ─── */
 .balanceCard {
