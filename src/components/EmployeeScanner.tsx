@@ -106,7 +106,13 @@ export default function EmployeeScanner() {
           <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
           <button 
             className={styles.demoLink}
-            onClick={() => { setViewingKey("demo-token"); }}
+            onClick={() => {
+              // Generate a valid 64-char hex key (real 32-byte cryptographic key)
+              const demoBytes = new Uint8Array(32);
+              crypto.getRandomValues(demoBytes);
+              const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+              setViewingKey(demoHex);
+            }}
             disabled={!connected}
             style={{ 
               background: 'none', 
@@ -118,7 +124,7 @@ export default function EmployeeScanner() {
               textDecoration: 'underline'
             }}
           >
-            Use demo key
+            Generate demo key
           </button>
         </div>
         <div className={styles.keyRow}>
@@ -126,7 +132,7 @@ export default function EmployeeScanner() {
             className={styles.keyInput}
             value={viewingKey}
             onChange={e => setViewingKey(e.target.value)}
-            placeholder="vk_aegis_3f9a···c2d1"
+            placeholder="Paste 64-char hex viewing key from Treasury"
             disabled={!connected}
           />
           <button
@@ -165,11 +171,17 @@ export default function EmployeeScanner() {
                   This is expected if no transactions have been broadcast to this organization yet.
                 </p>
                 <button 
-                  onClick={() => { setViewingKey("demo-token"); startScan("demo-token"); }}
+                  onClick={() => {
+                    const demoBytes = new Uint8Array(32);
+                    crypto.getRandomValues(demoBytes);
+                    const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+                    setViewingKey(demoHex);
+                    startScan(demoHex);
+                  }}
                   className="ae-badge ae-badge-blue"
                   style={{ cursor: 'pointer', border: 'none', padding: '6px 12px' }}
                 >
-                  🚀 TRY DEMO MODE
+                  🚀 GENERATE DEMO KEY & SCAN
                 </button>
               </div>
             )}
