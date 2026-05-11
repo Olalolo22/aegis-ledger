@@ -65,7 +65,7 @@ export default function LandingPage() {
                         <button className="btn-lg-ghost">See the architecture →</button>
                     </div>
                     <div className="hero-social reveal" style={{ transitionDelay: '0.5s' }}>
-                        <span className="trust-line">Trusted by teams at</span>
+                        <span className="trust-line">Designed for teams like</span>
                         <div className="trust-orgs">
                             <span className="trust-org">MetaDAO</span>
                             <span className="trust-org">Mango</span>
