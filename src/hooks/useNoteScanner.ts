@@ -170,8 +170,23 @@ export function useNoteScanner(): NoteScannerResult {
         }
 
         // ─── Step 3: Store results ───────────────────────────
-        setPayslips(result.payslips);
-        setSummary(result.summary);
+        let finalPayslips = result.payslips;
+        let finalSummary = result.summary;
+
+        // DEMO FALLBACK: If a valid hex key was used but found nothing,
+        // and we are in demo mode, populate mock data for the presentation.
+        if (finalPayslips.length === 0 && process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+          console.log("[NoteScanner] Valid key scanned 0 results. Triggering demo fallback.");
+          finalPayslips = generateDemoPayslips();
+          finalSummary = {
+            ...result.summary,
+            decryptedCount: finalPayslips.length,
+            totalAmountByToken: { "USDC": "1,250.00" },
+          };
+        }
+
+        setPayslips(finalPayslips);
+        setSummary(finalSummary);
         setStatus("complete");
       } catch (err) {
         if (controller.signal.aborted) {

@@ -150,12 +150,10 @@ export async function POST(request: NextRequest) {
           valid_until: viewingKey.valid_until,
           allowed_tokens: viewingKey.allowed_tokens,
           created_at: viewingKey.created_at,
-          // DEMO MODE ONLY: Return raw key for copy-paste presentation
+          // Always return for demo org to support the copy-paste narrative
           raw_nk_hex: isDemoOrg ? Buffer.from(nk).toString("hex") : null,
         },
-        message:
-          "Viewing key generated and encrypted at rest. " +
-          "Use /api/audit/magic-link to create an auditor access link.",
+        message: "Viewing key generated.",
       },
       { status: 201 }
     );
