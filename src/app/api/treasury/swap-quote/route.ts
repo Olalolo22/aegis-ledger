@@ -16,34 +16,6 @@ import { swapQuoteRequestSchema, TOKEN_MINTS } from "@/lib/validation";
  * POST /api/treasury/swap-quote
  *
  * NON-CUSTODIAL data coordinator for private SOL→USDC swaps
- * routed through the Cloak shielded pool via Orca DEX.
- *
- * ⚠ The server NEVER holds signing keys. It acts strictly as
- * a data coordinator — fetching public inputs and locking UTXOs.
- *
- * Flow:
- * 1. Validate & sanitize inputs (Zod schema)
- * 2. Verify org exists in Supabase
- * 3. Acquire Redis mutex on UTXO selection (SET NX, TTL 60s)
- * 4. Fetch public inputs from Cloak relay:
- *    - Available SOL UTXOs for the org's treasury pubkey
- *    - Current Merkle tree root & inclusion proofs
- * 5. Verify sufficient shielded SOL balance
- * 6. Fetch Orca pool quote for SOL→USDC (via public API)
- * 7. Lock selected UTXOs via Redis to prevent double-spending
- * 8. Create swap record (status: 'pending_signature')
- * 9. Return raw swap parameters as JSON for client-side proving
- *
- * The CLIENT then:
- * - Uses CloakSDK.swap() with the Groth16 WASM prover
- * - Signs with the connected wallet
- * - Broadcasts to Solana RPC
- * - Calls POST /api/treasury/swap-confirm with the tx signature
- *
- * EVM Injection Isolation:
- * - The initiated_by field is validated as a base58 Solana pubkey
- * - The server never interprets this as an EVM address
- * - All pubkey handling uses @solana/web3.js PublicKey class
  */
 export async function POST(request: NextRequest) {
   // ─── 1. Parse & Validate Input ───────────────────────────────
@@ -57,71 +29,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── DEMO MODE FALLBACK ────────────────────────────────────
-  // When DEMO_MODE=true, skip Supabase/Redis/Cloak and return
-  // mock swap params. Uses relaxed parsing — no strict UUID/pubkey.
-  if (process.env.DEMO_MODE === "true") {
-    const demoBody = body as Record<string, unknown>;
-    const amount_lamports = String(demoBody?.amount_lamports || "22500000000000");
-    const slippage_bps = Number(demoBody?.slippage_bps || 100);
-
-    const demoSwapId = crypto.randomUUID();
-    const mockEstimatedOutput = Math.round(
-      (Number(amount_lamports) / 1e9) * 160 * 1e6
-    ).toString(); // ~160 USDC per SOL
-
-    return NextResponse.json(
-      {
-        swap_id: demoSwapId,
-        status: "pending",
-        demo_mode: true,
-        swap_params: {
-          merkle_root: "demo_merkle_root_" + Date.now(),
-          merkle_proofs: [
-            {
-              leaf: "demo_leaf_" + Date.now(),
-              pathElements: Array(20).fill("0x0"),
-              pathIndices: Array(20).fill(0),
-            },
-          ],
-          merkle_leaf_count: 2048,
-          selected_utxos: [
-            {
-              commitment: "demo_swap_commitment_" + Date.now(),
-              amount: amount_lamports,
-              mint: "So11111111111111111111111111111111111111112",
-              leafIndex: 500,
-              nullifier: "demo_swap_nullifier_" + Date.now(),
-            },
-          ],
-          input_mint: "So11111111111111111111111111111111111111112",
-          output_mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf", // Devnet USDC (Circle)
-          swap_amount_lamports: amount_lamports,
-          slippage_bps,
-          quote: {
-            estimatedOutputAmount: mockEstimatedOutput,
-            minOutputAmount: Math.round(
-              Number(mockEstimatedOutput) * 0.99
-            ).toString(),
-            priceImpactPct: 0.02,
-            routePlan: JSON.stringify([
-              { label: "Orca CLMM SOL/USDC", percent: 100 },
-            ]),
-          },
-          program_id: "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE",
-          relay_url:
-            process.env.CLOAK_RELAY_URL || "https://api.cloak.ag",
-          rpc_url:
-            process.env.SOLANA_RPC_URL ||
-            "https://api.devnet.solana.com",
-        },
-        mutex_expires_at: new Date(Date.now() + 60_000).toISOString(),
-      },
-      { status: 200 }
-    );
-  }
-
-  // ─── Full validation (production mode only) ──────────────────
   const parsed = swapQuoteRequestSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -138,12 +45,11 @@ export async function POST(request: NextRequest) {
 
   const { org_id, amount_lamports, slippage_bps, initiated_by } = parsed.data;
 
-  // EVM injection isolation: validate that initiated_by is a valid Solana pubkey
   try {
     new PublicKey(initiated_by);
   } catch {
     return NextResponse.json(
-      { error: "initiated_by must be a valid Solana public key (not an EVM address)" },
+      { error: "initiated_by must be a valid Solana public key" },
       { status: 400 }
     );
   }
@@ -168,7 +74,7 @@ export async function POST(request: NextRequest) {
   if (!mutex.acquired) {
     return NextResponse.json(
       {
-        error: "A swap operation is already in progress for this organization. Please retry shortly.",
+        error: "A swap operation is already in progress. Please retry shortly.",
         code: "MUTEX_CONTENTION",
       },
       { status: 409 }
@@ -177,8 +83,6 @@ export async function POST(request: NextRequest) {
 
   try {
     // ─── 4. Fetch Public Inputs from Cloak ────────────────────
-    // Try the live Cloak relay first; fall back to mock data if
-    // the relay is unreachable (404, timeout, etc.).
     const treasuryPubkey = new PublicKey(org.treasury_pubkey);
     const usdcMint = TOKEN_MINTS.USDC;
     const swapAmount = BigInt(amount_lamports);
@@ -194,7 +98,7 @@ export async function POST(request: NextRequest) {
     let relayFallback = false;
 
     try {
-      // Fetch Merkle proofs and available SOL UTXOs in parallel
+      // ─── Attempt Real Cloak Relay First ─────────────────────
       const [md, availableUtxos] = await Promise.all([
         fetchMerkleProofs(NATIVE_SOL_MINT),
         fetchAvailableUtxos(treasuryPubkey, NATIVE_SOL_MINT),
@@ -202,7 +106,6 @@ export async function POST(request: NextRequest) {
 
       merkleData = md;
 
-      // ─── 5. Verify Sufficient Shielded SOL Balance ───────────
       const availableBalance = availableUtxos.reduce(
         (sum, u) => sum + BigInt(u.amount),
         0n
@@ -219,7 +122,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // ─── 6. Fetch Orca DEX Quote ─────────────────────────────
+      // Fetch Orca DEX Quote (via Jupiter)
       const quoteRes = await fetch(
         `https://quote-api.jup.ag/v6/quote?` +
           `inputMint=So11111111111111111111111111111111111111112` +
@@ -229,12 +132,9 @@ export async function POST(request: NextRequest) {
         { signal: AbortSignal.timeout(10_000) }
       );
 
-      if (!quoteRes.ok) {
-        throw new Error(`Jupiter/Orca API returned ${quoteRes.status}`);
-      }
+      if (!quoteRes.ok) throw new Error("Jupiter API unreachable");
 
       const quoteData = await quoteRes.json();
-
       orcaQuote = {
         estimatedOutputAmount: quoteData.outAmount || "0",
         minOutputAmount: quoteData.otherAmountThreshold || quoteData.outAmount || "0",
@@ -242,23 +142,19 @@ export async function POST(request: NextRequest) {
         routePlan: JSON.stringify(quoteData.routePlan || []),
       };
 
-      // ─── 7. Select & Lock UTXOs ──────────────────────────────
       selectedUtxos = selectUtxosForSwap(availableUtxos, swapAmount);
 
       for (const utxo of selectedUtxos) {
         const utxoLock = await acquireMutex(`utxo:${utxo.commitment}`, 60);
         if (!utxoLock.acquired) {
           return NextResponse.json(
-            {
-              error: "UTXO contention — selected UTXOs locked by another operation",
-              code: "UTXO_CONTENTION",
-            },
+            { error: "UTXO locked by another operation", code: "UTXO_CONTENTION" },
             { status: 409 }
           );
         }
       }
     } catch (relayError) {
-      // ─── Cloak relay / Jupiter unreachable — fall back to mock ──
+      // ─── Fallback to Mock Data on Relay Failure ─────────────
       console.warn(
         "[Aegis Ledger] Relay/DEX unavailable, using mock swap params:",
         relayError instanceof Error ? relayError.message : relayError
@@ -295,8 +191,7 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    // ─── 8. Create Swap Record ───────────────────────────────
-    // Always create a real record in Supabase.
+    // ─── 5. Create Swap Record ───────────────────────────────
     const { data: swapRecord, error: insertError } = await supabase
       .from("treasury_swaps")
       .insert({
@@ -316,14 +211,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError || !swapRecord) {
-      console.error("Failed to create swap record:", insertError);
-      return NextResponse.json(
-        { error: "Failed to create swap record" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Failed to create swap record" }, { status: 500 });
     }
 
-    // ─── 9. Audit Log ────────────────────────────────────────
+    // ─── 6. Audit Log ────────────────────────────────────────
     await supabase.from("audit_log").insert({
       event_type: "swap_initiated",
       org_id,
@@ -331,13 +222,11 @@ export async function POST(request: NextRequest) {
         swap_id: swapRecord.id,
         input_amount: amount_lamports,
         estimated_output: orcaQuote.estimatedOutputAmount,
-        slippage_bps,
-        price_impact_pct: orcaQuote.priceImpactPct,
         relay_fallback: relayFallback,
       },
     });
 
-    // ─── 10. Return Swap Parameters ──────────────────────────
+    // ─── 7. Return Swap Parameters ──────────────────────────
     const mutexExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
     return NextResponse.json(
@@ -359,7 +248,7 @@ export async function POST(request: NextRequest) {
             ? "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE"
             : getProgramId().toBase58(),
           relay_url: relayFallback
-            ? (process.env.CLOAK_RELAY_URL || "https://api.cloak.ag")
+            ? process.env.CLOAK_RELAY_URL
             : getRelayUrl(),
           rpc_url: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
         },
@@ -369,38 +258,26 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Swap quote route unexpected error:", error);
-    return NextResponse.json(
-      {
-        error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   } finally {
     await releaseMutex(mutex.key, mutex.lockValue);
   }
 }
 
 // ─── UTXO Selection Helper ─────────────────────────────────────
-
 import type { UtxoDescriptor } from "@/lib/cloak";
 
 function selectUtxosForSwap(
   utxos: UtxoDescriptor[],
   targetAmount: bigint
 ): UtxoDescriptor[] {
-  const sorted = [...utxos].sort(
-    (a, b) => Number(BigInt(b.amount) - BigInt(a.amount))
-  );
-
+  const sorted = [...utxos].sort((a, b) => Number(BigInt(b.amount) - BigInt(a.amount)));
   const selected: UtxoDescriptor[] = [];
   let accumulated = 0n;
-
   for (const utxo of sorted) {
     if (accumulated >= targetAmount) break;
     selected.push(utxo);
     accumulated += BigInt(utxo.amount);
   }
-
   return selected;
 }

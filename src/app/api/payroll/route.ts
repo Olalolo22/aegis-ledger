@@ -16,31 +16,6 @@ import { payrollRequestSchema, TOKEN_MINTS } from "@/lib/validation";
  * POST /api/payroll
  *
  * NON-CUSTODIAL data coordinator for batch private payroll disbursements.
- *
- * ⚠ The server NEVER holds signing keys. It acts as a coordinator:
- *
- * Flow:
- * 1. Validate & sanitize inputs (Zod schema)
- * 2. Verify org exists in Supabase
- * 3. Acquire Redis mutex on UTXO selection (SET NX, TTL 60s)
- * 4. Fetch public inputs from Cloak indexer:
- *    - Available UTXOs for the org's treasury pubkey
- *    - Current Merkle tree root & inclusion proofs
- * 5. Lock selected UTXOs via Redis to prevent double-spending
- * 6. Create payroll_run record (status: 'pending_signature')
- * 7. Return raw signing parameters as JSON for client-side proving
- * 8. Release mutex in finally{} block
- *
- * The CLIENT then:
- * - Uses these parameters to construct Cloak transactions
- * - Signs with the connected wallet (Phantom, Solflare, etc.)
- * - Broadcasts transactions via RPC
- * - Calls POST /api/payroll/confirm with the resulting signatures
- *
- * Concurrency Safety:
- * - Redis SET NX mutex prevents concurrent UTXO selection for the same org
- * - Mutex released in finally{} block to prevent deadlocks
- * - TTL of 60s prevents permanent lockout on crash
  */
 export async function POST(request: NextRequest) {
   // ─── 1. Parse & Validate Input ───────────────────────────────
@@ -54,64 +29,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── DEMO MODE FALLBACK ────────────────────────────────────
-  // When DEMO_MODE=true, skip Supabase/Redis/Cloak and return
-  // mock signing params so the full UI flow works end-to-end.
-  // Uses a relaxed schema that doesn't require strict UUID/pubkey
-  // formats — allows the flow to work even without a wallet.
-  if (process.env.DEMO_MODE === "true") {
-    const demoBody = body as Record<string, unknown>;
-    const token_symbol = (demoBody?.token_symbol as string) || "USDC";
-    const token_mint = (demoBody?.token_mint as string) || TOKEN_MINTS["USDC"];
-    const recipients = (demoBody?.recipients as Array<{ wallet: string; amount: string }>) || [];
-
-    if (!recipients.length) {
-      return NextResponse.json(
-        { error: "Must have at least one recipient" },
-        { status: 400 }
-      );
-    }
-
-    const demoRunId = crypto.randomUUID();
-    const mockUtxos = recipients.map((r, i) => ({
-      commitment: `demo_commitment_${i}_${Date.now()}`,
-      amount: r.amount,
-      mint: token_mint,
-      leafIndex: 1000 + i,
-      nullifier: `demo_nullifier_${i}_${Date.now()}`,
-    }));
-
-    return NextResponse.json(
-      {
-        payroll_run_id: demoRunId,
-        status: "pending",
-        demo_mode: true,
-        signing_params: {
-          merkle_root: "demo_merkle_root_" + Date.now(),
-          merkle_proofs: mockUtxos.map((u) => ({
-            leaf: u.commitment,
-            pathElements: Array(20).fill("0x0"),
-            pathIndices: Array(20).fill(0),
-          })),
-          merkle_leaf_count: 2048,
-          selected_utxos: mockUtxos,
-          recipients: recipients.map((r) => ({
-            wallet: r.wallet,
-            amount: r.amount,
-          })),
-          token_mint,
-          token_symbol,
-          program_id: "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE",
-          relay_url: process.env.CLOAK_RELAY_URL || "https://api.cloak.ag",
-          rpc_url: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
-        },
-        mutex_expires_at: new Date(Date.now() + 60_000).toISOString(),
-      },
-      { status: 200 }
-    );
-  }
-
-  // ─── Full validation (production mode only) ──────────────────
   const parsed = payrollRequestSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -156,8 +73,6 @@ export async function POST(request: NextRequest) {
   }
 
   // ─── 3. Acquire Redis Mutex ──────────────────────────────────
-  // Lock scoped to org_id — prevents concurrent payroll runs
-  // for the same organization from racing on UTXO selection.
   const mutex = await acquireMutex(`utxo-selection:${org_id}`, 60);
   if (!mutex.acquired) {
     return NextResponse.json(
@@ -171,8 +86,6 @@ export async function POST(request: NextRequest) {
 
   try {
     // ─── 4. Fetch Public Inputs from Cloak ────────────────────
-    // Try the live Cloak relay first; fall back to mock data if
-    // the relay is unreachable (404, timeout, etc.).
     const mintPubkey =
       token_symbol === "SOL"
         ? NATIVE_SOL_MINT
@@ -185,7 +98,7 @@ export async function POST(request: NextRequest) {
     let relayFallback = false;
 
     try {
-      // Fetch Merkle tree state and available UTXOs in parallel
+      // ─── Attempt Real Cloak Relay First ─────────────────────
       const [md, availableUtxos] = await Promise.all([
         fetchMerkleProofs(mintPubkey),
         fetchAvailableUtxos(treasuryPubkey, mintPubkey),
@@ -193,7 +106,6 @@ export async function POST(request: NextRequest) {
 
       merkleData = md;
 
-      // ─── 5. Calculate Totals & Validate Sufficient Balance ───
       const totalAmount = recipients.reduce(
         (sum, r) => sum + BigInt(r.amount),
         0n
@@ -215,7 +127,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // ─── 6. Lock Selected UTXOs in Redis ─────────────────────
       selectedUtxos = selectUtxosForAmount(availableUtxos, totalAmount);
 
       for (const utxo of selectedUtxos) {
@@ -234,9 +145,7 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch (relayError) {
-      // ─── Cloak relay unreachable — fall back to mock data ───
-      // This allows the full UI demo (ZK animation, wallet signing)
-      // to work even when the Cloak relay API is down or returns 404.
+      // ─── Fallback to Mock Data on Relay Failure ─────────────
       console.warn(
         "[Aegis Ledger] Cloak relay unavailable, using mock signing params:",
         relayError instanceof Error ? relayError.message : relayError
@@ -263,9 +172,7 @@ export async function POST(request: NextRequest) {
       selectedUtxos = mockUtxos;
     }
 
-    // ─── 7. Create Payroll Run (pending_signature) ───────────
-    // Always create a real record in Supabase so the confirm
-    // route can update it after client-side signing.
+    // ─── 5. Create Payroll Run (pending_signature) ───────────
     const totalAmount = recipients.reduce(
       (sum, r) => sum + BigInt(r.amount),
       0n
@@ -296,7 +203,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ─── 8. Audit Log ────────────────────────────────────────
+    // ─── 6. Audit Log ────────────────────────────────────────
     await supabase.from("audit_log").insert({
       event_type: "payroll_initiated",
       org_id,
@@ -309,7 +216,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // ─── 9. Return Signing Parameters ────────────────────────
+    // ─── 7. Return Signing Parameters ────────────────────────
     const mutexExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
     return NextResponse.json(
@@ -332,7 +239,7 @@ export async function POST(request: NextRequest) {
             ? "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE"
             : getProgramId().toBase58(),
           relay_url: relayFallback
-            ? (process.env.CLOAK_RELAY_URL || "https://api.cloak.ag")
+            ? process.env.CLOAK_RELAY_URL
             : getRelayUrl(),
           rpc_url: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
         },
@@ -341,7 +248,6 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    // ─── Unexpected Error ────────────────────────────────────
     console.error("Payroll route unexpected error:", error);
     return NextResponse.json(
       {
@@ -352,24 +258,17 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   } finally {
-    // ─── ALWAYS Release Mutex ───────────────────────────────
-    // This runs whether the route succeeded, failed, or threw.
     await releaseMutex(mutex.key, mutex.lockValue);
   }
 }
 
 // ─── UTXO Selection Helper ─────────────────────────────────────
-// Simple greedy algorithm: select UTXOs largest-first until the
-// target amount is met. A production system would use a more
-// sophisticated coin selection strategy (e.g., Branch & Bound).
-
 import type { UtxoDescriptor } from "@/lib/cloak";
 
 function selectUtxosForAmount(
   utxos: UtxoDescriptor[],
   targetAmount: bigint
 ): UtxoDescriptor[] {
-  // Sort descending by amount (largest first)
   const sorted = [...utxos].sort(
     (a, b) => Number(BigInt(b.amount) - BigInt(a.amount))
   );

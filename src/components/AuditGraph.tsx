@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -13,7 +13,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import styles from "./AuditGraph.module.css";
-import { useAuditorEngine } from "@/hooks/useAuditorEngine";
+import { useAuditorEngine, buildReactFlowData } from "@/hooks/useAuditorEngine";
 
 /* ── Custom ReactFlow Node Components ── */
 const glassStyle = {
@@ -22,7 +22,7 @@ const glassStyle = {
   borderRadius: 12,
   padding: '14px 18px',
   backdropFilter: 'blur(12px)',
-  minWidth: 160,
+  minWidth: 180,
   textAlign: 'center' as const,
 };
 
@@ -30,10 +30,10 @@ function CustomTreasuryNode({ data }: { data: any }) {
   return (
     <div style={{ ...glassStyle, border: '1px solid rgba(0,184,122,0.25)', minWidth: 200 }}>
       <Handle type="source" position={Position.Bottom} style={{ background: '#00b87a', width: 8, height: 8 }} />
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: '#00b87a', marginBottom: 4 }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: '#00b87a', marginBottom: 4 }}>
         {data.label}
       </div>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--dim)' }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--dim)' }}>
         {data.sublabel}
       </div>
     </div>
@@ -44,10 +44,10 @@ function CustomEncryptedNode({ data }: { data: any }) {
   return (
     <div style={{ ...glassStyle, border: '1px solid rgba(255,255,255,0.04)' }}>
       <Handle type="target" position={Position.Top} style={{ background: 'rgba(0,184,122,0.3)', width: 6, height: 6 }} />
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ghost)', marginBottom: 2 }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--ghost)', marginBottom: 2 }}>
         {data.label}
       </div>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ghost)', opacity: 0.5 }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ghost)', opacity: 0.5 }}>
         {data.amount}
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ghost)', opacity: 0.4, marginTop: 2 }}>
@@ -62,10 +62,10 @@ function CustomDecryptedNode({ data }: { data: any }) {
   return (
     <div style={{ ...glassStyle, border: `1px solid ${accentColor}33` }}>
       <Handle type="target" position={Position.Top} style={{ background: accentColor, width: 6, height: 6 }} />
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
         {data.realLabel || data.label}
       </div>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: accentColor, fontWeight: 500 }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: accentColor, fontWeight: 500 }}>
         {data.realAmount || data.amount}
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--mid)', marginTop: 2 }}>
@@ -86,39 +86,9 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
   const [ttl, setTtl] = useState("--:--");
 
   useEffect(() => {
-    if (!key) {
-      setTtl("--:--");
-      return;
-    }
-    try {
-      if (key === "demo-token") {
-        setTtl("15m 00s remaining");
-        return;
-      }
-      const parts = key.split(".");
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]));
-        if (payload.valid_until) {
-          const ms = new Date(payload.valid_until).getTime() - Date.now();
-          if (ms <= 0) {
-            setTtl("Expired");
-          } else {
-            const hours = Math.floor(ms / 3600000);
-            const mins = Math.floor((ms % 3600000) / 60000);
-            const secs = Math.floor((ms % 60000) / 1000);
-            if (hours > 0) {
-              setTtl(`${hours}h ${mins}m remaining`);
-            } else {
-              setTtl(`${mins}m ${secs}s remaining`);
-            }
-          }
-          return;
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-    setTtl("Invalid format");
+    if (!key) { setTtl("--:--"); return; }
+    if (key === "demo-token") { setTtl("15m 00s remaining"); return; }
+    setTtl("Session active");
   }, [key]);
 
   return (
@@ -137,14 +107,14 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
             className={styles.keyInput}
             value={key}
             onChange={e => setKey(e.target.value)}
-            placeholder="vk_audit_q3_2025_bc4e···f8a2"
+            placeholder="vk_audit_q1_2026_bc4e···f8a2"
           />
 
           <div className={styles.keyMeta}>
             {[
-              { label: "Scope", val: "Q3 2025 · read-only", col: "var(--ink)" },
+              { label: "Scope", val: "FY 2026 · read-only", col: "var(--ink)" },
               { label: "TTL", val: ttl, col: "var(--amber)" },
-              { label: "Session", val: "Redis-backed · auto-revoke", col: "var(--dim)" },
+              { label: "Session", val: "time-limited · auto-expires", col: "var(--dim)" },
             ].map(r => (
               <div key={r.label} className={styles.keyMetaRow}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{r.label}</span>
@@ -160,8 +130,7 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
           >
             Authenticate →
           </button>
-          <button className={styles.demoKeyBtn}
-            onClick={() => setKey("demo-token")}>
+          <button className={styles.demoKeyBtn} onClick={() => setKey("demo-token")}>
             Use demo key
           </button>
         </div>
@@ -175,9 +144,9 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const [authed, setAuthed] = useState(!!accessToken);
   const [decrypted, setDecrypted] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [timeline, setTimeline] = useState(50);
+  const [timeline, setTimeline] = useState(100);
 
-  const { execute, status, progress, scope, nodes: rfNodes, edges: rfEdges, transactions, summary, error } = useAuditorEngine();
+  const { execute, status, scope, transactions } = useAuditorEngine();
 
   useEffect(() => {
     if (authed && localToken && status === "idle") {
@@ -185,135 +154,91 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
     }
   }, [authed, localToken, status, execute]);
 
-  const handleAuth = (key: string) => {
-    setLocalToken(key);
-    setAuthed(true);
-  };
-
-  const handleRevoke = () => {
-    setAuthed(false);
-    setLocalToken("");
-    window.location.reload(); // Simple state reset
-  };
+  const handleAuth = (key: string) => { setLocalToken(key); setAuthed(true); };
 
   const handleDecryptToggle = () => {
-    if (decrypted) {
-      setDecrypted(false);
-      return;
-    }
+    if (decrypted) { setDecrypted(false); return; }
     setScanning(true);
-    // The "decryption" only happens after the 1s scan animation finishes
-    setTimeout(() => {
-      setDecrypted(true);
-      setScanning(false);
-    }, 1000);
+    setTimeout(() => { setDecrypted(true); setScanning(false); }, 1000);
   };
 
-  const [ttl, setTtl] = useState("--:--");
-
-  useEffect(() => {
-    if (!scope?.valid_until) return;
-    const interval = setInterval(() => {
-      const ms = new Date(scope.valid_until).getTime() - Date.now();
-      if (ms <= 0) { 
-        setTtl("Expired"); 
-        clearInterval(interval); 
-        return; 
-      }
-      const hours = Math.floor(ms / 3600000);
-      const mins = Math.floor((ms % 3600000) / 60000);
-      const secs = Math.floor((ms % 60000) / 1000);
-      if (hours > 0) {
-        setTtl(`${hours}h ${mins}m`);
-      } else {
-        setTtl(`${mins}m ${secs}s`);
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [scope?.valid_until]);
-
-  if (!authed) return <AuditorLogin onAuth={handleAuth} />;
-
-  const isDone = status === "complete";
+  // ─── Timeline Logic ───────────────────────────────────────────
   const quarters = ["Q1 2026", "Q2 2026", "Q3 2026", "Q4 2026"];
-  const currentQ = quarters[Math.floor((timeline / 100) * (quarters.length - 1))];
-
-  const getSelectedDateStr = () => {
-    if (!scope?.valid_from || !scope?.valid_until) return "Loading...";
+  
+  const selectedRangeEnd = useMemo(() => {
+    if (!scope?.valid_from || !scope?.valid_until) return Date.now();
     const start = new Date(scope.valid_from).getTime();
     const end = new Date(scope.valid_until).getTime();
-    const selectedMs = start + ((end - start) * (timeline / 100));
-    return new Date(selectedMs).toLocaleDateString();
-  };
+    return start + (end - start) * (timeline / 100);
+  }, [scope, timeline]);
 
-  // Map real transactions to UI shape
-  const realTxs = transactions.map(tx => ({
-    date: new Date(tx.timestamp).toISOString().split('T')[0],
-    from: "DaoTreasury.sol",
-    to: tx.recipient ? `${tx.recipient.slice(0, 4)}···${tx.recipient.slice(-4)}` : "Unknown",
-    amount: `$${(Math.abs(tx.netAmount) / Math.pow(10, tx.decimals || 6)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 9 })}`,
-    type: tx.txType === "withdrawal" ? "Payroll" : "Transfer"
-  }));
+  const currentQ = useMemo(() => {
+    const date = new Date(selectedRangeEnd);
+    const month = date.getMonth();
+    if (month < 3) return "Q1 2026 (Jan–Mar)";
+    if (month < 6) return "Q2 2026 (Apr–Jun)";
+    if (month < 9) return "Q3 2026 (Jul–Sep)";
+    return "Q4 2026 (Oct–Dec)";
+  }, [selectedRangeEnd]);
 
-  const CIPHERTEXT_TXS = transactions.map(tx => ({
-    date: "0x4a3f···", 
-    from: "0xc8d2e1···3f9a",
-    to: `Commitment[${(tx.commitment || "").slice(0, 8)}...]`, 
-    amount: "HIDDEN", 
-    type: "0x01",
-  }));
+  const filteredTxs = useMemo(() => {
+    if (!scope?.valid_from) return [];
+    const start = new Date(scope.valid_from).getTime();
+    return transactions.filter(tx => tx.timestamp >= start && tx.timestamp <= selectedRangeEnd);
+  }, [transactions, scope, selectedRangeEnd]);
 
-  const displayNodes = rfNodes.map(n => {
+  const { nodes, edges } = useMemo(() => buildReactFlowData(filteredTxs), [filteredTxs]);
+
+  const uniqueRecipientsCount = useMemo(() => {
+    const set = new Set();
+    filteredTxs.forEach(tx => { if (tx.recipient) set.add(tx.recipient); });
+    return set.size;
+  }, [filteredTxs]);
+
+  const displayNodes = nodes.map(n => {
     if (n.id === "treasury") {
       return {
         ...n,
-        type: "treasury",
         data: {
           ...n.data,
           label: decrypted ? "DAO Treasury" : "0xc8d2···3f9a",
           sublabel: decrypted ? "Aegis Ledger — Verified" : "Shielded Pool — Cloak Protocol",
         }
-      }
+      };
     }
-
-    const isEmp = n.data?.label?.includes("Employee");
     return {
       ...n,
       type: decrypted ? "decrypted" : "encrypted",
       data: {
         ...n.data,
-        label: decrypted 
-          ? (isEmp ? n.data.label.replace("Employee", "Payroll Batch") : n.data.label)
-          : `Commitment[0${(n.id.match(/\d+/) || ["83"])[0]}]`,
-        amount: decrypted ? n.data.amount : "HIDDEN",
-        detail: decrypted ? n.data.detail : "0xc8d2···3f9a",
-        txType: n.id.includes("deposit") ? "swap" : "withdrawal",
+        label: decrypted ? n.data.realLabel || n.data.label : n.data.label,
+        amount: decrypted ? n.data.realAmount || n.data.amount : "HIDDEN",
+        detail: decrypted ? n.data.realDetail || n.data.detail : "0xc8d2···3f9a",
       }
-    }
+    };
   });
 
-  const displayEdges = rfEdges.map((e, index) => ({
+  const displayEdges = edges.map(e => ({
     ...e,
-    animated: true,
-    style: {
-      stroke: decrypted 
-        ? (e.id.includes("deposit") ? "#d97c0a" : "#00b87a")
-        : "rgba(0,184,122,0.3)",
-      strokeWidth: 2,
-      strokeDasharray: decrypted ? "none" : "5 5",
-    },
     label: decrypted ? e.label : "HIDDEN",
+    animated: true,
+    style: { 
+      stroke: decrypted ? "#00b87a" : "rgba(0,184,122,0.3)", 
+      strokeWidth: 2, 
+      strokeDasharray: decrypted ? "none" : "5 5" 
+    },
   }));
 
-  const displayTxs = decrypted ? realTxs : CIPHERTEXT_TXS;
+  const isDone = status === "complete";
   const showFlow = isDone;
+
+  if (!authed) return <AuditorLogin onAuth={handleAuth} />;
 
   return (
     <div className={styles.page}>
-      {/* Header */}
       <div className={styles.pageHeader}>
         <div>
-          <span className={styles.eyebrow}>Compliance View · {scope?.org_id || "Loading..."}</span>
+          <span className={styles.eyebrow}>Compliance View · {scope?.org_id || "Demo_DAO"}</span>
           <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
             Treasury Ledger<br />
             <em>Read-only audit access.</em>
@@ -323,21 +248,20 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           <div className={styles.authedPill}>
             <span className={styles.authedDot} />
             <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)" }}>
-              Authenticated · {ttl} TTL
+              Authenticated · Session: time-limited · auto-expires
             </span>
           </div>
         </div>
       </div>
 
-      {/* Timeline scrubber */}
       <div className={`${styles.card} ${styles.timelineCard}`}>
         <div className={styles.timelineHeader}>
           <div>
-            <span className={styles.fieldEyebrow}>Viewing Window</span>
+            <span className={styles.fieldEyebrow}>Valid Period / Authorized Scope</span>
             <div className={styles.timelineTitle}>
-              Valid period: {scope ? "Authorized Scope" : "Loading..."}
+              {scope ? "FY 2026 Audit Window" : "Loading..."}
               <span className={styles.timelineSub}>
-                {scope ? ` · ${new Date(scope.valid_from).toLocaleDateString()} – ${getSelectedDateStr()}` : ""}
+                {scope ? ` · Jan 1, 2026 – ${new Date(selectedRangeEnd).toLocaleDateString()}` : ""}
               </span>
             </div>
           </div>
@@ -347,172 +271,102 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             </span>
           </div>
         </div>
-        <input type="range" min={0} max={100} value={timeline}
-          onChange={e => setTimeline(Number(e.target.value))}
-          className={styles.slider}
-        />
+        <input type="range" min={0} max={100} value={timeline} onChange={e => setTimeline(Number(e.target.value))} className={styles.slider} />
         <div className={styles.quarterLabels}>
           {quarters.map((q, i) => (
-            <span key={q} style={{ fontFamily: "var(--mono)", fontSize: 9.5, 
-              color: i === Math.floor((timeline / 100) * (quarters.length - 1)) ? "var(--ink)" : "var(--ghost)" }}>
-              {q}
-            </span>
+            <span key={q} style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: i === Math.floor((timeline / 101) * quarters.length) ? "var(--ink)" : "var(--ghost)" }}>{q}</span>
           ))}
         </div>
       </div>
 
-      {/* ReactFlow + decrypt panel */}
       <div className={styles.graphRow}>
-
-        {/* ReactFlow canvas */}
         <div className={styles.flowCard}>
           <div className={styles.flowCardHeader}>
             <span className={styles.fieldLabel}>Transaction Flow Graph</span>
-            <span className="ae-badge ae-badge-dim">
-              {status === "error" ? "Error" : isDone ? "ReactFlow · live canvas" : progress || "Loading..."}
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--mid)", marginLeft: 12 }}>
+              ↓ Showing {filteredTxs.length} transactions in {currentQ.split(' ')[0]} ↓
             </span>
           </div>
           <div className={styles.flowCanvas}>
             {showFlow ? (
-              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                {!decrypted && (
-                  <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
-                    <span className="ae-badge ae-badge-ghost">🔒 Encrypted Graph</span>
-                  </div>
-                )}
-                <ReactFlow
-                  nodes={displayNodes}
-                  edges={displayEdges}
-                  nodeTypes={nodeTypes}
+                <ReactFlow 
+                  nodes={displayNodes} 
+                  edges={displayEdges} 
+                  nodeTypes={nodeTypes} 
+                  fitView 
+                  fitViewOptions={{ padding: 0.1 }}
                   connectionMode={ConnectionMode.Loose}
-                  fitView
-                  fitViewOptions={{ padding: 0.2 }}
-                  nodesDraggable={true}
-                  nodesConnectable={false}
-                  elementsSelectable={true}
-                  proOptions={{ hideAttribution: true }}
-                  style={{ filter: decrypted ? 'hue-rotate(120deg) brightness(1.2) contrast(1.1)' : 'none', transition: 'filter 0.5s ease' }}
-                >
-                  <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--mist)" />
-                  <Controls showInteractive={false} />
-                </ReactFlow>
-
-                <style>{`
-                  @keyframes scanDown {
-                    from { top: 0%; opacity: 0; }
-                    10% { opacity: 1; }
-                    90% { opacity: 1; }
-                    to { top: 100%; opacity: 0; }
-                  }
-                `}</style>
-
-                {scanning && (
-                  <div style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '2px',
-                    background: 'linear-gradient(90deg, transparent, #00ffcc, #00ffcc, transparent)',
-                    boxShadow: '0 0 20px #00ffcc, 0 0 40px #00ffcc',
-                    zIndex: 100,
-                    pointerEvents: 'none',
-                    animation: 'scanDown 1s linear forwards'
-                  }} />
-                )}
-              </div>
+                proOptions={{ hideAttribution: true }}
+                style={{ filter: decrypted ? 'hue-rotate(120deg) brightness(1.2) contrast(1.1)' : 'none', transition: 'filter 0.5s ease' }}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--mist)" />
+                <Controls showInteractive={false} />
+              </ReactFlow>
             ) : (
               <div className={styles.flowLocked}>
                 <div className={styles.flowLockedInner}>
-                  <span style={{ fontSize: 24, marginBottom: 8, display: "block" }}>
-                    {!isDone ? "⏳" : "🔒"}
-                  </span>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--mid)" }}>
-                    {!isDone ? (progress || "Decrypting ledger...") : "Toggle decrypt to reveal flow"}
-                  </span>
+                  <span style={{ fontSize: 24, marginBottom: 8, display: "block" }}>⌛</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--mid)" }}>Deciphering ledger...</span>
                 </div>
               </div>
             )}
+            {scanning && <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '2px', background: '#00ffcc', boxShadow: '0 0 20px #00ffcc', zIndex: 100, animation: 'scanDown 1s linear forwards' }} />}
           </div>
         </div>
 
-        {/* Decrypt toggle panel */}
         <div className={`${styles.card} ${styles.decryptPanel}`}>
           <span className={styles.fieldEyebrow}>Ledger View Mode</span>
-
           <div className={styles.toggleRow}>
             <div>
-              <div className={styles.toggleTitle}>
-                {decrypted ? "Decrypted Ledger" : "Public Ciphertext"}
-              </div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>
-                {decrypted ? "Plaintext · verified" : "Scrambled on-chain hashes"}
-              </span>
+              <div className={styles.toggleTitle}>{decrypted ? "Decrypted Ledger" : "Public Ciphertext"}</div>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{decrypted ? "Plaintext · verified" : "Scrambled on-chain hashes"}</span>
             </div>
-            <button
-              className={styles.toggle}
-              onClick={handleDecryptToggle}
-              style={{ background: decrypted ? "var(--green)" : (scanning ? "var(--blue)" : "var(--mist)") }}
-              disabled={!isDone || scanning}
-              aria-label="Toggle decrypt"
-            >
-              <span className={styles.toggleThumb}
-                style={{ transform: decrypted ? "translateX(20px)" : "none" }} />
+            <button className={styles.toggle} onClick={handleDecryptToggle} style={{ background: decrypted ? "var(--green)" : "var(--mist)" }} disabled={!isDone || scanning}>
+              <span className={styles.toggleThumb} style={{ transform: decrypted ? "translateX(20px)" : "none" }} />
             </button>
           </div>
-
           <div className={styles.statsBlock}>
             {[
-              { label: "Transactions", val: summary ? summary.filteredCount.toString() : "-", special: null },
-              { label: "Total outflow", val: decrypted && summary ? `$${(summary.totalWithdrawals / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "ENCRYPTED", special: decrypted ? null : "hidden" },
-              { label: "Recipients", val: decrypted ? `${rfNodes.length - 1} wallets` : "HIDDEN", special: decrypted ? null : "hidden" },
-              { label: "Proof status", val: "✓ Groth16", special: "ok" },
+              { label: "Transactions", val: filteredTxs.length.toString() },
+              { label: "Total outflow", val: decrypted ? `$${(filteredTxs.reduce((s, t) => s + Math.abs(t.netAmount), 0) / 1e6).toLocaleString()}` : "ENCRYPTED" },
+              { label: "Recipients", val: decrypted ? `${uniqueRecipientsCount} wallets` : "HIDDEN" },
+              { label: "Proof status", val: "✓ Groth16", col: "var(--green)" },
             ].map(s => (
               <div key={s.label} className={styles.statRow}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--dim)" }}>{s.label}</span>
-                <span style={{ 
-                  fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 500, 
-                  color: s.special === "ok" ? "var(--green)" : s.special === "hidden" ? "var(--ghost)" : "var(--ink)",
-                }}>{s.val}</span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 500, color: s.col || "var(--ink)" }}>{s.val}</span>
               </div>
             ))}
           </div>
-
           <div className={styles.readOnlyNote}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--blue)", lineHeight: 1.6, display: "block" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--blue)", lineHeight: 1.6, display: "block", marginTop: 16 }}>
               Viewing key is cryptographic read-only. It cannot authorise any transaction.
             </span>
           </div>
         </div>
       </div>
 
-      {/* Ledger table */}
       <div className={`${styles.card} ${styles.tableCard}`}>
         <div className={styles.tableHeader}>
           <span className={styles.fieldLabel}>Transaction Records</span>
-          <span className={`ae-badge ${decrypted ? "ae-badge-green" : "ae-badge-ghost"}`}>
-            {decrypted ? "DECRYPTED VIEW" : "CIPHERTEXT VIEW"}
-          </span>
+          <span className={`ae-badge ${decrypted ? "ae-badge-green" : "ae-badge-ghost"}`}>{decrypted ? "DECRYPTED VIEW" : "CIPHERTEXT VIEW"}</span>
         </div>
         <div className={styles.tableHead}>
           {["Date / Block", "From", "To", "Amount", "Type"].map(h => (
-            <span key={h} style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--dim)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</span>
+            <span key={h} style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--dim)", textTransform: "uppercase" }}>{h}</span>
           ))}
         </div>
-        {displayTxs.map((row, i) => (
-          <div key={i} className={styles.tableRow}
-            style={{ borderBottom: i < displayTxs.length - 1 ? "1px solid var(--mist)" : "none" }}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: decrypted ? "var(--slate)" : "var(--ghost)" }}>{row.date}</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: decrypted ? "var(--mid)" : "var(--ghost)" }}>{row.from}</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: decrypted ? "var(--mid)" : "var(--ghost)" }}>{row.to}</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, fontWeight: 500, color: decrypted ? "var(--ink)" : "var(--ghost)" }}>{row.amount}</span>
-            <span className={`ae-badge ${
-              !decrypted ? "ae-badge-ghost" : 
-              row.type === "Payroll" ? "ae-badge-blue" : "ae-badge-amber"
-            }`}>{row.type}</span>
+        {filteredTxs.map((tx, i) => (
+          <div key={i} className={styles.tableRow} style={{ borderBottom: i < filteredTxs.length - 1 ? "1px solid var(--mist)" : "none" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{new Date(tx.timestamp).toLocaleDateString()}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5 }}>{decrypted ? "DaoTreasury.sol" : "0xc8d2···3f9a"}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{decrypted ? (tx.recipient ? `${tx.recipient.slice(0, 4)}···${tx.recipient.slice(-4)}` : "Unknown") : `Commitment[${tx.commitment?.slice(0,8) || "..."}]`}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, fontWeight: 500 }}>{decrypted ? `$${(Math.abs(tx.netAmount) / 1e6).toLocaleString()}` : "HIDDEN"}</span>
+            <span className={`ae-badge ${decrypted ? (tx.txType === "withdrawal" ? "ae-badge-blue" : "ae-badge-amber") : "ae-badge-ghost"}`}>{decrypted ? (tx.txType === "withdrawal" ? "Payroll" : "Transfer") : "0x01"}</span>
           </div>
         ))}
       </div>
+      <style>{`@keyframes scanDown { from { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } to { top: 100%; opacity: 0; } }`}</style>
     </div>
   );
 }

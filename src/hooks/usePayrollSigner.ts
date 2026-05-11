@@ -67,10 +67,9 @@ async function loadCloakSDK() {
   return { ...sdk, CloakClass };
 }
 
+// ─── FEATURE FLAG: Uniform Denomination Splitting ─────────────
 const USE_DENOMINATIONS = true;
-const STANDARD_DENOMINATIONS = [1000, 500, 100, 50, 10, 5, 1].map(
-  (d) => d * 1_000_000,
-);
+const STANDARD_DENOMINATIONS = [1000, 500, 100, 50, 10, 5, 1];
 
 export function usePayrollSigner(): PayrollSignerResult {
   const { publicKey, signTransaction, connected, wallet } = useWallet();
@@ -152,7 +151,7 @@ export function usePayrollSigner(): PayrollSignerResult {
 
           setStatus("initializing_wasm");
           setProofProgress("⚠️ SDK/Network Error. Switching to Aegis Fallback Simulation...");
-          await new Promise(r => setTimeout(r, 3000)); // Give user time to read the error
+          await new Promise(r => setTimeout(r, 3000));
           
           const collectedSignatures: string[] = [];
           const collectedCommitments: string[] = [];
@@ -169,7 +168,8 @@ export function usePayrollSigner(): PayrollSignerResult {
 
             setStatus("proving");
             const amountNum = Number(recipient.amount) / 1e6;
-            const notes = denominate(amountNum, [1000, 500, 100, 50, 10, 5, 1]);
+            const notes = denominate(amountNum, STANDARD_DENOMINATIONS);
+            
             if (notes.length > 1) {
               setProofProgress(
                 `Recipient ${i + 1}/${totalRecipients}: splitting ${amountNum.toLocaleString()} ${params.token_symbol} into ${notes.length} uniform notes...`,
@@ -177,46 +177,35 @@ export function usePayrollSigner(): PayrollSignerResult {
               await new Promise((r) => setTimeout(r, 800));
             }
 
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: generating ZK proof for ${recipient.wallet.slice(0, 8)}...`,
-            );
-            await new Promise((r) => setTimeout(r, 600));
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: building Groth16 proof (π_a, π_b, π_c)...`,
-            );
-            await new Promise((r) => setTimeout(r, 700));
+            for (let n = 0; n < notes.length; n++) {
+              const noteAmount = notes[n];
+              setProofProgress(
+                `Recipient ${i + 1}/${totalRecipients} [Note ${n+1}/${notes.length}]: generating ZK proof...`,
+              );
+              await new Promise((r) => setTimeout(r, 600));
 
-            setStatus("signing");
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: requesting wallet signature...`,
-            );
-            await new Promise((r) => setTimeout(r, 400));
+              setStatus("signing");
+              setProofProgress(
+                `Recipient ${i + 1}/${totalRecipients} [Note ${n+1}]: requesting wallet signature...`,
+              );
+              await new Promise((r) => setTimeout(r, 400));
 
-            setStatus("broadcasting");
-            const depositSig = genSig();
-            collectedSignatures.push(depositSig);
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: deposit tx ${depositSig.slice(0, 16)}...`,
-            );
-            await new Promise((r) => setTimeout(r, 300));
-
-            setStatus("proving");
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: generating withdrawal ZK proof...`,
-            );
-            await new Promise((r) => setTimeout(r, 600));
-
-            setStatus("broadcasting");
-            const withdrawSig = genSig();
-            collectedSignatures.push(withdrawSig);
-            collectedCommitments.push(genHash());
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: withdraw tx ${withdrawSig.slice(0, 16)}...`,
-            );
-            await new Promise((r) => setTimeout(r, 300));
+              setStatus("broadcasting");
+              const depositSig = genSig();
+              collectedSignatures.push(depositSig);
+              
+              const withdrawSig = genSig();
+              collectedSignatures.push(withdrawSig);
+              collectedCommitments.push(genHash());
+              
+              setProofProgress(
+                `Recipient ${i + 1}/${totalRecipients} [Note ${n+1}]: ✓ broadcasted`,
+              );
+              await new Promise((r) => setTimeout(r, 300));
+            }
 
             setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: ✓ complete`,
+              `Recipient ${i + 1}/${totalRecipients}: ✓ all notes complete`,
             );
             await new Promise((r) => setTimeout(r, 200));
           }
@@ -283,55 +272,63 @@ export function usePayrollSigner(): PayrollSignerResult {
             const recipientPubkey = new PublicKey(recipient.wallet);
 
             setRecipientProgress({ current: i + 1, total: totalRecipients });
-            setStatus("proving");
-            setProofProgress(`Recipient ${i + 1}/${totalRecipients}: fetching Merkle state & generating ZK proof...`);
+            
+            // ─── UNIFORM DENOMINATION SPLITTING ──────────────
+            const amountWhole = amountLamports / 1e6;
+            const notes = USE_DENOMINATIONS 
+              ? denominate(amountWhole, STANDARD_DENOMINATIONS)
+              : [amountWhole];
 
-            // Use the instance method transact() which has the wallet attached
-            const result = await cloakClient.transact(
-              {
-                inputUtxos: [],
-                outputUtxos: [],
-                externalAmount: BigInt(amountLamports),
-                recipient: recipientPubkey,
-                depositor: publicKey!,
-              },
-              {
-                connection,
-                onProgress: (phase: string) => {
-                  const msg = phase;
-                  if (msg.toLowerCase().includes("proof") || msg.toLowerCase().includes("generating")) {
-                    setStatus("proving");
-                  } else if (msg.toLowerCase().includes("sign") || msg.toLowerCase().includes("approval")) {
-                    setStatus("signing");
-                  } else if (msg.toLowerCase().includes("broadcast") || msg.toLowerCase().includes("send")) {
-                    setStatus("broadcasting");
-                  }
-                  setProofProgress(`Recipient ${i + 1}/${totalRecipients}: ${msg}`);
-                },
-                onProofProgress: (pct: number) => {
-                  setProofProgress(`Recipient ${i + 1}/${totalRecipients}: proving... ${Math.round(pct * 100)}%`);
-                },
-              }
-            );
-
-            if (result.signature)
-              collectedSignatures.push(String(result.signature));
-            if (
-              result.outputCommitments &&
-              result.outputCommitments.length > 0
-            ) {
-              collectedCommitments.push(String(result.outputCommitments[0]));
+            if (notes.length > 1) {
+              setProofProgress(`Recipient ${i+1}/${totalRecipients}: Splitting into ${notes.length} standard notes for privacy...`);
+              await new Promise(r => setTimeout(r, 1000));
             }
 
-            setProofProgress(
-              `Recipient ${i + 1}/${totalRecipients}: ✓ complete`,
-            );
+            for (let n = 0; n < notes.length; n++) {
+              const noteAmountLamports = BigInt(Math.round(notes[n] * 1e6));
+              
+              setStatus("proving");
+              setProofProgress(`Recipient ${i + 1}/${totalRecipients} [Note ${n+1}/${notes.length}]: generating ZK proof...`);
+
+              const result = await cloakClient.transact(
+                {
+                  inputUtxos: [],
+                  outputUtxos: [],
+                  externalAmount: noteAmountLamports,
+                  recipient: recipientPubkey,
+                  depositor: publicKey!,
+                },
+                {
+                  connection,
+                  onProgress: (phase: string) => {
+                    const msg = phase;
+                    if (msg.toLowerCase().includes("proof") || msg.toLowerCase().includes("generating")) {
+                      setStatus("proving");
+                    } else if (msg.toLowerCase().includes("sign") || msg.toLowerCase().includes("approval")) {
+                      setStatus("signing");
+                    } else if (msg.toLowerCase().includes("broadcast") || msg.toLowerCase().includes("send")) {
+                      setStatus("broadcasting");
+                    }
+                    setProofProgress(`Recipient ${i + 1}/${totalRecipients} [Note ${n+1}]: ${msg}`);
+                  },
+                  onProofProgress: (pct: number) => {
+                    setProofProgress(`Recipient ${i + 1}/${totalRecipients} [Note ${n+1}]: proving... ${Math.round(pct * 100)}%`);
+                  },
+                }
+              );
+
+              if (result.signature)
+                collectedSignatures.push(String(result.signature));
+              if (result.outputCommitments && result.outputCommitments.length > 0) {
+                collectedCommitments.push(String(result.outputCommitments[0]));
+              }
+            }
+
+            setProofProgress(`Recipient ${i + 1}/${totalRecipients}: ✓ all notes complete`);
           }
 
           setStatus("confirming");
-          setProofProgress(
-            "All recipients processed. Confirming with server...",
-          );
+          setProofProgress("All recipients processed. Confirming with server...");
 
           const confirmRes = await fetch("/api/payroll/confirm", {
             method: "POST",
@@ -348,16 +345,11 @@ export function usePayrollSigner(): PayrollSignerResult {
             throw new Error(confirmData.error || "Failed to confirm payroll");
 
           setTxSignatures(collectedSignatures);
-          setProofProgress(
-            `✓ Payroll complete — ${totalRecipients} recipients, ${collectedSignatures.length} transactions`,
-          );
+          setProofProgress(`✓ Payroll complete — ${totalRecipients} recipients processed via ${collectedSignatures.length} transactions`);
           setStatus("completed");
         } catch (sdkError) {
-          // ─── AUTO-FALLBACK TRIGGER ──────────────────
           console.warn("[Aegis Ledger] Live SDK transact failed:", sdkError);
-          setProofProgress(
-            "Network/SDK error detected. Falling back to offline simulation...",
-          );
+          setProofProgress("Network/SDK error detected. Falling back to offline simulation...");
           await new Promise((r) => setTimeout(r, 1500));
           await runFallbackSimulation();
         }
