@@ -17,23 +17,6 @@ export default function WalletButton() {
   const { setVisible } = useWalletModal();
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Only run validation if fully connected and adapter is stable
-    if (connected && wallet?.adapter) {
-      const adapter = wallet.adapter;
-      // Wait a tick for injection to settle (mitigates EVM conflict race conditions)
-      const timeout = setTimeout(() => {
-        if (typeof adapter.sendTransaction !== "function") {
-          setError("Incompatible wallet detected. Please use Phantom or Solflare.");
-          disconnect().catch(console.error);
-        } else {
-          setError(null);
-        }
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-  }, [connected, wallet, disconnect]);
-
   const handleClick = useCallback(() => {
     if (connected) {
       disconnect().catch(console.error);

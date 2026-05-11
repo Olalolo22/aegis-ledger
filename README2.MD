@@ -234,37 +234,6 @@ API-->>Auditor: {compliance_report} — no raw key material returned
 
 -----
 
-## Demo Flow for Judges
-
-### Scene 1 — Public Dashboard (`/`) — The Zero-Knowledge View
-
-1. Click **“Execute Payroll”**
-1. Watch the xterm.js terminal stream a 5-recipient batch payroll in real time
-1. Observe redacted output: `[SHIELDED] Amount: ████████ | Recipient: ████████████████████`
-1. Only UTXO commitment hashes and transaction signatures are visible on-chain
-1. The **Privacy Score** meter updates dynamically as each note clears
-
-### Scene 2 — Auditor Portal (`/audit`) — The God Mode View
-
-1. Navigate to the Auditor Portal
-1. Click **“Enter Demo Mode”** — simulates a verified magic link session
-1. See 5 **locked** UTXO nodes in the ReactFlow graph (🔒 red borders, ciphertext hashes)
-1. Use the **Date Scope Slider** to scrub the Q1–Q4 2026 timeline to the relevant window
-1. Click **“Apply Viewing Key”**
-1. Watch each node unlock in sequence — amounts and recipient labels revealed
-1. Edges animate from purple to green: encrypted → decrypted
-
-### Scene 3 — Admin Dashboard — Issuing Access
-
-1. Open the **“Issue Access Magic Link”** card
-1. Generate a real, copyable cryptographic viewing key with a defined time scope
-1. Copy the magic link — share it with the auditor via any channel
-1. Demonstrate the single-use consumption: the link expires after first access
-
-**The contrast between Scene 1 and Scene 2 is the product:** same transactions on the same chain, but only the authorized party sees the full picture.
-
------
-
 ## Getting Started
 
 ### Prerequisites
@@ -352,8 +321,10 @@ aegis-ledger/
 │ │ │ └── health/route.ts # GET — service health check
 │ │ ├── audit/page.tsx # Auditor Portal (ReactFlow + temporal scrubbing)
 │ │ ├── page.tsx # Public Dashboard (xterm.js + privacy score)
-│ │ ├── layout.tsx
-│ │ └── globals.css
+│ │ ├── aegis-tokens.css # Global design tokens (Glassmorphism)
+│ │ ├── landing.css      # Product Tour landing page styles
+│ │ ├── globals.css      # Core layout & global styles
+│ │ └── layout.tsx       # Root layout & SEO configuration
 │ ├── components/
 │ │ ├── PayrollTerminal.tsx # xterm.js real-time cryptographic log
 │ │ └── AuditGraph.tsx # ReactFlow UTXO graph visualization
@@ -372,8 +343,6 @@ aegis-ledger/
 │ │ └── client.ts
 │ └── types/
 │ └── database.ts # TypeScript ↔ PostgreSQL schema types
-├── styles/
-│ └── aegis-tokens.css # Custom glassmorphism design system
 ├── supabase/
 │ └── migrations/
 │ └── 001_foundation.sql # Full schema with RLS + CHECK constraints
