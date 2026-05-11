@@ -18,7 +18,7 @@ import {
 import type { WalletError } from "@solana/wallet-adapter-base";
 
 // Default styles for the wallet modal
-import "@solana/wallet-adapter-react-ui/styles.css";
+// MOVED TO layout.tsx for faster loading
 
 /**
  * Root-level Solana wallet context provider for the Aegis Ledger app.

@@ -21,6 +21,9 @@ const geistMono = localFont({
   variable: "--font-mono",
 });
 
+// Default styles for the wallet modal
+import "@solana/wallet-adapter-react-ui/styles.css";
+
 // Dynamic import — WalletProvider needs window (no SSR)
 const WalletProvider = dynamic(
   () => import("@/components/WalletProvider"),

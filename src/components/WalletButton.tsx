@@ -17,21 +17,20 @@ export default function WalletButton() {
   const { setVisible } = useWalletModal();
   const [error, setError] = useState<string | null>(null);
 
-  // Validate that the connected wallet is actually a Solana wallet
-  // (not an EVM wallet that injected itself into the Solana namespace)
   useEffect(() => {
-    if (connected && wallet) {
+    // Only run validation if fully connected and adapter is stable
+    if (connected && wallet?.adapter) {
       const adapter = wallet.adapter;
-      // Solana wallets must expose signTransaction
-      if (typeof adapter.sendTransaction !== "function") {
-        setError(
-          "Connected wallet does not support Solana transactions. " +
-            "Please connect a Solana wallet (Phantom, Solflare, Backpack)."
-        );
-        disconnect().catch(console.error);
-      } else {
-        setError(null);
-      }
+      // Wait a tick for injection to settle (mitigates EVM conflict race conditions)
+      const timeout = setTimeout(() => {
+        if (typeof adapter.sendTransaction !== "function") {
+          setError("Incompatible wallet detected. Please use Phantom or Solflare.");
+          disconnect().catch(console.error);
+        } else {
+          setError(null);
+        }
+      }, 500);
+      return () => clearTimeout(timeout);
     }
   }, [connected, wallet, disconnect]);
 
