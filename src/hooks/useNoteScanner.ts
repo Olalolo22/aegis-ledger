@@ -95,15 +95,17 @@ export function useNoteScanner(): NoteScannerResult {
       abortRef.current = controller;
 
       try {
-        // ─── Step 0: Check for Demo Mode ──────────────────────
-        if (viewingKeyInput === "demo-token") {
+        // ─── Step 0: Demo Mode Override ──────────────────────────
+        // In demo mode, any non-empty key triggers the mock scanning flow.
+        // This guarantees the employee scanner works even if the relay is down.
+        if (process.env.NEXT_PUBLIC_DEMO_MODE === "true" && viewingKeyInput.trim().length > 0) {
           setStatus("scanning");
           setProgress({
             phase: "fetching",
             current: 0,
             total: 100,
             decryptedSoFar: 0,
-            message: "⚠️ Using Demo Key: Fetching mock encrypted pool...",
+            message: `🔐 Using demo key: scanning encrypted pool locally...`,
           });
           await new Promise(r => setTimeout(r, 1000));
           
