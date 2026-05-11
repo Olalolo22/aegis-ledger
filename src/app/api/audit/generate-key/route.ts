@@ -138,7 +138,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // ─── 9. Return (no raw key material in response) ───────────
+    // ─── 9. Return (no raw key material in response EXCEPT for demo org) ───────────
+    const isDemoOrg = org_id === "b91a045c-27eb-44c1-8409-f62506b328a6";
+    
     return NextResponse.json(
       {
         viewing_key: {
@@ -148,6 +150,8 @@ export async function POST(request: NextRequest) {
           valid_until: viewingKey.valid_until,
           allowed_tokens: viewingKey.allowed_tokens,
           created_at: viewingKey.created_at,
+          // DEMO MODE ONLY: Return raw key for copy-paste presentation
+          raw_nk_hex: isDemoOrg ? Buffer.from(nk).toString("hex") : null,
         },
         message:
           "Viewing key generated and encrypted at rest. " +

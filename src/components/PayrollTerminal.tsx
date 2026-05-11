@@ -406,7 +406,7 @@ export default function PayrollTerminal() {
                 });
                 const data = await res.json();
                 if (data.viewing_key) {
-                  const magicKey = `vk_aegis_${data.viewing_key.key_id.slice(0, 8)}${Math.random().toString(36).slice(2, 10)}`;
+                  const magicKey = data.viewing_key.raw_nk_hex || `vk_aegis_${data.viewing_key.key_id.slice(0, 8)}`;
                   setGeneratedKey(magicKey);
                 }
               } catch (e) {
