@@ -105,8 +105,9 @@ async function withRetry<T>(
  * @returns 32-byte Uint8Array (nk)
  * @throws If the input is not a valid viewing key format
  */
-export function parseViewingKey(input: string): Uint8Array {
-  const trimmed = input.trim();
+export function parseViewingKey(input: any): Uint8Array {
+  // Ensure we are working with a string to prevent .trim() errors
+  const trimmed = String(input || "").trim();
 
   if (!trimmed) {
     throw new Error("Viewing key cannot be empty");

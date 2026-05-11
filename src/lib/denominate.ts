@@ -6,7 +6,7 @@
  * completely breaking privacy. Uniform notes break value-linkage heuristics.
  */
 
-const DEFAULT_DENOMINATIONS = [1000, 500, 100, 50, 10, 5, 1]; // whole numbers only
+const DEFAULT_DENOMINATIONS = [1000, 500, 250, 100, 50, 25, 10, 5, 1]; // whole numbers only
 
 export function denominate(
   amount: number,
