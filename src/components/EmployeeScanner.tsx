@@ -245,7 +245,7 @@ export default function EmployeeScanner() {
             <button disabled className={styles.comingSoonBtn}>
               <span>🔥</span>
               Anonymous Burn & Withdraw
-              <span className="ae-badge ae-badge-ghost">Coming Q3 2025</span>
+              <span className="ae-badge ae-badge-ghost">Coming Q3 2026</span>
             </button>
             <p className={styles.comingSoonDesc}>
               Destroys your shielded note and mints SPL tokens to a fresh burner wallet —

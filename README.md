@@ -352,6 +352,37 @@ aegis-ledger/
 
 -----
 
+## Demo Flow for Judges
+
+### Scene 1 — The Zero-Knowledge View (`/dashboard`)
+1. Click **"Execute Payroll"** on the Treasury Dashboard
+2. Watch the xterm.js terminal stream the batch payroll in real-time
+3. Observe: amounts show `████████████` (redacted), recipients show `████████████████████` (redacted)
+4. Only commitment hashes and transaction signatures are visible
+5. **Key line:** `[SHIELDED] Amount: HIDDEN | Recipient: HIDDEN`
+
+### Scene 2 — Generating Auditor Access (`/dashboard`)
+1. Scroll down to the **Compliance & Audit** section
+2. Click **"Issue Magic Link"**
+3. Watch the system generate a real 32-byte cryptographic viewing key (nk) and encrypt it.
+4. Copy the resulting 64-character hex viewing key.
+
+### Scene 3 — The God Mode Scanner (`/verify`)
+1. Navigate to the Employee Scanner portal (`/verify`)
+2. Paste the 64-character hex viewing key into the scanner input.
+3. Watch the local scanner cryptographically validate the key, extract its fingerprint, and scan the shielded pool.
+4. Because this is an **Auditor Master Key**, it decrypts all 3 shielded notes from the batch ($8,500, $9,800, $6,000). *(Note: A standard employee `ivk` would only decrypt 1 note).*
+
+### Scene 4 — The Privacy Audit Graph
+1. On any of the decrypted payslips, click the **"PRIVACY AUDIT"** button.
+2. See the ReactFlow graph transform the transactions:
+3. Watch each node transform in sequence: 🔒 (ciphertext hashes) → 🔓 (plaintext amounts + recipient labels revealed)
+4. Edges animate from purple to green (encrypted → decrypted)
+
+**The visual contrast between Scene 1 and Scene 4 is the entire pitch:** same data, same transactions, but only the authorized observer sees the full picture.
+
+-----
+
 ## License
 
 MIT

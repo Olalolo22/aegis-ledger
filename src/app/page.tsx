@@ -107,7 +107,7 @@ export default function LandingPage() {
                         {/* Batch Run Card */}
                         <div className="card-batch reveal" style={{ transitionDelay: '0.6s' }}>
                             <div className="card-b-header">
-                                <span className="card-b-title">Batch payroll run — May 2025</span>
+                                <span className="card-b-title">Batch payroll run — May 2026</span>
                                 <div className="card-b-status">
                                     <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor', display: 'inline-block' }}></span>
                                     SHIELDED
