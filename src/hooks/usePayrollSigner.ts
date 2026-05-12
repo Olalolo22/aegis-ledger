@@ -69,7 +69,7 @@ async function loadCloakSDK() {
 
 // ─── FEATURE FLAG: Uniform Denomination Splitting ─────────────
 const USE_DENOMINATIONS = true;
-const STANDARD_DENOMINATIONS = [1000, 500, 100, 50, 10, 5, 1];
+const STANDARD_DENOMINATIONS = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
 
 export function usePayrollSigner(): PayrollSignerResult {
   const { publicKey, signTransaction, connected, wallet } = useWallet();
@@ -174,7 +174,7 @@ export function usePayrollSigner(): PayrollSignerResult {
               setProofProgress(
                 `Recipient ${i + 1}/${totalRecipients}: splitting ${amountNum.toLocaleString()} ${params.token_symbol} into ${notes.length} uniform notes...`,
               );
-              await new Promise((r) => setTimeout(r, 800));
+              await new Promise((r) => setTimeout(r, 400));
             }
 
             for (let n = 0; n < notes.length; n++) {
@@ -182,13 +182,13 @@ export function usePayrollSigner(): PayrollSignerResult {
               setProofProgress(
                 `Recipient ${i + 1}/${totalRecipients} [Note ${n+1}/${notes.length}]: generating ZK proof...`,
               );
-              await new Promise((r) => setTimeout(r, 600));
+              await new Promise((r) => setTimeout(r, 300));
 
               setStatus("signing");
               setProofProgress(
                 `Recipient ${i + 1}/${totalRecipients} [Note ${n+1}]: requesting wallet signature...`,
               );
-              await new Promise((r) => setTimeout(r, 400));
+              await new Promise((r) => setTimeout(r, 200));
 
               setStatus("broadcasting");
               const depositSig = genSig();
@@ -201,7 +201,7 @@ export function usePayrollSigner(): PayrollSignerResult {
               setProofProgress(
                 `Recipient ${i + 1}/${totalRecipients} [Note ${n+1}]: ✓ broadcasted`,
               );
-              await new Promise((r) => setTimeout(r, 300));
+              await new Promise((r) => setTimeout(r, 150));
             }
 
             setProofProgress(
@@ -281,7 +281,7 @@ export function usePayrollSigner(): PayrollSignerResult {
 
             if (notes.length > 1) {
               setProofProgress(`Recipient ${i+1}/${totalRecipients}: Splitting into ${notes.length} standard notes for privacy...`);
-              await new Promise(r => setTimeout(r, 1000));
+              await new Promise(r => setTimeout(r, 400));
             }
 
             for (let n = 0; n < notes.length; n++) {
