@@ -99,9 +99,8 @@ export default function EmployeeScanner() {
         )}
       </div>
 
-      {/* Viewing key input */}
-      <div className={`${styles.card} ${!connected ? styles.cardDisabled : ""}`}
-        style={{ marginBottom: 16 }}>
+      {/* Viewing key input — wallet NOT required; scanning is key-based */}
+      <div className={styles.card} style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
           <button 
@@ -113,7 +112,6 @@ export default function EmployeeScanner() {
               const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
               setViewingKey(demoHex);
             }}
-            disabled={!connected}
             style={{ 
               background: 'none', 
               border: 'none', 
@@ -133,18 +131,17 @@ export default function EmployeeScanner() {
             value={viewingKey}
             onChange={e => setViewingKey(e.target.value)}
             placeholder="Paste 64-char hex viewing key from Treasury"
-            disabled={!connected}
           />
           <button
             className={styles.scanBtn}
-            onClick={startScan}
-            disabled={!viewingKey || scanning || !connected}
+            onClick={() => startScan()}
+            disabled={!viewingKey || scanning}
           >
             {scanning ? "Scanning…" : "Scan Pool"}
           </button>
         </div>
         <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)", display: "block", marginTop: 8 }}>
-          Scoped key — only unlocks notes addressed to your wallet. Zero server contact.
+          Key-based scanner — decryption runs entirely in your browser. Zero server contact.
         </span>
       </div>
 
@@ -164,7 +161,7 @@ export default function EmployeeScanner() {
             ))}
             
             {/* Suggest Demo Mode if nothing found */}
-            {done && payslips.length === 0 && viewingKey !== "demo-token" && (
+            {done && payslips.length === 0 && (
               <div style={{ marginTop: 12, padding: 12, border: '1px dashed var(--border-glass)', borderRadius: 8, animation: 'ae-fade-up 0.4s ease both' }}>
                 <p style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
                   No live shielded notes found for this viewing key on the relay. 
