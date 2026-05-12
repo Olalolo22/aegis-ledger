@@ -38,3 +38,6 @@ treasury-keypair.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Documentation
+ARCHITECTURE_WALKTHROUGH.md
