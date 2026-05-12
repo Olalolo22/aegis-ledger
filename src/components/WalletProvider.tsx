@@ -52,12 +52,6 @@ interface WalletProviderProps {
 }
 
 export default function WalletProvider({ children }: WalletProviderProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   // Solana RPC endpoint — uses the public env var (safe for client)
   const endpoint = useMemo(
     () => process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.devnet.solana.com",
@@ -96,11 +90,6 @@ export default function WalletProvider({ children }: WalletProviderProps) {
       console.error("[Aegis Ledger] Wallet error:", error);
     }
   }, []);
-
-  // Don't render wallet context on server
-  if (!mounted) {
-    return <>{children}</>;
-  }
 
   // Cast providers to work around React 18 vs 19 type mismatch.
   // The wallet-adapter packages are built against @types/react@19
