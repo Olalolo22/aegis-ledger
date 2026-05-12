@@ -18,7 +18,7 @@ const DEMO_ORG_ID = "b91a045c-27eb-44c1-8409-f62506b328a6";
 
 const MOCK_RECIPIENTS: Recipient[] = [
   { addr: "6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC", amount: "8,500", token: "USDC", memo: "May salary" },
-  { addr: "8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH", amount: "25.31", token: "SOL", memo: "Dev retainer" },
+  { addr: "8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH", amount: "5.00", token: "SOL", memo: "Dev retainer" },
   { addr: "3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr", amount: "9,800", token: "USDT", memo: "Design sprint" },
   { addr: "GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT", amount: "6,000", token: "USDC", memo: "Legal review" },
 ];
