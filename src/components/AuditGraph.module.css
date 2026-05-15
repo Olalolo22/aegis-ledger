@@ -1,5 +1,3 @@
-/* AuditGraph.module.css */
-
 .page {
   max-width: 1200px;
   margin: 0 auto;
@@ -26,6 +24,7 @@
   color: #08090b;
   line-height: 1.05;
 }
+
 .h1 em {
   font-style: italic;
   color: #64707f;
@@ -38,12 +37,14 @@
   align-items: flex-start;
   margin-bottom: 32px;
 }
+
 .headerRight {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
 }
+
 .authedPill {
   display: flex;
   align-items: center;
@@ -53,6 +54,7 @@
   border: 1px solid rgba(0, 184, 122, 0.18);
   border-radius: 10px;
 }
+
 .authedDot {
   width: 6px;
   height: 6px;
@@ -60,6 +62,7 @@
   background: #00b87a;
   display: inline-block;
 }
+
 .revokeBtn {
   font-size: 11.5px;
   color: #8e98a6;
@@ -68,6 +71,7 @@
   cursor: pointer;
   transition: color 0.15s;
 }
+
 .revokeBtn:hover {
   color: #08090b;
 }
@@ -84,12 +88,14 @@
 .timelineCard {
   padding: 22px 28px;
 }
+
 .timelineHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
+
 .fieldEyebrow {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -99,26 +105,31 @@
   display: block;
   margin-bottom: 4px;
 }
+
 .fieldLabel {
   font-size: 13.5px;
   font-weight: 600;
   color: #08090b;
 }
+
 .timelineTitle {
   font-size: 15px;
   font-weight: 600;
   color: #08090b;
 }
+
 .timelineSub {
   color: #64707f;
   font-weight: 400;
 }
+
 .currentQBadge {
   padding: 5px 14px;
   background: #f4f5f7;
   border-radius: 7px;
   border: 1px solid #e8ebee;
 }
+
 .slider {
   width: 100%;
   accent-color: #08090b;
@@ -126,6 +137,7 @@
   cursor: pointer;
   display: block;
 }
+
 .quarterLabels {
   display: flex;
   justify-content: space-between;
@@ -147,6 +159,7 @@
   border: 1px solid #e8ebee;
   overflow: hidden;
 }
+
 .flowCardHeader {
   padding: 16px 22px;
   border-bottom: 1px solid #e8ebee;
@@ -154,19 +167,22 @@
   justify-content: space-between;
   align-items: center;
 }
+
 .flowCanvas {
   height: 500px;
   background: #f4f5f7;
   position: relative;
 }
+
 .flowLocked {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(244,245,247,0.9);
+  background: rgba(244, 245, 247, 0.9);
 }
+
 .flowLockedInner {
   text-align: center;
   padding: 20px 28px;
@@ -182,6 +198,7 @@
   flex-direction: column;
   gap: 16px;
 }
+
 .toggleRow {
   display: flex;
   justify-content: space-between;
@@ -191,12 +208,14 @@
   background: #f4f5f7;
   border: 1px solid #e8ebee;
 }
+
 .toggleTitle {
   font-size: 13px;
   font-weight: 500;
   color: #08090b;
   margin-bottom: 2px;
 }
+
 .toggle {
   width: 44px;
   height: 24px;
@@ -207,6 +226,7 @@
   transition: background 0.25s;
   flex-shrink: 0;
 }
+
 .toggleThumb {
   width: 18px;
   height: 18px;
@@ -216,17 +236,20 @@
   top: 3px;
   left: 3px;
   transition: transform 0.25s;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
+
 .statsBlock {
   padding-top: 16px;
   border-top: 1px solid #e8ebee;
 }
+
 .statRow {
   display: flex;
   justify-content: space-between;
   margin-bottom: 12px;
 }
+
 .readOnlyNote {
   margin-top: auto;
   padding: 10px 14px;
@@ -240,6 +263,7 @@
   overflow: hidden;
   margin-bottom: 0;
 }
+
 .tableHeader {
   padding: 18px 24px;
   border-bottom: 1px solid #e8ebee;
@@ -247,6 +271,7 @@
   justify-content: space-between;
   align-items: center;
 }
+
 .tableHead {
   display: grid;
   grid-template-columns: 130px 1fr 1fr 130px 100px;
@@ -254,6 +279,7 @@
   background: #f4f5f7;
   border-bottom: 1px solid #e8ebee;
 }
+
 .tableRow {
   display: grid;
   grid-template-columns: 130px 1fr 1fr 130px 100px;
@@ -261,6 +287,7 @@
   align-items: center;
   transition: background 0.15s;
 }
+
 .tableRow:hover {
   background: #f4f5f7;
 }
@@ -274,11 +301,13 @@
   padding: 32px;
   background: #f4f5f7;
 }
+
 .loginBox {
   width: 100%;
   max-width: 440px;
   text-align: center;
 }
+
 .loginMark {
   width: 56px;
   height: 56px;
@@ -291,6 +320,7 @@
   color: #ffffff;
   margin: 0 auto 20px;
 }
+
 .loginTitle {
   font-family: var(--serif);
   font-size: 32px;
@@ -299,6 +329,7 @@
   color: #08090b;
   margin-bottom: 10px;
 }
+
 .loginSub {
   font-size: 13.5px;
   color: #64707f;
@@ -306,6 +337,7 @@
   font-weight: 300;
   margin-bottom: 32px;
 }
+
 .loginCard {
   background: #ffffff;
   border-radius: 18px;
@@ -313,6 +345,7 @@
   border: 1px solid #e8ebee;
   text-align: left;
 }
+
 .fieldLabel {
   font-size: 12px;
   color: #3c4455;
@@ -320,6 +353,7 @@
   display: block;
   margin-bottom: 7px;
 }
+
 .keyInput {
   width: 100%;
   padding: 12px 14px;
@@ -332,11 +366,13 @@
   font-family: var(--mono);
   margin-bottom: 16px;
 }
+
 .keyInput:focus {
   outline: none;
   border-color: #0066ff;
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.07);
 }
+
 .keyMeta {
   padding: 10px 14px;
   background: #f4f5f7;
@@ -344,14 +380,17 @@
   border: 1px solid #e8ebee;
   margin-bottom: 20px;
 }
+
 .keyMetaRow {
   display: flex;
   justify-content: space-between;
   margin-bottom: 5px;
 }
+
 .keyMetaRow:last-child {
   margin-bottom: 0;
 }
+
 .authBtn {
   width: 100%;
   padding: 13px;
@@ -365,13 +404,16 @@
   transition: opacity 0.15s;
   margin-bottom: 14px;
 }
+
 .authBtn:hover:not(:disabled) {
   opacity: 0.85;
 }
+
 .authBtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
 .demoKeyBtn {
   display: block;
   width: 100%;
@@ -383,6 +425,7 @@
   border: none;
   transition: color 0.15s;
 }
+
 .demoKeyBtn:hover {
   color: #08090b;
 }

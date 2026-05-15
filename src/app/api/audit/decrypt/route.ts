@@ -49,7 +49,7 @@ interface AuditJwtPayload {
 }
 
 export async function POST(request: NextRequest) {
-  // ─── 1. Validate JWT ─────────────────────────────────────────
+  // ───  Validate JWT ─────────────────────────────────────────
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return NextResponse.json(
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 2. Parse Optional Request Body ──────────────────────────
+  // ───  Parse Optional Request Body ──────────────────────────
   let limit = 250;
   try {
     const body = await request.json();
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     // Empty body is fine — use defaults
   }
 
-  // ─── 3. Fetch Viewing Key from Supabase ──────────────────────
+  // ───  Fetch Viewing Key from Supabase ──────────────────────
   const supabase = createServiceClient();
   const { data: vk, error: vkError } = await supabase
     .from("viewing_keys")
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 4. Verify Key Status & Scope ────────────────────────────
+  // ─── Verify Key Status & Scope ────────────────────────────
   if (vk.revoked) {
     return NextResponse.json(
       { error: "This viewing key has been revoked" },
@@ -147,12 +147,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ─── 5. Decrypt Viewing Key ──────────────────────────────────
+    // ───  Decrypt Viewing Key ──────────────────────────────────
     // The encrypted_viewing_key is stored as base64 in Supabase
     const encryptedBlob = Buffer.from(vk.encrypted_viewing_key, "base64");
     const nkBuffer = decryptViewingKey(encryptedBlob, vk.key_id);
 
-    // ─── 6. Scan Transactions with Cloak SDK ─────────────────────
+    // ─── Scan Transactions with Cloak SDK ─────────────────────
     const connection = getConnection();
     const viewingKeyNk = new Uint8Array(nkBuffer);
 
@@ -163,10 +163,10 @@ export async function POST(request: NextRequest) {
       limit,
     });
 
-    // ─── 7. Generate Compliance Report ───────────────────────────
+    // ─── Generate Compliance Report ───────────────────────────
     const report = toComplianceReport(scanResult);
 
-    // ─── 8. Filter by Temporal Scope ─────────────────────────────
+    // ─── Filter by Temporal Scope ─────────────────────────────
     // Only return transactions within the viewing key's temporal window
     const filteredTransactions = (report.transactions || []).filter(
       (tx: { timestamp?: string | number | Date }) => {
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // ─── 9. Return Report (no raw key material) ──────────────────
+    // ───Return Report (no raw key material) ──────────────────
     return NextResponse.json(
       {
         audit: {

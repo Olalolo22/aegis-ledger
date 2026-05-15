@@ -18,7 +18,7 @@ import { payrollRequestSchema, TOKEN_MINTS } from "@/lib/validation";
  * NON-CUSTODIAL data coordinator for batch private payroll disbursements.
  */
 export async function POST(request: NextRequest) {
-  // ─── 1. Parse & Validate Input ───────────────────────────────
+  // we first Parse & Validate Input 
   let body: unknown;
   try {
     body = await request.json();
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 2. Verify Organization Exists ───────────────────────────
+  // Verify Organization Exists 
   const supabase = createServiceClient();
   const { data: org, error: orgError } = await supabase
     .from("organizations")
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 3. Acquire Redis Mutex ──────────────────────────────────
+  //  Acquire Redis Mutex 
   const mutex = await acquireMutex(`utxo-selection:${org_id}`, 60);
   if (!mutex.acquired) {
     return NextResponse.json(
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ─── 4. Fetch Public Inputs from Cloak ────────────────────
+    //  Public Inputs from Cloak 
     const mintPubkey =
       token_symbol === "SOL"
         ? NATIVE_SOL_MINT
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     let relayFallback = false;
 
     try {
-      // ─── Attempt Real Cloak Relay First ─────────────────────
+      //  Attempt Real Cloak Relay First 
       const [md, availableUtxos] = await Promise.all([
         fetchMerkleProofs(mintPubkey),
         fetchAvailableUtxos(treasuryPubkey, mintPubkey),
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
       selectedUtxos = mockUtxos;
     }
 
-    // ─── 5. Create Payroll Run (pending_signature) ───────────
+    //  Create Payroll Run (pending_signature) 
     const totalAmount = recipients.reduce(
       (sum, r) => sum + BigInt(r.amount),
       0n
@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ─── 6. Audit Log ────────────────────────────────────────
+    //  6. Audit Log 
     await supabase.from("audit_log").insert({
       event_type: "payroll_initiated",
       org_id,
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // ─── 7. Return Signing Parameters ────────────────────────
+    // Return Signing Parameters 
     const mutexExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
     return NextResponse.json(
@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── UTXO Selection Helper ─────────────────────────────────────
+// UTXO Selection Helper 
 import type { UtxoDescriptor } from "@/lib/cloak";
 
 function selectUtxosForAmount(

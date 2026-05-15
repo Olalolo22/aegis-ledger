@@ -21,7 +21,6 @@ import type { WalletError } from "@solana/wallet-adapter-base";
 // MOVED TO layout.tsx for faster loading
 
 /**
- * Root-level Solana wallet context provider for the Aegis Ledger app.
  *
  * Design decisions for NON-CUSTODIAL architecture:
  *
@@ -81,9 +80,9 @@ export default function WalletProvider({ children }: WalletProviderProps) {
     if (isEvmConflict) {
       console.error(
         "[Aegis Ledger] EVM wallet injection conflict detected. " +
-          "Please ensure you are connecting a Solana wallet (Phantom, Solflare, or Backpack). " +
-          "If you have both MetaMask and a Solana wallet installed, " +
-          "try disabling MetaMask temporarily.",
+        "Please ensure you are connecting a Solana wallet (Phantom, Solflare, or Backpack). " +
+        "If you have both MetaMask and a Solana wallet installed, " +
+        "try disabling MetaMask temporarily.",
         error
       );
     } else {

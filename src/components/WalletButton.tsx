@@ -5,8 +5,6 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * Connect/Disconnect wallet button styled to match Aegis Ledger's
- * glassmorphism design system. Placed in the nav bar.
  *
  * Includes Solana-specific validation:
  * - After connecting, verifies the wallet exposes `signTransaction`

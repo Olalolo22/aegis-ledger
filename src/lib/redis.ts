@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 /**
  * Lazy singleton Upstash Redis client. Reads UPSTASH_REDIS_REST_URL and
  * UPSTASH_REDIS_REST_TOKEN from environment variables automatically.
- * Lazy initialization prevents build-time crashes during static page generation.
+ * Lazy initialization prevents build-time crashes during stuff like  static page generation.
  */
 let _redis: Redis | null = null;
 

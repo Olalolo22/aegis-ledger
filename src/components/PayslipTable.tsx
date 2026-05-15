@@ -7,9 +7,6 @@ import type { NoteScannerStatus } from "@/hooks/useNoteScanner";
 /**
  * Payslip results table component.
  *
- * Displays decrypted payslip notes in a premium glass-morphism table
- * with scan progress indicator, summary statistics, and empty states.
- *
  * ⚠ All displayed data is client-side only — never transmitted to any server.
  */
 
@@ -30,7 +27,7 @@ export default function PayslipTable({
   error,
   onCancel,
 }: PayslipTableProps) {
-  // ─── Error State ──────────────────────────────────────────
+  // Error State 
   if (status === "error" && error) {
     return (
       <div
@@ -62,7 +59,7 @@ export default function PayslipTable({
     );
   }
 
-  // ─── Scanning Progress ────────────────────────────────────
+  // Scanning Progress 
   if (status === "scanning" && progress) {
     const pct =
       progress.total > 0
@@ -141,7 +138,7 @@ export default function PayslipTable({
     );
   }
 
-  // ─── Cancelled State ──────────────────────────────────────
+  // Cancelled State 
   if (status === "cancelled") {
     return (
       <div className="glass-card" style={{ padding: 24, textAlign: "center" }}>
@@ -161,12 +158,12 @@ export default function PayslipTable({
     );
   }
 
-  // ─── Idle State ───────────────────────────────────────────
+  // Idle State 
   if (status === "idle" || status === "parsing_key") {
     return null; // Don't show anything before first scan
   }
 
-  // ─── Results ──────────────────────────────────────────────
+  // Results 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* ─── Summary Cards ─────────────────────────────────── */}
@@ -373,12 +370,12 @@ export default function PayslipTable({
                       transition: "background 0.15s",
                     }}
                     onMouseEnter={(e) =>
-                      ((e.currentTarget as HTMLElement).style.background =
-                        "rgba(99, 102, 241, 0.03)")
+                    ((e.currentTarget as HTMLElement).style.background =
+                      "rgba(99, 102, 241, 0.03)")
                     }
                     onMouseLeave={(e) =>
-                      ((e.currentTarget as HTMLElement).style.background =
-                        "transparent")
+                    ((e.currentTarget as HTMLElement).style.background =
+                      "transparent")
                     }
                   >
                     <td
@@ -417,10 +414,10 @@ export default function PayslipTable({
                     >
                       {p.date
                         ? new Date(p.date).toLocaleDateString("en-US", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })
                         : "—"}
                     </td>
                     <td

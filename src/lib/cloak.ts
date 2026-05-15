@@ -17,7 +17,7 @@ let _connection: Connection | null = null;
 
 /**
  * Returns a shared Solana RPC connection instance.
- * Lazily created on first call; reused for the lifetime of the process.
+ *  created on first call; reused for the lifetime of the process.
  */
 export function getConnection(): Connection {
   if (!_connection) {

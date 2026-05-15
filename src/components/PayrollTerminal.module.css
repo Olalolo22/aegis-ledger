@@ -1,5 +1,3 @@
-/* PayrollTerminal.module.css */
-
 .page {
   max-width: 1200px;
   margin: 0 auto;
@@ -27,6 +25,7 @@
   line-height: 1.05;
   margin-bottom: 36px;
 }
+
 .h1 em {
   font-style: italic;
   color: #64707f;
@@ -40,6 +39,7 @@
   gap: 20px;
   margin-bottom: 24px;
 }
+
 @media (max-width: 900px) {
   .topGrid {
     grid-template-columns: 1fr;
@@ -66,24 +66,27 @@
   overflow: hidden;
   height: 100%;
 }
+
 .balanceGlow1 {
   position: absolute;
   top: -80px;
   right: -80px;
   width: 280px;
   height: 280px;
-  background: radial-gradient(circle, rgba(0,102,255,0.18) 0%, transparent 65%);
+  background: radial-gradient(circle, rgba(0, 102, 255, 0.18) 0%, transparent 65%);
   pointer-events: none;
 }
+
 .balanceGlow2 {
   position: absolute;
   bottom: -60px;
   left: -40px;
   width: 200px;
   height: 200px;
-  background: radial-gradient(circle, rgba(0,184,122,0.08) 0%, transparent 65%);
+  background: radial-gradient(circle, rgba(0, 184, 122, 0.08) 0%, transparent 65%);
   pointer-events: none;
 }
+
 .balanceHeader {
   display: flex;
   justify-content: space-between;
@@ -91,33 +94,37 @@
   margin-bottom: 22px;
   position: relative;
 }
+
 .balanceLabel {
   font-family: var(--mono);
   font-size: 9.5px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255, 255, 255, 0.3);
   letter-spacing: 0.8px;
   text-transform: uppercase;
 }
+
 .cloakPill {
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 3px 10px;
-  background: rgba(0,140,255,0.1);
-  border: 1px solid rgba(0,140,255,0.2);
+  background: rgba(0, 140, 255, 0.1);
+  border: 1px solid rgba(0, 140, 255, 0.2);
   border-radius: 100px;
-  color: rgba(0,180,255,0.85);
+  color: rgba(0, 180, 255, 0.85);
   font-family: var(--mono);
   font-size: 9px;
 }
+
 .cloakPillDot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: rgba(0,180,255,0.85);
+  background: rgba(0, 180, 255, 0.85);
   display: inline-block;
   animation: ae-blink 1.6s ease-in-out infinite;
 }
+
 .balanceAmount {
   font-family: var(--serif);
   font-size: 52px;
@@ -127,30 +134,34 @@
   margin-bottom: 6px;
   position: relative;
 }
+
 .balanceSub {
   font-family: var(--mono);
   font-size: 9.5px;
-  color: rgba(255,255,255,0.22);
+  color: rgba(255, 255, 255, 0.22);
   letter-spacing: 0.3px;
   margin-bottom: 24px;
   display: block;
 }
+
 .balanceStats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   padding-top: 18px;
   position: relative;
 }
+
 .statLabel {
   font-family: var(--mono);
   font-size: 9px;
-  color: rgba(255,255,255,0.25);
+  color: rgba(255, 255, 255, 0.25);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 5px;
   display: block;
 }
+
 .statVal {
   font-size: 14px;
   font-weight: 500;
@@ -164,6 +175,7 @@
   overflow: hidden;
   margin-bottom: 0;
 }
+
 .batchHeader {
   padding: 22px 28px;
   border-bottom: 1px solid #e8ebee;
@@ -171,6 +183,7 @@
   justify-content: space-between;
   align-items: center;
 }
+
 .batchEyebrow {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -180,17 +193,20 @@
   display: block;
   margin-bottom: 4px;
 }
+
 .batchTitle {
   font-size: 16px;
   font-weight: 600;
   color: #08090b;
   letter-spacing: -0.3px;
 }
+
 .batchActions {
   display: flex;
   gap: 10px;
   align-items: center;
 }
+
 .addBtn {
   padding: 7px 14px;
   border-radius: 7px;
@@ -201,9 +217,11 @@
   background: #f4f5f7;
   transition: border-color 0.15s;
 }
+
 .addBtn:hover {
   border-color: #bdc4ce;
 }
+
 .runBtn {
   display: flex;
   align-items: center;
@@ -218,9 +236,11 @@
   cursor: pointer;
   transition: opacity 0.15s;
 }
+
 .runBtn:hover {
   opacity: 0.85;
 }
+
 .runBtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -234,6 +254,7 @@
   background: #f4f5f7;
   border-bottom: 1px solid #e8ebee;
 }
+
 .tableHeadCell {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -241,6 +262,7 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
 .tableRow {
   display: grid;
   grid-template-columns: 1fr 120px 80px 1fr 100px 36px;
@@ -248,9 +270,11 @@
   align-items: center;
   transition: background 0.15s;
 }
+
 .tableRow:hover {
   background: #f4f5f7;
 }
+
 .tableFooter {
   padding: 14px 28px;
   background: #f4f5f7;
@@ -268,11 +292,13 @@
   border-radius: 5px;
   display: inline-block;
 }
+
 .tokenUsdc {
   background: rgba(0, 102, 255, 0.07);
   color: #0066ff;
   border: 1px solid rgba(0, 102, 255, 0.20);
 }
+
 .tokenSol {
   background: rgba(153, 69, 255, 0.07);
   color: #9945ff;
@@ -288,7 +314,7 @@
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: rgba(8,9,11,0.3);
+  background: rgba(8, 9, 11, 0.3);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-end;
@@ -296,6 +322,7 @@
   padding: 40px;
   animation: ae-fade-in 0.2s ease;
 }
+
 .modalBox {
   width: 100%;
   max-width: 560px;
@@ -304,29 +331,33 @@
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid #272d38;
-  animation: ae-fade-up 0.3s cubic-bezier(0.16,1,0.3,1);
+  animation: ae-fade-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .modalHeader {
   padding: 20px 24px 0;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
 }
+
 .modalEyebrow {
   font-family: var(--mono);
   font-size: 9.5px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255, 255, 255, 0.3);
   letter-spacing: 0.8px;
   text-transform: uppercase;
   display: block;
   margin-bottom: 6px;
 }
+
 .modalTitle {
   font-family: var(--serif);
   font-size: 20px;
   color: #ffffff;
   letter-spacing: -0.5px;
 }
+
 .modalStatus {
   display: flex;
   align-items: center;
@@ -336,22 +367,25 @@
   border: 1px solid rgba(0, 102, 255, 0.20);
   border-radius: 100px;
 }
+
 .modalStatusDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   display: inline-block;
 }
+
 .ztBanner {
   margin: 14px 24px 0;
   padding: 9px 14px;
-  background: rgba(217,124,10,0.08);
-  border: 1px solid rgba(217,124,10,0.2);
+  background: rgba(217, 124, 10, 0.08);
+  border: 1px solid rgba(217, 124, 10, 0.2);
   border-radius: 7px;
   display: flex;
   gap: 10px;
   align-items: center;
 }
+
 .termBody {
   padding: 16px 24px;
   min-height: 220px;
@@ -362,29 +396,35 @@
   line-height: 2;
   margin-top: 0;
 }
+
 .cursor {
-  color: rgba(255,255,255,0.2);
+  color: rgba(255, 255, 255, 0.2);
   animation: ae-pulse 1s ease-in-out infinite;
 }
+
 .modalFooter {
   padding: 0 24px 20px;
 }
+
 .progressHeader {
   display: flex;
   justify-content: space-between;
   margin-bottom: 8px;
 }
+
 .progressTrack {
   height: 3px;
   background: #1e2229;
   border-radius: 2px;
   overflow: hidden;
 }
+
 .progressFill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.4s cubic-bezier(0.16,1,0.3,1), background 0.3s;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s;
 }
+
 .confirmBtn {
   margin-top: 20px;
   width: 100%;
@@ -398,6 +438,7 @@
   cursor: pointer;
   transition: opacity 0.15s;
 }
+
 .confirmBtn:hover {
   opacity: 0.88;
 }

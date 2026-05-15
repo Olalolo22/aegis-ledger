@@ -34,7 +34,7 @@ import {
  * - Temporal and token scope are enforced at the DB level via CHECK constraints.
  */
 export async function POST(request: NextRequest) {
-  // ─── 1. Parse & Validate ─────────────────────────────────────
+  // ───Parse & Validate ─────────────────────────────────────
   let body: unknown;
   try {
     body = await request.json();
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   const { org_id, auditor_identity, valid_from, valid_until, allowed_tokens } =
     parsed.data;
 
-  // ─── 2. Verify Organization Exists ───────────────────────────
+  // ─── Verify Organization Exists ───────────────────────────
   const supabase = createServiceClient();
   const { data: org, error: orgError } = await supabase
     .from("organizations")
@@ -78,26 +78,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ─── 3. Generate Cloak Viewing Key ───────────────────────────
+    // ─── Generate Cloak Viewing Key ───────────────────────────
     // The Cloak SDK derives viewing material from a UTXO keypair.
     // nk (nullifier key) is the 32-byte viewing key used for scanTransactions.
     const utxoKeypair = await generateUtxoKeypair();
     const nk: Uint8Array = getNkFromUtxoPrivateKey(utxoKeypair.privateKey);
 
-    // ─── 4. Generate unique key_id (HKDF salt) ──────────────────
+    // ─── Generate unique key_id (HKDF salt) ──────────────────
     const keyId = randomUUID();
 
-    // ─── 5. Encrypt viewing key with AES-256-GCM ────────────────
+    // ─── Encrypt viewing key with AES-256-GCM ────────────────
     // deriveKey(keyId) → HKDF(AEGIS_MASTER_SECRET, salt=keyId)
     // encryptViewingKey(nk, keyId) → iv(12) || authTag(16) || ciphertext
     const nkBuffer = Buffer.from(nk);
     const encryptedBlob = encryptViewingKey(nkBuffer, keyId);
 
-    // ─── 6. Hash auditor identity with per-key salt ─────────────
+    // ───Hash auditor identity with per-key salt ─────────────
     const identitySalt = generateAuditorSalt(); // 32 bytes hex
     const identityHash = hashAuditorIdentity(auditor_identity, identitySalt);
 
-    // ─── 7. Store in viewing_keys table ─────────────────────────
+    // ─── Store in viewing_keys table ─────────────────────────
     const { data: viewingKey, error: insertError } = await supabase
       .from("viewing_keys")
       .insert({
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ─── 8. Audit Log ──────────────────────────────────────────
+    // ─── Audit Log ──────────────────────────────────────────
     await supabase.from("audit_log").insert({
       event_type: "viewing_key_created",
       org_id,
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
 
     // ─── 9. Return (no raw key material in response EXCEPT for demo org) ───────────
     const isDemoOrg = org_id === "b91a045c-27eb-44c1-8409-f62506b328a6";
-    
+
     return NextResponse.json(
       {
         viewing_key: {

@@ -19,7 +19,7 @@ import { swapConfirmSchema } from "@/lib/validation";
  * with a modified payload to mark the swap as 'failed'.
  */
 export async function POST(request: NextRequest) {
-  // ─── 1. Parse & Validate Input ───────────────────────────────
+  // ─── Parse & Validate Input ───────────────────────────────
   let body: unknown;
   try {
     body = await request.json();
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
 
 
-  // ─── 2. Verify Swap Record Exists & Is Pending ──────────────
+  // ─── Verify Swap Record Exists & Is Pending ──────────────
   const supabase = createServiceClient();
 
   const { data: swapRecord, error: fetchError } = await supabase
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 3. Update Swap Record → completed ──────────────────────
+  // ─── Update Swap Record → completed ──────────────────────
   const { error: updateError } = await supabase
     .from("treasury_swaps")
     .update({
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ─── 4. Audit Log ──────────────────────────────────────────
+  // ───  Audit Log ──────────────────────────────────────────
   await supabase.from("audit_log").insert({
     event_type: "swap_completed",
     org_id: swapRecord.org_id,

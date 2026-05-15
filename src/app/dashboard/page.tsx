@@ -11,7 +11,7 @@ const AuditGraph = dynamic(() => import("@/components/AuditGraph"), { ssr: false
 
 // ─── FIX: Global wallet connect trigger ────────────────────────
 // Moved here from EmployeeScanner so it fires regardless of which
-// tab is active when the user selects a wallet from the modal.
+// tab is active when the user selects a wallet from the modal. (will be addressed)
 function useExplicitWalletConnect() {
   const { wallet, connect, connected, connecting } = useWallet();
   useEffect(() => {
@@ -76,7 +76,7 @@ function RoleBanner({ view }: { view: string }) {
   );
 }
 
-// ─── NavBar ────────────────────────────────────────────────────
+//NavBar 
 const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void }) => {
   const { connected, publicKey, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
@@ -102,8 +102,8 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
   const roleLabel = view === "admin"
     ? "TREASURY"
     : view === "employee"
-    ? "EMPLOYEE"
-    : "AUDITOR";
+      ? "EMPLOYEE"
+      : "AUDITOR";
 
   return (
     <nav style={{
@@ -180,7 +180,7 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
   );
 };
 
-// ─── Root page ─────────────────────────────────────────────────
+// Root page 
 export default function DashboardPage() {
   useExplicitWalletConnect(); // ← fires for ALL tabs now, not just Employee
 

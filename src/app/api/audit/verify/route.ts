@@ -22,7 +22,7 @@ import { getRedis } from "@/lib/redis";
  * - No permanent record of which auditor accessed what (stateless after consumption)
  */
 export async function GET(request: NextRequest) {
-  // ─── 1. Extract Token ────────────────────────────────────────
+  // ─── Extract Token ────────────────────────────────────────
   const token = request.nextUrl.searchParams.get("token");
 
   if (!token || token.length < 32) {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // ─── 2. Look Up JWT in Redis ─────────────────────────────────
+  // ───  Look Up JWT in Redis ─────────────────────────────────
   const redis = getRedis();
   const redisKey = `aegis:magic-link:${token}`;
   const jwt = await redis.get<string>(redisKey);
@@ -47,10 +47,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // ─── 3. Delete Redis Entry (Single-Use) ──────────────────────
+  // ─── Delete Redis Entry (Single-Use) ──────────────────────
   await redis.del(redisKey);
 
-  // ─── 4. Return JWT ───────────────────────────────────────────
+  // ───  Return JWT ───────────────────────────────────────────
   return NextResponse.json(
     {
       access_token: jwt,

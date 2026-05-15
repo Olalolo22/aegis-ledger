@@ -145,7 +145,7 @@ export function parseViewingKey(input: any): Uint8Array {
   }
 }
 
-// ─── Note Formatting ────────────────────────────────────────────
+//  Note Formatting 
 
 /**
  * Formats a raw token amount from base units to human-readable string.
@@ -168,7 +168,7 @@ function resolveTokenSymbol(mint: string): string {
   return MINT_TO_SYMBOL[mint] || "UNKNOWN";
 }
 
-// ─── Core Scanner ───────────────────────────────────────────────
+//  Core Scanner
 
 /**
  * Progress callback for the scan operation.
@@ -350,9 +350,9 @@ export async function scanNotes(
 
       const mintStr = String(
         noteAny.token_mint ||
-          noteAny.mint ||
-          noteAny.asset ||
-          ""
+        noteAny.mint ||
+        noteAny.asset ||
+        ""
       );
 
       const tokenSymbol = resolveTokenSymbol(mintStr);
@@ -366,8 +366,8 @@ export async function scanNotes(
       // Build commitment hash for cross-referencing
       const commitmentHash = String(
         noteAny.commitment ||
-          noteAny.commitment_hash ||
-          `note-${i}`
+        noteAny.commitment_hash ||
+        `note-${i}`
       );
 
       const payslip: DecryptedPayslip = {
@@ -378,10 +378,10 @@ export async function scanNotes(
         tokenMint: mintStr,
         date: noteAny.timestamp
           ? new Date(
-              typeof noteAny.timestamp === "number"
-                ? (noteAny.timestamp as number) * 1000
-                : noteAny.timestamp as string
-            ).toISOString()
+            typeof noteAny.timestamp === "number"
+              ? (noteAny.timestamp as number) * 1000
+              : noteAny.timestamp as string
+          ).toISOString()
           : null,
         memo:
           typeof noteAny.memo === "string"
@@ -420,7 +420,7 @@ export async function scanNotes(
     }
   }
 
-  // ─── Step 4: Build summary ────────────────────────────────
+  // Step 4: Build summary 
   const totalAmountByToken: Record<string, string> = {};
   for (const [token, amount] of Object.entries(amountAccumulator)) {
     totalAmountByToken[token] = formatTokenAmount(amount, token);

@@ -15,7 +15,7 @@ import "reactflow/dist/style.css";
 import styles from "./AuditGraph.module.css";
 import { useAuditorEngine, buildReactFlowData } from "@/hooks/useAuditorEngine";
 
-/* ── Custom ReactFlow Node Components ── */
+// Custom ReactFlow Node Components 
 const glassStyle = {
   background: 'rgba(15, 16, 28, 0.75)',
   border: '1px solid rgba(255,255,255,0.06)',
@@ -162,9 +162,9 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
     setTimeout(() => { setDecrypted(true); setScanning(false); }, 1000);
   };
 
-  // ─── Timeline Logic ───────────────────────────────────────────
+  // Timeline logic
   const quarters = ["Q1 2026", "Q2 2026", "Q3 2026", "Q4 2026"];
-  
+
   const selectedRangeEnd = useMemo(() => {
     if (!scope?.valid_from || !scope?.valid_until) return Date.now();
     const start = new Date(scope.valid_from).getTime();
@@ -222,10 +222,10 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
     ...e,
     label: decrypted ? e.label : "HIDDEN",
     animated: true,
-    style: { 
-      stroke: decrypted ? "#00b87a" : "rgba(0,184,122,0.3)", 
-      strokeWidth: 2, 
-      strokeDasharray: decrypted ? "none" : "5 5" 
+    style: {
+      stroke: decrypted ? "#00b87a" : "rgba(0,184,122,0.3)",
+      strokeWidth: 2,
+      strokeDasharray: decrypted ? "none" : "5 5"
     },
   }));
 
@@ -289,13 +289,13 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           </div>
           <div className={styles.flowCanvas}>
             {showFlow ? (
-                <ReactFlow 
-                  nodes={displayNodes} 
-                  edges={displayEdges} 
-                  nodeTypes={nodeTypes} 
-                  fitView 
-                  fitViewOptions={{ padding: 0.1 }}
-                  connectionMode={ConnectionMode.Loose}
+              <ReactFlow
+                nodes={displayNodes}
+                edges={displayEdges}
+                nodeTypes={nodeTypes}
+                fitView
+                fitViewOptions={{ padding: 0.1 }}
+                connectionMode={ConnectionMode.Loose}
                 proOptions={{ hideAttribution: true }}
                 style={{ filter: decrypted ? 'hue-rotate(120deg) brightness(1.2) contrast(1.1)' : 'none', transition: 'filter 0.5s ease' }}
               >
@@ -360,7 +360,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           <div key={i} className={styles.tableRow} style={{ borderBottom: i < filteredTxs.length - 1 ? "1px solid var(--mist)" : "none" }}>
             <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{new Date(tx.timestamp).toLocaleDateString()}</span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 10.5 }}>{decrypted ? "DaoTreasury.sol" : "0xc8d2···3f9a"}</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{decrypted ? (tx.recipient ? `${tx.recipient.slice(0, 4)}···${tx.recipient.slice(-4)}` : "Unknown") : `Commitment[${tx.commitment?.slice(0,8) || "..."}]`}</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{decrypted ? (tx.recipient ? `${tx.recipient.slice(0, 4)}···${tx.recipient.slice(-4)}` : "Unknown") : `Commitment[${tx.commitment?.slice(0, 8) || "..."}]`}</span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, fontWeight: 500 }}>{decrypted ? `$${(Math.abs(tx.netAmount) / 1e6).toLocaleString()}` : "HIDDEN"}</span>
             <span className={`ae-badge ${decrypted ? (tx.txType === "withdrawal" ? "ae-badge-blue" : "ae-badge-amber") : "ae-badge-ghost"}`}>{decrypted ? (tx.txType === "withdrawal" ? "Payroll" : "Transfer") : "0x01"}</span>
           </div>

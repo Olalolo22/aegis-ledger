@@ -14,7 +14,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 export async function GET() {
   const checks: Record<string, { ok: boolean; latency_ms: number; error?: string }> = {};
 
-  // ─── Supabase Check ──────────────────────────────────────────
+  //Supabase Check 
   const supaStart = Date.now();
   try {
     const supabase = createServiceClient();
@@ -36,7 +36,7 @@ export async function GET() {
     };
   }
 
-  // ─── Redis Check ─────────────────────────────────────────────
+  //  Redis Check 
   const redisStart = Date.now();
   try {
     const redis = getRedis();
@@ -53,7 +53,7 @@ export async function GET() {
     };
   }
 
-  // ─── Aggregate Status ────────────────────────────────────────
+  //  Aggregate Status 
   const allHealthy = Object.values(checks).every((c) => c.ok);
 
   return NextResponse.json(

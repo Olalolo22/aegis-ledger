@@ -28,7 +28,7 @@ import { hashAuditorIdentity } from "@/lib/crypto";
  * - No auditor plaintext stored in Redis or JWT — only the identity hash
  */
 export async function POST(request: NextRequest) {
-  // ─── 1. Parse & Validate ─────────────────────────────────────
+  // ─── Parse & Validate ─────────────────────────────────────
   let body: unknown;
   try {
     body = await request.json();
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
   const { viewing_key_id, auditor_identity } = parsed.data;
 
-  // ─── 2. Fetch Viewing Key ────────────────────────────────────
+  // ─── Fetch Viewing Key ────────────────────────────────────
   const supabase = createServiceClient();
   const { data: vk, error: vkError } = await supabase
     .from("viewing_keys")
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 3. Verify Auditor Identity ──────────────────────────────
+  // ─── Verify Auditor Identity ──────────────────────────────
   // Re-hash the provided identity with the stored salt and compare
   const computedHash = hashAuditorIdentity(
     auditor_identity,
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 4. Check Validity ───────────────────────────────────────
+  // ─── Check Validity ───────────────────────────────────────
   if (vk.revoked) {
     return NextResponse.json(
       { error: "This viewing key has been revoked" },
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 5. Create Signed JWT ────────────────────────────────────
+  // ─── Create Signed JWT ────────────────────────────────────
   const masterSecret = process.env.AEGIS_MASTER_SECRET;
   if (!masterSecret || masterSecret.length !== 64) {
     return NextResponse.json(
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
     .setIssuer("aegis-ledger")
     .sign(jwtSecret);
 
-  // ─── 6. Store JWT in Redis (single-use, 15-min TTL) ──────────
+  // ─── Store JWT in Redis (single-use, 15-min TTL) ──────────
   const magicToken = randomUUID();
   const redisKey = `aegis:magic-link:${magicToken}`;
   const MAGIC_LINK_TTL = 900; // 15 minutes
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
   const redis = getRedis();
   await redis.set(redisKey, jwt, { ex: MAGIC_LINK_TTL });
 
-  // ─── 7. Return Magic Link URL ────────────────────────────────
+  // ─── Return Magic Link URL ────────────────────────────────
   // The frontend audit portal will call /api/audit/verify?token=<magicToken>
   const baseUrl = request.nextUrl.origin;
   const magicLinkUrl = `${baseUrl}/audit?token=${magicToken}`;

@@ -20,7 +20,7 @@ import { payrollConfirmSchema } from "@/lib/validation";
  * with a modified payload to mark the run as 'failed'.
  */
 export async function POST(request: NextRequest) {
-  // ─── 1. Parse & Validate Input ───────────────────────────────
+  //  Parse & Validate Input 
   let body: unknown;
   try {
     body = await request.json();
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
 
 
-  // ─── 2. Verify Payroll Run Exists & Is Pending ──────────────
+  // Verify Payroll Run Exists & Is Pending 
   const supabase = createServiceClient();
 
   const { data: payrollRun, error: fetchError } = await supabase
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 3. Update Payroll Run → completed ──────────────────────
+  // Update Payroll Run → completed 
   const { error: updateError } = await supabase
     .from("payroll_runs")
     .update({
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 4. Insert Recipient Commitment Records ────────────────
+  //  Insert Recipient Commitment Records 
   const recipientRecords = commitment_hashes.map((hash, index) => ({
     payroll_run_id,
     recipient_index: index,
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     // This is a data consistency issue that can be reconciled.
   }
 
-  // ─── 5. Audit Log ──────────────────────────────────────────
+  //  Audit Log 
   await supabase.from("audit_log").insert({
     event_type: "payroll_completed",
     org_id: payrollRun.org_id,

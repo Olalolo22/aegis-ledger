@@ -99,25 +99,25 @@ export default function EmployeeScanner() {
         )}
       </div>
 
-      {/* Viewing key input — wallet NOT required; scanning is key-based */}
+      {/* Viewing key input — wallet NOT required here; scanning is key-based */}
       <div className={styles.card} style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
-          <button 
+          <button
             className={styles.demoLink}
             onClick={() => {
-              // Generate a valid 64-char hex key (real 32-byte cryptographic key)
+              // Generate a valid 64-char hex key (or real 32-byte cryptographic key)
               const demoBytes = new Uint8Array(32);
               crypto.getRandomValues(demoBytes);
               const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
               setViewingKey(demoHex);
             }}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              color: 'var(--blue)', 
-              fontSize: 10, 
-              fontFamily: 'var(--mono)', 
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--blue)',
+              fontSize: 10,
+              fontFamily: 'var(--mono)',
               cursor: 'pointer',
               textDecoration: 'underline'
             }}
@@ -159,15 +159,15 @@ export default function EmployeeScanner() {
             {scanLog.map((l, i) => (
               <div key={i} style={{ color: l.col, animation: "ae-row-in 0.2s ease both" }}>{l.msg}</div>
             ))}
-            
-            {/* Suggest Demo Mode if nothing found */}
+
+            {/* Demo Mode if nothing found */}
             {done && payslips.length === 0 && (
               <div style={{ marginTop: 12, padding: 12, border: '1px dashed var(--border-glass)', borderRadius: 8, animation: 'ae-fade-up 0.4s ease both' }}>
                 <p style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
-                  No live shielded notes found for this viewing key on the relay. 
+                  No live shielded notes found for this viewing key on the relay.
                   This is expected if no transactions have been broadcast to this organization yet.
                 </p>
-                <button 
+                <button
                   onClick={() => {
                     const demoBytes = new Uint8Array(32);
                     crypto.getRandomValues(demoBytes);

@@ -18,7 +18,7 @@ import { swapQuoteRequestSchema, TOKEN_MINTS } from "@/lib/validation";
  * NON-CUSTODIAL data coordinator for private SOL→USDC swaps
  */
 export async function POST(request: NextRequest) {
-  // ─── 1. Parse & Validate Input ───────────────────────────────
+  //  Parse & Validate Input 
   let body: unknown;
   try {
     body = await request.json();
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 2. Verify Organization Exists ───────────────────────────
+  // Verify Organization Exists 
   const supabase = createServiceClient();
   const { data: org, error: orgError } = await supabase
     .from("organizations")
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ─── 3. Acquire Redis Mutex ──────────────────────────────────
+  //  Acquire Redis Mutex 
   const mutex = await acquireMutex(`swap-utxo:${org_id}`, 60);
   if (!mutex.acquired) {
     return NextResponse.json(
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ─── 4. Fetch Public Inputs from Cloak ────────────────────
+    //  Fetch Public Inputs from Cloak 
     const treasuryPubkey = new PublicKey(org.treasury_pubkey);
     const usdcMint = TOKEN_MINTS.USDC;
     const swapAmount = BigInt(amount_lamports);
@@ -125,10 +125,10 @@ export async function POST(request: NextRequest) {
       // Fetch Orca DEX Quote (via Jupiter)
       const quoteRes = await fetch(
         `https://quote-api.jup.ag/v6/quote?` +
-          `inputMint=So11111111111111111111111111111111111111112` +
-          `&outputMint=${usdcMint}` +
-          `&amount=${amount_lamports}` +
-          `&slippageBps=${slippage_bps}`,
+        `inputMint=So11111111111111111111111111111111111111112` +
+        `&outputMint=${usdcMint}` +
+        `&amount=${amount_lamports}` +
+        `&slippageBps=${slippage_bps}`,
         { signal: AbortSignal.timeout(10_000) }
       );
 
@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── UTXO Selection Helper ─────────────────────────────────────
+// UTXO Selection Helper 
 import type { UtxoDescriptor } from "@/lib/cloak";
 
 function selectUtxosForSwap(
