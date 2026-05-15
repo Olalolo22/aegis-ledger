@@ -3,10 +3,6 @@
 @tailwind utilities;
 @import './aegis-tokens.css';
 
-/* ═══════════════════════════════════════════════════════════════
-   Aegis Ledger — Design System
-   Dark mode, glassmorphism, premium gradients
-   ═══════════════════════════════════════════════════════════════ */
 
 :root {
   /* Core palette */
@@ -16,12 +12,18 @@
   --bg-glass: rgba(22, 27, 39, 0.5);
 
   /* Accent colors */
-  --accent-primary: #6366f1;     /* indigo-500 */
-  --accent-secondary: #8b5cf6;   /* violet-500 */
-  --accent-green: #10b981;       /* emerald-500 */
-  --accent-cyan: #06b6d4;        /* cyan-500 */
-  --accent-amber: #f59e0b;       /* amber-500 */
-  --accent-red: #ef4444;         /* red-500 */
+  --accent-primary: #6366f1;
+  /* indigo-500 */
+  --accent-secondary: #8b5cf6;
+  /* violet-500 */
+  --accent-green: #10b981;
+  /* emerald-500 */
+  --accent-cyan: #06b6d4;
+  /* cyan-500 */
+  --accent-amber: #f59e0b;
+  /* amber-500 */
+  --accent-red: #ef4444;
+  /* red-500 */
 
   /* Text */
   --text-primary: #f0f6fc;
@@ -94,7 +96,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, transparent 50%);
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -168,9 +170,17 @@ body {
   border-radius: 50%;
 }
 
-.terminal-dot.red { background: #ff5f57; }
-.terminal-dot.yellow { background: #febc2e; }
-.terminal-dot.green { background: #28c840; }
+.terminal-dot.red {
+  background: #ff5f57;
+}
+
+.terminal-dot.yellow {
+  background: #febc2e;
+}
+
+.terminal-dot.green {
+  background: #28c840;
+}
 
 .terminal-title {
   font-size: 12px;
@@ -307,10 +317,12 @@ body {
     border-color: rgba(99, 102, 241, 0.6);
     box-shadow: 0 0 60px rgba(99, 102, 241, 0.3);
   }
+
   50% {
     border-color: rgba(16, 185, 129, 0.6);
     box-shadow: 0 0 40px rgba(16, 185, 129, 0.2);
   }
+
   100% {
     opacity: 1;
     transform: scale(1);
@@ -320,8 +332,15 @@ body {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.1); }
-  50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.2); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
+  }
+
+  50% {
+    box-shadow: 0 0 40px rgba(99, 102, 241, 0.2);
+  }
 }
 
 @keyframes fadeInUp {
@@ -329,6 +348,7 @@ body {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -339,9 +359,20 @@ body {
   animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.animate-fade-in-delay-1 { animation-delay: 0.1s; opacity: 0; }
-.animate-fade-in-delay-2 { animation-delay: 0.2s; opacity: 0; }
-.animate-fade-in-delay-3 { animation-delay: 0.3s; opacity: 0; }
+.animate-fade-in-delay-1 {
+  animation-delay: 0.1s;
+  opacity: 0;
+}
+
+.animate-fade-in-delay-2 {
+  animation-delay: 0.2s;
+  opacity: 0;
+}
+
+.animate-fade-in-delay-3 {
+  animation-delay: 0.3s;
+  opacity: 0;
+}
 
 /* ─── Status badges ────────────────────────────────────────────── */
 
@@ -428,13 +459,11 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
+  background: repeating-linear-gradient(0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px);
   pointer-events: none;
   z-index: 1;
 }
@@ -457,7 +486,9 @@ body {
 }
 
 @keyframes dashdraw {
-  to { stroke-dashoffset: -10; }
+  to {
+    stroke-dashoffset: -10;
+  }
 }
 
 .react-flow__controls {
@@ -528,7 +559,9 @@ body {
 /* ─── Loading spinner ──────────────────────────────────────────── */
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .spinner {
