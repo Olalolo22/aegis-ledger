@@ -1,395 +1,197 @@
-<p align="center">
-<img src="https://img.shields.io/badge/Solana-Devnet-9945FF?style=for-the-badge&logo=solana" />
-<img src="https://img.shields.io/badge/Cloak_Protocol-Shielded_Pool-00D4AA?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Colosseum-Frontier_Hackathon-FF6B35?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Track-Cloak-6366F1?style=for-the-badge" />
-<img src="https://img.shields.io/badge/Architecture-Zero--Trust-22C55E?style=for-the-badge" />
-</p>
+# ⟐ Aegis Ledger
 
-<h1 align="center">⟐ Aegis Ledger</h1>
-<p align="center"><strong>Zero-Knowledge Payroll & Treasury Disbursement Engine on Solana</strong></p>
+**Confidential Treasury Infrastructure for On-Chain Organizations**
 
-<p align="center">
-<em>Execute batch USDC payrolls where amounts and recipient addresses are cryptographically hidden inside Cloak's shielded pool — while giving regulators verifiable, time-scoped audit access. ZK proof generation and wallet signing happen exclusively in the user's browser. The server never touches your keys.</em>
-</p>
+Squads controls authorization. MagicBlock and Cloak provide private settlement. Aegis coordinates the treasury.
 
------
+---
 
-## The Problem: DAOs Are Telegraphing Strategy
+[![Solana](https://img.shields.io/badge/Solana-Mainnet_%26_Devnet-9945FF?style=for-the-badge&logo=solana)](https://solana.com)
+[![Squads](https://img.shields.io/badge/Squads-v4_Multisig-black?style=for-the-badge)](https://squads.so)
+[![MagicBlock](https://img.shields.io/badge/MagicBlock-Private_Ephemeral_Rollups-blue?style=for-the-badge)](https://magicblock.gg)
+[![Cloak](https://img.shields.io/badge/Cloak-Shielded_UTXO-00D4AA?style=for-the-badge)](https://cloak.ag)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-Every DAO and on-chain company faces the same transparency paradox: **Solana’s public ledger means your payroll is your competitor’s intel.**
+---
 
-When a DAO pays 50 contributors in USDC, anyone watching the treasury can:
+## The Problem: The On-Chain Transparency Paradox
 
-- Reverse-engineer headcount and burn rate
-- Identify key contributors by wallet clustering
-- Front-run strategic hires by monitoring salary jumps
-- Extract competitive intelligence from payment timing and amounts
+Blockchains offer unprecedented operational transparency and composability, but for real organizations, **public ledgers turn routine financial operations into competitive vulnerabilities**:
 
-The naive solution is to move payroll off-chain. But that abandons the composability, auditability, and programmability that make on-chain treasuries valuable in the first place.
+* **Salary & Contributor Doxxing:** When a DAO or protocol team pays contributors, anyone with a block explorer can correlate wallet identities, infer individual compensation, calculate headcount burn rates, and poach top talent.
+* **Vendor & M&A Strategy Leakage:** Plaintext payments to security auditors, law firms, and strategic acquisition targets signal private corporate moves before announcements.
+* **Front-Running & Metadata Exploitation:** Public treasury disbursements expose operational timing and liquidity depth.
 
-**Aegis Ledger eliminates this tradeoff** — private by default, auditable on demand, and non-custodial by design.
+Existing multisigs (like Squads) solve internal authorization brilliantly, but execute everything in plaintext. General-purpose privacy mixers carry severe regulatory baggage and zero operational governance.
 
------
+**Aegis Ledger resolves the paradox:**  
+*Private where it should be. Accountable where it must be.*
 
-## The Solution: Zero-Trust Shielded Payroll
+---
 
-Aegis Ledger wraps the Cloak Protocol SDK in a **non-custodial, zero-trust architecture** where the server acts only as a data coordinator. It delivers Merkle proofs and UTXO parameters to the browser — but ZK proof generation (Groth16) and wallet signing happen exclusively client-side via WASM. Your keys and your cryptographic operations never leave your machine.
+## The Architecture: The Coordination Layer
 
-The result: on-chain payroll that is private to observers, verifiable to regulators, and trustless by construction.
-
------
-
-## Core Features
-
-### 1. Non-Custodial ZK Signing
-
-The `usePayrollSigner` hook is the brain of the execution pipeline. It orchestrates WASM-based Groth16 proof generation and wallet signing inside the browser, consuming Merkle proofs and UTXO parameters delivered by the API — without the server ever seeing a private key or an unencrypted proof.
-
-### 2. Note Denomination Splitting
-
-Sending a unique amount like `312.89 USDC` creates an on-chain fingerprint — a single data point an observer can use to isolate and identify a transaction. Aegis eliminates this through **metadata protection via note splitting**: each payment is decomposed into standard denomination notes (`100`, `10`, `5`, `1`, `0.1`) before shielding. The transaction blends into the crowd.
-
-> *A salary of $5,000 becomes 5 × $1,000 notes — indistinguishable from any other five-note deposit in the shielded pool.*
-
-This is handled by the `denominate.ts` utility in the live signing path and runs entirely on the client.
-
-### 3. Fully Shielded Batch Payroll
-
-Each recipient’s USDC is deposited into Cloak’s UTXO-based shielded pool via `createUtxo()` + `transact()`. After deposit, `fullWithdraw()` sends the shielded USDC to the recipient’s stealth address. The amount and destination are never linked on-chain — only UTXO commitment hashes are public.
-
-### 4. Selective Auditability with Time-Scoped Viewing Keys
-
-Viewing keys are not global. An admin can issue a **time-scoped cryptographic viewing key** for a specific auditor, covering only a defined window (e.g., Q1 2026). The key is:
-
-- Encrypted at rest using **AES-256-GCM** with a key derived via **HKDF-SHA256** from `AEGIS_MASTER_SECRET`
-- Delivered via a **single-use magic link** (Redis TTL, consumed on first read)
-- Enforced at three independent layers: JWT expiry, database `CHECK` constraints, and runtime filter
-
-Even if the database is fully compromised, the encrypted viewing keys are useless without the master secret — which never touches persistent storage.
-
-### 5. Employee Note Scanner (Client-Side Merkle Scan)
-
-Employees paste a scoped viewing key into the Employee Portal. The browser performs a **local Merkle leaf scan** — downloading the shielded tree and proving which leaves belong to the user without ever revealing which transactions it is looking for to the server. The same cryptographic primitive used by privacy protocols like Railgun, applied here in a compliance-first context.
-
-Each decrypted payslip includes a **Privacy Audit modal** showing a side-by-side view:
-
-- **Public View:** redacted commitment hashes, hidden amounts
-- **Authorized View:** plaintext amounts, recipients, timestamps
-
-### 6. Real-First Relay Strategy
-
-The API routes (`/api/payroll`, `/api/treasury/swap-quote`) always attempt live execution against the Cloak Relay and DEX aggregators (Jupiter/Orca) first. Only if the network or devnet relay is unreachable does Aegis fall back to a high-fidelity simulation. The demo never fails. The architecture is **relay-agnostic** — switching between the Cloak devnet relay and a local simulation requires no code changes.
-
------
-
-## Architecture
-
-### Zero-Trust Execution Model
+Aegis is not an isolated privacy protocol or an unbacked mixer. It is the **treasury operating layer** sitting between multisig authorization and confidential execution rails:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ USER'S BROWSER │
-│ │
-│ usePayrollSigner.ts │
-│ ├── WASM: Groth16 ZK Proof Generation │
-│ ├── Wallet Signing (never leaves browser) │
-│ └── denominate.ts — Note Denomination Splitting │
-│ │
-│ useAuditorEngine.ts useNoteScanner.ts │
-│ ├── Temporal Scrubbing ├── Local Merkle Leaf Scan │
-│ └── ReactFlow Graph └── Privacy Audit Modal │
-└──────────────────────────────┬───────────────────────────────┘
-│ Merkle Proofs + UTXO Params
-│ (no keys, no raw proofs)
-┌──────────────────────────────▼───────────────────────────────┐
-│ NEXT.JS 14 SERVER │
-│ (Data Coordinator — Zero Trust) │
-│ │
-│ /api/payroll /api/treasury/swap-quote │
-│ /api/audit/generate-key /api/audit/magic-link │
-│ /api/audit/verify /api/audit/decrypt │
-└────────────┬─────────────────────────┬───────────────────────┘
-│ │
-┌──────────▼──────────┐ ┌─────────▼──────────┐ ┌──────────────┐
-│ Supabase │ │ Upstash Redis │ │ Cloak │
-│ PostgreSQL │ │ │ │ Shielded │
-│ │ │ • SET NX Mutex │ │ Pool │
-│ • orgs │ │ • Magic Links (TTL) │ │ (Solana) │
-│ • payroll_runs │ │ • Rate Limiting │ │ │
-│ • encrypted keys │ └─────────────────────┘ │ • transact()│
-│ • audit_log │ │ • withdraw()│
-└─────────────────────┘ │ • scan() │
-└──────────────┘
+                    ON-CHAIN ORGANIZATION / AI AGENT
+                                  │
+                                  ▼
+                 ┌─────────────────────────────────┐
+                 │          AEGIS LEDGER           │
+                 │   Treasury Coordination Layer   │
+                 │                                 │
+                 │ • Batch Payroll & Invoices      │
+                 │ • Bearer & Bound Stealth Claims │
+                 │ • Scoped Viewing Keys & Audits  │
+                 │ • Note Denomination Splitting   │
+                 │ • Agent MCP Policy Boundary     │
+                 └───────┬─────────────────┬───────┘
+                         │                 │
+            ┌────────────┘                 └────────────┐
+            ▼                                           ▼
+   ┌──────────────────┐                       ┌───────────────────┐
+   │      SQUADS      │                       │  DUAL-RAIL PRIVACY│
+   │  (Authorization) │                       │   (Settlement)    │
+   │                  │                       │                   │
+   │ • Multisig Vault │                       │ • MagicBlock(TEE) │
+   │ • 2-of-N Signers │                       │   Sub-second batch│
+   │ • Time Locks     │                       │ • Cloak (ZK UTXO) │
+   │                  │                       │   Math-grade ZK   │
+   └────────┬─────────┘                       └─────────┬─────────┘
+            │                                           │
+            └─────────────────────┬─────────────────────┘
+                                  ▼
+                           SOLANA NETWORK
 ```
 
-### Payroll Execution Flow
+### The Separation of Responsibilities
+* **Squads** answers: *"Who has the authority to approve this payout?"*
+* **MagicBlock & Cloak** answer: *"How can this transaction be shielded on-chain?"*
+* **Aegis Ledger** answers: *"How does an organization coordinate, audit, automate, and account for private treasury operations?"*
 
-```mermaid
-sequenceDiagram
-participant Browser as Admin Browser (WASM)
-participant API as /api/payroll (Coordinator)
-participant Redis as Upstash Redis
-participant DB as Supabase
-participant Cloak as Cloak Shielded Pool
+---
 
-Browser->>API: POST {org_id, recipients[], token}
-API->>DB: Verify organization
-API->>Redis: SET NX mutex (TTL 60s) — prevent double-spend
-API->>DB: INSERT payroll_run (status: processing)
-API-->>Browser: {merkle_proofs, utxo_params}
+## Core Product Pillars
 
-Note over Browser: WASM: Groth16 proof generation
-Note over Browser: denominate.ts: split into standard notes
-Note over Browser: Wallet signs — keys never leave browser
+### 1. 🔐 Governed Confidential Disbursements
+* **Non-Custodial Multi-Signer Execution:** Proposals originate from authorized proposers and require threshold approvals (2-of-N) via Squads vaults before dispatch.
+* **Zero Intermediary Hot-Wallet Custody:** Unlike naive relay architectures that route raw funds into an operator EOA, Aegis coordinates state transitions directly into shielded execution rails.
+* **Dual-Rail Settlement Engine:**
+  * **MagicBlock (TEE Hardware Enclaves):** Sub-second, low-overhead batch payouts for 20–100+ contributors without browser proving lag.
+  * **Cloak (ZK-SNARK UTXO Pool):** Mathematical zero-knowledge privacy for executive salaries and high-value strategic transfers.
 
-Browser->>Cloak: transact() — shielded deposit (browser-signed)
-Browser->>Cloak: fullWithdraw() → stealth address
-Cloak-->>Browser: tx signatures
+### 2. 🛡️ Amount-Correlation Defense (Note Denomination Splitting)
+Standard shield pools remain vulnerable to amount clustering: an observer matching an outbound vault payment of `$4,891.22` with a shielded withdrawal of `$4,891.22` deanonymizes the recipient instantly.  
+Aegis Ledger eliminates this attack vector via client-side **note denomination splitting** (`denominate.ts`):
+$$\$4,891.22 \longrightarrow 4 \times \$1,000 + 1 \times \$500 + 3 \times \$100 + 1 \times \$10 \dots$$
+Non-uniform salaries blend indistinguishably into standard pool commitments.
 
-Browser->>API: POST {payroll_run_id, tx_signatures[]}
-API->>DB: UPDATE payroll_run → completed
-API->>Redis: Lua atomic DEL (release mutex)
-API-->>Browser: {payroll_run_id, tx_signatures[]}
-```
+### 3. 🔎 Selective, Verifiable Auditability
+Privacy without accountability is a non-starter for legitimate organizations. Aegis provides **cryptographically enforceable selective disclosure**:
+* **Scoped Viewing Keys:** Grant auditors time-bounded, granular read access:
+  * `amounts_only`: Plaintext numbers revealed, recipient identities redacted.
+  * `time_ranged`: Restricted strictly to a single fiscal window (e.g. Q1 2026).
+  * `full_history`: Complete transaction timeline.
+* **Client-Side Merkle Decryption:** Auditors don’t rely on server-signed SQL dumps. The Auditor Portal scans and decrypts on-chain Merkle leaves directly in the browser via zero-knowledge viewing keys (`ivk`/`ovk`).
+* **Ephemeral Delivery:** Keys are AES-256-GCM encrypted and delivered via single-use magic links backed by Upstash Redis TTL.
 
-### Audit Key Lifecycle
+### 4. 🤖 Autonomous Agent Coordination (MCP Server)
+AI agents shouldn’t have raw custody of treasury private keys. Aegis exposes an **MCP (Model Context Protocol) Server** establishing a strict permission boundary:
+* **Agents Can:** Parse payroll spreadsheets, verify recipient addresses, draft batch proposals, and run preflight checks.
+* **Agents Cannot:** Sign transactions, access unshielded keys, or bypass multisig thresholds.
+> *Agents propose. Humans approve. Aegis coordinates. Shielded rails settle.*
 
-```mermaid
-sequenceDiagram
-participant Admin as Org Admin
-participant API as /api/audit/*
-participant Redis as Upstash Redis
-participant Auditor as Auditor Browser
-participant Cloak as Cloak Pool
+---
 
-Note over Admin,Cloak: Phase 1 — Key Generation
-Admin->>API: POST generate-key {org_id, auditor_identity, valid_from, valid_until}
-API->>API: generateUtxoKeypair() → nk (viewing key)
-API->>API: HKDF(MASTER_SECRET, salt) → derived_key
-API->>API: AES-256-GCM encrypt(nk, derived_key)
-API-->>Admin: {viewing_key_id}
+## Feature Matrix
 
-Note over Admin,Cloak: Phase 2 — Single-Use Magic Link
-Admin->>API: POST magic-link {viewing_key_id, auditor_identity}
-API->>Redis: SET "magic:{uuid}" = signed JWT (TTL 15 min)
-API-->>Admin: {magic_link_url}
+| Feature | Aegis Ledger | Traditional Multisig (Squads) | General Mixers | Competitor Wrappers |
+| :--- | :---: | :---: | :---: | :---: |
+| **Multisig Governance** | ✅ Native (Squads) | ✅ Native | ❌ None | ⚠️ Operator EOA Hop |
+| **Salary Privacy** | ✅ Shielded | ❌ Public Ledger | ✅ Shielded | ⚠️ Leaked via Amounts |
+| **Amount Clustering Protection** | ✅ Uniform Splitting | ❌ N/A | ❌ Varies | ❌ Exact Amounts Leaked |
+| **Batch Scalability** | ✅ Sub-Second (TEE) | ✅ Fast (Public) | ❌ Slow WASM | ❌ 30s / recipient |
+| **Selective Auditability** | ✅ Cryptographic Merkle | ❌ Public Explorer | ❌ None / Raw Key | ⚠️ Server-signed DB |
+| **Non-Custodial Flow** | ✅ 100% Non-Custodial | ✅ Non-Custodial | ✅ Non-Custodial | ❌ Operator Hot Wallet |
+| **AI Agent Interface (MCP)** | ✅ Non-Custodial Boundary | ❌ Direct Script | ❌ None | ❌ Roadmap Spec Only |
 
-Note over Admin,Cloak: Phase 3 — Client-Side Decryption
-Auditor->>API: GET verify?token={uuid}
-API->>Redis: GET + DEL (single-use, no replay)
-API-->>Auditor: {access_token: JWT}
-Auditor->>API: POST decrypt (Bearer JWT)
-API->>API: AES-256-GCM decrypt viewing key (ephemeral memory)
-API->>Cloak: scanTransactions() — filtered by temporal scope
-API-->>Auditor: {compliance_report} — no raw key material returned
-```
-
------
-
-## Security Architecture
-
-### Five Layers of Defense
-
-|Layer |Mechanism |Guarantee |
-|----------------------|--------------------------------------------|----------------------------------------------------------|
-|**Non-Custodial** |WASM ZK proving + wallet signing in browser |Server has zero access to keys or raw proofs |
-|**Concurrency** |Redis `SET NX` mutex, atomic Lua release |Prevents double-spend from concurrent UTXO selection |
-|**Encryption at Rest**|AES-256-GCM + HKDF-SHA256 key derivation |Viewing keys are useless without `AEGIS_MASTER_SECRET` |
-|**Identity** |Per-auditor unique salt + SHA-256 hash |No plaintext identity stored; no rainbow table attacks |
-|**Session** |Stateless JWT + single-use Redis magic links|No sessions table; enforced at JWT, DB, and runtime levels|
-
-### Key Security Invariants
-
-```
-✓ ZK proof generation and wallet signing happen exclusively in the browser via WASM
-✓ Raw viewing key (nk) exists ONLY in ephemeral server memory — never persisted, never sent to client
-✓ AEGIS_MASTER_SECRET lives ONLY in env vars — never in the database, never in logs
-✓ Magic links are single-use: Redis DEL on first read — no replay attacks
-✓ JWT stored in browser memory only — never localStorage (XSS-resistant)
-✓ Each auditor gets a unique cryptographic salt — not a global pepper
-✓ Temporal scope enforced at DB (CHECK constraint), JWT (exp), AND runtime (filter) — three independent layers
-✓ Relay-agnostic: switches between Cloak devnet relay and local simulation without code changes
-```
-
------
-
-## Tech Stack
-
-|Layer |Technology |Why |
-|--------------------------|--------------------------------------------------------|----------------------------------------------------------------|
-|**Framework** |Next.js 14 (App Router) |Monolith — API routes + SSR in one deployment |
-|**ZK Proving** |WASM (Groth16) via `usePayrollSigner` |Client-side proof generation — server never sees raw proofs |
-|**Privacy SDK** |`@cloak.dev/sdk-devnet` |Solana’s UTXO-based shielded pool |
-|**Denomination Splitting**|`denominate.ts` |Metadata protection — standard note sizes prevent fingerprinting|
-|**Blockchain** |`@solana/web3.js` |Solana RPC + keypair management |
-|**Database** |Supabase (PostgreSQL) |RLS-enforced storage with typed queries |
-|**Cache / Locks** |Upstash Redis |Distributed mutex (SET NX) + magic link TTL storage |
-|**Auth** |`jose` (JWT, HS256) |Stateless audit sessions |
-|**State Machines** |`useAuditorEngine`, `useNoteScanner`, `usePayrollSigner`|ZK proving state management across async WASM operations |
-|**Terminal UI** |`@xterm/xterm` + SSE |Real-time cryptographic execution log |
-|**Graph UI** |ReactFlow |UTXO encryption → decryption visualization + temporal scrubbing |
-|**Styling** |Vanilla CSS (`aegis-tokens.css`) |Custom glassmorphism design system — no utility class overhead |
-|**Validation** |Zod |Runtime schema validation on all API inputs |
-
------
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- Solana CLI (`solana-keygen`)
-- Supabase project
-- Upstash Redis instance
-
-### 1. Clone & Install
-
-```bash
-git clone https://github.com/YOUR_USERNAME/aegis-ledger.git
-cd aegis-ledger
-npm install
-```
-
-### 2. Generate Treasury Keypair
-
-```bash
-solana-keygen new --outfile ./treasury-keypair.json --no-bip39-passphrase
-solana airdrop 5 <YOUR_PUBKEY> --url devnet # run 2–3 times
-```
-
-### 3. Configure Environment
-
-```bash
-cp .env.example .env.local
-```
-
-|Variable |Source |
-|-------------------------------|--------------------------------------------------------------------------|
-|`SOLANA_RPC_URL` |`https://api.devnet.solana.com` |
-|`CLOAK_RELAY_URL` |`https://api.cloak.ag` |
-|`TREASURY_KEYPAIR_PATH` |Absolute path to `treasury-keypair.json` |
-|`NEXT_PUBLIC_SUPABASE_URL` |Supabase Dashboard → Settings → API |
-|`NEXT_PUBLIC_SUPABASE_ANON_KEY`|Supabase Dashboard → Settings → API |
-|`SUPABASE_SERVICE_ROLE_KEY` |Supabase Dashboard → Settings → API |
-|`UPSTASH_REDIS_REST_URL` |Upstash Console |
-|`UPSTASH_REDIS_REST_TOKEN` |Upstash Console |
-|`AEGIS_MASTER_SECRET` |`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`|
-
-### 4. Apply Database Migration
-
-In Supabase Dashboard → SQL Editor, run `supabase/migrations/001_foundation.sql`.
-
-### 5. Seed an Organization
-
-```sql
-INSERT INTO organizations (name, treasury_pubkey)
-VALUES ('Aegis DAO', '<YOUR_TREASURY_PUBKEY>');
-```
-
-### 6. Run
-
-```bash
-npm run dev
-```
-
-|Page |URL |
-|------------------------------------------|-----------------------------|
-|**Public Dashboard** (Zero-Knowledge View)|`http://localhost:3000` |
-|**Auditor Portal** (God Mode View) |`http://localhost:3000/audit`|
-
------
+---
 
 ## Project Structure
 
 ```
 aegis-ledger/
 ├── src/
-│ ├── app/
-│ │ ├── api/
-│ │ │ ├── payroll/
-│ │ │ │ ├── route.ts # POST — batch shielded payroll (coordinator)
-│ │ │ │ ├── [id]/route.ts # GET — payroll run status
-│ │ │ │ └── stream/route.ts # GET — SSE terminal log stream
-│ │ │ ├── treasury/
-│ │ │ │ └── swap-quote/route.ts # GET — Jupiter/Orca DEX quote (real-first)
-│ │ │ ├── audit/
-│ │ │ │ ├── generate-key/route.ts # POST — create AES-encrypted viewing key
-│ │ │ │ ├── magic-link/route.ts # POST — create single-use audit link
-│ │ │ │ ├── verify/route.ts # GET — consume magic link → JWT
-│ │ │ │ └── decrypt/route.ts # POST — ephemeral decrypt + Merkle scan
-│ │ │ └── health/route.ts # GET — service health check
-│ │ ├── audit/page.tsx # Auditor Portal (ReactFlow + temporal scrubbing)
-│ │ ├── page.tsx # Public Dashboard (xterm.js + privacy score)
-│ │ ├── aegis-tokens.css # Global design tokens (Glassmorphism)
-│ │ ├── landing.css      # Product Tour landing page styles
-│ │ ├── globals.css      # Core layout & global styles
-│ │ └── layout.tsx       # Root layout & SEO configuration
-│ ├── components/
-│ │ ├── PayrollTerminal.tsx # xterm.js real-time cryptographic log
-│ │ └── AuditGraph.tsx # ReactFlow UTXO graph visualization
-│ ├── hooks/
-│ │ ├── usePayrollSigner.ts # WASM ZK proving + wallet signing (client-side)
-│ │ ├── useAuditorEngine.ts # Auditor state machine + temporal filtering
-│ │ └── useNoteScanner.ts # Local Merkle leaf scan + privacy audit modal
-│ ├── lib/
-│ │ ├── crypto.ts # AES-256-GCM + HKDF + identity hashing
-│ │ ├── denominate.ts # Note denomination splitting utility
-│ │ ├── redis.ts # Redis client + SET NX mutex
-│ │ ├── cloak.ts # Solana connection + Cloak factory
-│ │ ├── validation.ts # Zod schemas for all API inputs
-│ │ └── supabase/
-│ │ ├── server.ts
-│ │ └── client.ts
-│ └── types/
-│ └── database.ts # TypeScript ↔ PostgreSQL schema types
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── payroll/          # Batch coordinator & execution endpoints
+│   │   │   ├── audit/            # Scoped viewing key generation & verification
+│   │   │   └── treasury/         # Swap quote & settlement hooks
+│   │   ├── audit/page.tsx        # Auditor Portal (ReactFlow graph & Merkle scan)
+│   │   ├── verify/page.tsx       # Employee/Auditor note decryption portal
+│   │   ├── dashboard/page.tsx    # Treasury operator console
+│   │   └── page.tsx              # Public interface & privacy overview
+│   ├── components/
+│   │   ├── PayrollTerminal.tsx   # Real-time cryptographic execution stream
+│   │   ├── AuditGraph.tsx        # ReactFlow interactive UTXO visualization
+│   │   ├── EmployeeScanner.tsx   # Client-side Merkle note decryptor
+│   │   └── PrivacyScoreCard.tsx  # Treasury operational privacy metrics
+│   ├── hooks/
+│   │   ├── usePayrollSigner.ts   # Client-side WASM proving & wallet signer
+│   │   ├── useAuditorEngine.ts   # Auditor state machine & scoped decryptor
+│   │   └── useNoteScanner.ts     # In-browser Merkle tree leaf scanner
+│   ├── lib/
+│   │   ├── denominate.ts         # Uniform denomination note splitter
+│   │   ├── crypto.ts             # AES-256-GCM, HKDF-SHA256, key derivation
+│   │   ├── cloak.ts              # Shielded pool SDK factory & connection
+│   │   ├── redis.ts              # Upstash Redis TTL mutex & ephemeral links
+│   │   └── validation.ts         # Zod schemas for all treasury inputs
+│   └── types/
+│       ├── database.ts           # PostgreSQL schema typings
+│       └── payslip.ts            # Decrypted payroll record structures
 ├── supabase/
-│ └── migrations/
-│ └── 001_foundation.sql # Full schema with RLS + CHECK constraints
-├── .env.example
+│   └── migrations/               # Database schemas with RLS policies
+├── ROADMAP_SPEC.md               # Technical specification & engineering backlog
 └── package.json
 ```
 
------
+---
 
-## Demo Flow for Judges
+## Engineering Roadmap
 
-### Scene 1 — The Zero-Knowledge View (`/dashboard`)
-1. Click **"Execute Payroll"** on the Treasury Dashboard
-2. Watch the xterm.js terminal stream the batch payroll in real-time
-3. Observe: amounts show `████████████` (redacted), recipients show `████████████████████` (redacted)
-4. Only commitment hashes and transaction signatures are visible
-5. **Key line:** `[SHIELDED] Amount: HIDDEN | Recipient: HIDDEN`
+### Phase 0: Mainnet Hardening & Live Settlement (In Progress)
+- [ ] Remove fallback offline simulation in `usePayrollSigner.ts` for clean live error telemetry.
+- [ ] Implement production SPL token account routing for native **USDC payroll**.
+- [ ] Drag-and-drop CSV batch importer with address checksum validation.
 
-### Scene 2 — Generating Auditor Access (`/dashboard`)
-1. Scroll down to the **Compliance & Audit** section
-2. Click **"Issue Magic Link"**
-3. Watch the system generate a real 32-byte cryptographic viewing key (nk) and encrypt it.
-4. Copy the resulting 64-character hex viewing key.
+### Phase 1: Dual-Rail Private Settlement
+- [ ] Deploy MagicBlock Ephemeral Rollup adapter for sub-second, 50+ recipient batch payouts.
+- [ ] Retain Cloak ZK-SNARKs for mathematical privacy on executive/isolated disbursements.
 
-### Scene 3 — The God Mode Scanner (`/verify`)
-1. Navigate to the Employee Scanner portal (`/verify`)
-2. Paste the 64-character hex viewing key into the scanner input.
-3. Watch the local scanner cryptographically validate the key, extract its fingerprint, and scan the shielded pool.
-4. Because this is an **Auditor Master Key**, it decrypts all 3 shielded notes from the batch ($8,500, $9,800, $6,000). *(Note: A standard employee `ivk` would only decrypt 1 note).*
+### Phase 2: Governed Multisig Proposal Flow
+- [ ] Direct `@sqds/multisig` v4 proposal builder (zero operator custody hop).
+- [ ] Configurable time-locks and sub-vault operational budgets.
 
-### Scene 4 — The Privacy Audit Graph
-1. On any of the decrypted payslips, click the **"PRIVACY AUDIT"** button.
-2. See the ReactFlow graph transform the transactions:
-3. Watch each node transform in sequence: 🔒 (ciphertext hashes) → 🔓 (plaintext amounts + recipient labels revealed)
-4. Edges animate from purple to green (encrypted → decrypted)
+### Phase 3: Advanced Workflows
+- [ ] **Bearer Invoices:** Secret claim links with dynamic recipient wallet binding at claim time.
+- [ ] **Bound Stealth Invoices:** One-time stealth address generation for vendor billing.
+- [ ] **Recurring Contributor Retainers:** Automated schedule tracking (`nextDueAt`, `lastRunAt`).
 
-**The visual contrast between Scene 1 and Scene 4 is the entire pitch:** same data, same transactions, but only the authorized observer sees the full picture.
+### Phase 4: Cryptographic Proof-of-Payment
+- [ ] Groth16 witness export enabling single-payment cryptographic verification without exposing treasury history.
 
------
+### Phase 5: Autonomous Treasury Operations
+- [ ] `@aegis/mcp-server` release allowing AI agents (Cursor, Claude) to draft proposals under human multisig approval.
+
+---
 
 ## License
 
-MIT
+Distributed under the MIT License. See `LICENSE` for more information.
 
------
+---
 
 <p align="center">
-<strong>Built for Colosseum Frontier Hackathon · Cloak Track</strong><br/>
-<em>Solana · Cloak Protocol · Next.js 14 · Zero-Trust Architecture</em>
+<strong>Aegis Ledger</strong> · <em>Confidential Treasury Infrastructure on Solana</em>
 </p>
