@@ -6,6 +6,7 @@ import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSi
 import PrivateSwapPanel from "./PrivateSwapPanel";
 import ProvingVisualizer from "./ProvingVisualizer";
 import PrivacyScoreCard from "./PrivacyScoreCard";
+import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
 
 interface Recipient {
   addr: string;
@@ -179,6 +180,8 @@ export default function PayrollTerminal() {
   const [hasRunDenominations, setHasRunDenominations] = useState(false);
   const [completedRuns, setCompletedRuns] = useState(0);
   const [showAddRow, setShowAddRow] = useState(false);
+  const [showImporter, setShowImporter] = useState(false);
+  const [importNotification, setImportNotification] = useState<string | null>(null);
   const [newRow, setNewRow] = useState<Recipient>({ addr: "", amount: "", token: "USDC", memo: "" });
   const prevStatusRef = useRef(status);
 
@@ -247,10 +250,10 @@ export default function PayrollTerminal() {
 
       {/* Page header */}
       <div>
-        <span className={styles.eyebrow}>DAO Treasury · Admin</span>
+        <span className={styles.eyebrow}>Solana Private Payroll · Treasury</span>
         <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
-          Treasury Dashboard<br />
-          <em>May 2026 operations.</em>
+          Private Payroll Terminal<br />
+          <em>October 2026 operations.</em>
         </h1>
       </div>
 
@@ -263,18 +266,18 @@ export default function PayrollTerminal() {
             <span className={styles.balanceLabel}>Shielded Balance</span>
             <div className={styles.cloakPill}>
               <span className={styles.cloakPillDot} />
-              <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>CLOAK POOL</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>MAGICBLOCK TEE</span>
             </div>
           </div>
           <div className={styles.balanceAmount} style={{ fontFamily: "var(--serif)" }}>
             {balance}
           </div>
-          <span className={styles.balanceSub}>{utxos} UTXOs · AES-256-GCM · Poseidon hashed</span>
+          <span className={styles.balanceSub}>{utxos} UTXOs · Uniform Note Splitting · Sub-Second TEE</span>
           <div className={styles.balanceStats}>
             {[
               { label: "Available", val: available, green: false },
               { label: "Locked · payroll", val: locked, green: false },
-              { label: "ZK proofs", val: "✓ 100%", green: true },
+              { label: "TEE Batch", val: "✓ Ready", green: true },
             ].map(s => (
               <div key={s.label}>
                 <span className={styles.statLabel}>{s.label}</span>
@@ -297,11 +300,18 @@ export default function PayrollTerminal() {
         <div className={styles.batchHeader}>
           <div>
             <span className={styles.batchEyebrow}>Batch Disbursement</span>
-            <div className={styles.batchTitle}>May 2026 Payroll Run</div>
+            <div className={styles.batchTitle}>October 2026 Contributor Payroll</div>
           </div>
           <div className={styles.batchActions}>
-            <button className={`${styles.addBtn}`} onClick={() => setShowAddRow(s => !s)}>
-              {showAddRow ? "✕ Cancel" : "+ Add recipient"}
+            <button 
+              className={styles.addBtn} 
+              onClick={() => setShowImporter((s: boolean) => !s)}
+              style={showImporter ? { background: "var(--ink)", color: "#fff" } : undefined}
+            >
+              {showImporter ? "✕ Close CSV" : "📁 Import CSV"}
+            </button>
+            <button className={`${styles.addBtn}`} onClick={() => setShowAddRow((s: boolean) => !s)}>
+              {showAddRow ? "✕ Cancel" : "+ Add row"}
             </button>
             <button
               className={`${styles.runBtn}`}
@@ -315,6 +325,38 @@ export default function PayrollTerminal() {
             </button>
           </div>
         </div>
+
+        {importNotification && (
+          <div style={{
+            background: "var(--green-soft)",
+            border: "1px solid var(--green-border)",
+            color: "var(--green)",
+            padding: "10px 20px",
+            margin: "0 28px 16px 28px",
+            borderRadius: "var(--r-sm)",
+            fontFamily: "var(--mono)",
+            fontSize: 11.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}>
+            <span>✓ {importNotification}</span>
+            <span style={{ cursor: "pointer", opacity: 0.7 }} onClick={() => setImportNotification(null)}>✕</span>
+          </div>
+        )}
+
+        {showImporter && (
+          <div style={{ padding: "0 28px 16px 28px" }}>
+            <CsvImporter 
+              onImport={(imported) => {
+                setRecipients(imported);
+                setShowImporter(false);
+                setImportNotification(`Successfully imported ${imported.length} recipients ($${imported.reduce((s, r) => s + parseFloat(r.amount.replace(/,/g, '')), 0).toLocaleString()} USDC).`);
+              }}
+              onCancel={() => setShowImporter(false)}
+            />
+          </div>
+        )}
 
         <div className={styles.tableHead}>
           {["Stealth address", "Amount", "Token", "Memo", "Status", ""].map(h => (
