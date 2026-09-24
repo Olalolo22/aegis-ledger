@@ -1,4 +1,5 @@
 import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram } from "@solana/web3.js";
+import { Buffer } from "buffer";
 
 /**
  * MagicBlock Private Ephemeral Rollups (TEE) Client & Helpers.

@@ -23,10 +23,10 @@ const SUPERTEAM_SAMPLE_CSV = `wallet,amount,token,memo
 8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH,3200,USDC,Frontend / React Lead
 3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr,2500,USDC,Security Auditor Retainer
 GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT,2100,USDC,UI/UX Product Designer
-9pLhC8J1eL2s5b3K7hF9wQ2v4r8mN6jP1tX5yZ3aBcDe,1800,USDC,DevRel & Ecosystem Lead
-4tH9x2Y7mK1pL6sB3vQ8wJ5rF2cDe9aBc1tX5yZ3aBcD,1500,USDC,Fullstack Apprentice
-7rK2mP9vL5sB1tX8wJ3cF6aDe4yZ1tX5yZ3aBcDe9aBc,1250,USDC,Technical Writer / Docs
-5bC1tX5yZ3aBcDe9aBc7rK2mP9vL5sB1tX8wJ3cF6aDe,950,USDC,Community & Ops Manager`;
+7ZchxRLHUZNLF5oxsvSoqeCUTzUF8etadYKDNd9W4xiZ,1800,USDC,DevRel & Ecosystem Lead
+Ac3BVmSyd7KmZbih1seeBP4FSsFpbVcdMcFQUQH8GZhi,1500,USDC,Fullstack Apprentice
+8c4ARfpuqCakKTxBuj854BNMdnREPfECVHx65FM6DNns,1250,USDC,Technical Writer / Docs
+G2MUCSPRifi78UycVeivjd6kgtC8ojDf1vKRqVo5S2xD,950,USDC,Community & Ops Manager`;
 
 export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
   const [activeTab, setActiveTab] = useState<"upload" | "paste">("upload");

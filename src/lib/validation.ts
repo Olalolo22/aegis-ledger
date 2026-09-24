@@ -53,8 +53,10 @@ export const payrollRequestSchema = z
       .array(payrollRecipientSchema)
       .min(1, "Must have at least one recipient")
       .max(50, "Maximum 50 recipients per batch"),
-  })
-  .strict(); // reject unknown fields
+
+    /** Execution rail: MagicBlock TEE hardware enclave or Cloak ZK-SNARKs */
+    rail: z.enum(["tee", "cloak"]).optional(),
+  });
 
 export type PayrollRequest = z.infer<typeof payrollRequestSchema>;
 export type PayrollRecipientInput = z.infer<typeof payrollRecipientSchema>;

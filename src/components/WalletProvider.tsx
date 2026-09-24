@@ -16,6 +16,12 @@ import {
   BackpackWalletAdapter,
 } from "@solana/wallet-adapter-backpack";
 import type { WalletError } from "@solana/wallet-adapter-base";
+import { Buffer } from "buffer";
+
+if (typeof window !== "undefined") {
+  (window as unknown as { Buffer: unknown }).Buffer =
+    (window as unknown as { Buffer: unknown }).Buffer || Buffer;
+}
 
 // Default styles for the wallet modal
 // MOVED TO layout.tsx for faster loading

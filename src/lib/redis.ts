@@ -39,11 +39,19 @@ export async function acquireMutex(
   resource: string,
   ttlSeconds: number = 10
 ): Promise<MutexHandle> {
-  const redis = getRedis();
   const lockValue = randomUUID();
   const key = `${LOCK_PREFIX}${resource}`;
-  const result = await redis.set(key, lockValue, { nx: true, ex: ttlSeconds });
-  return { acquired: result === "OK", lockValue, key };
+  try {
+    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+      return { acquired: true, lockValue, key };
+    }
+    const redis = getRedis();
+    const result = await redis.set(key, lockValue, { nx: true, ex: ttlSeconds });
+    return { acquired: result === "OK", lockValue, key };
+  } catch (err) {
+    console.warn("[Aegis Redis] Mutex bypassed (offline/demo mode):", err);
+    return { acquired: true, lockValue, key };
+  }
 }
 
 /**
@@ -58,13 +66,21 @@ export async function releaseMutex(
   key: string,
   lockValue: string
 ): Promise<void> {
-  const redis = getRedis();
-  const script = `
-    if redis.call("get", KEYS[1]) == ARGV[1] then
-      return redis.call("del", KEYS[1])
-    else
-      return 0
-    end
-  `;
-  await redis.eval(script, [key], [lockValue]);
+  try {
+    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+      return;
+    }
+    const redis = getRedis();
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await redis.eval(script, [key], [lockValue]);
+  } catch (err) {
+    console.warn("[Aegis Redis] Release bypassed (offline/demo mode):", err);
+  }
 }
+
