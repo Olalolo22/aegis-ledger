@@ -24,6 +24,21 @@ const MOCK_RECIPIENTS: Recipient[] = [
   { addr: "GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT", amount: "6,000", token: "USDC", memo: "Legal review" },
 ];
 
+const TEE_LOG_STEPS = [
+  { msg: "› Partitioning non-uniform salaries into standardized uniform notes...", col: "var(--dim)" },
+  { msg: " ✓ Amount-clustering defense active ($1000, $500, $100 notes).", col: "var(--green)" },
+  { msg: "› Connecting to MagicBlock TEE validator (devnet-tee.magicblock.app)...", col: "var(--dim)" },
+  { msg: " [!] Hardware enclave execution: zero client WASM lag.", col: "var(--amber)" },
+  { msg: "› Delegating batch account state to Ephemeral Rollup enclave...", col: "var(--dim)" },
+  { msg: " ✓ Account delegation verified inside Intel TDX hardware.", col: "var(--green)" },
+  { msg: "› Requesting authority signature for batch proposal...", col: "var(--dim)" },
+  { msg: " ✓ Signature verified. Submitting to TEE sub-block engine...", col: "var(--green)" },
+  { msg: "› Executing batch state transition in sub-50ms slot...", col: "var(--dim)" },
+  { msg: " ✓ Sub-second TEE settlement confirmed on Solana.", col: "var(--green)" },
+  { msg: " ✓ On-chain explorer view: [SHIELDED / CONFIDENTIAL]", col: "var(--blue)" },
+  { msg: " ✓ Scoped Merkle viewing keys registered for accounting.", col: "var(--green)" },
+];
+
 const ZK_LOG_STEPS = [
   { msg: "› Loading Groth16 WASM prover circuit...", col: "var(--dim)" },
   { msg: "› Initialising Poseidon hash state (t=5)...", col: "var(--dim)" },
@@ -40,19 +55,22 @@ const ZK_LOG_STEPS = [
   { msg: " ✓ On-chain view: [REDACTED]", col: "var(--blue)" },
 ];
 
-function ZKModal({
+function ExecutionModal({
   onClose,
   status,
   proofProgress,
   error,
-  recipientProgress
+  recipientProgress,
+  rail = "tee",
 }: {
   onClose: () => void;
   status: PayrollSignerStatus;
   proofProgress: string | null;
   error: string | null;
   recipientProgress: { current: number; total: number } | null;
+  rail?: "tee" | "cloak";
 }) {
+  const activeSteps = rail === "tee" ? TEE_LOG_STEPS : ZK_LOG_STEPS;
   const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
   const maxPhaseRef = useRef(0);
   const maxPctRef = useRef(0);
@@ -62,19 +80,19 @@ function ZKModal({
 
   useEffect(() => {
     let phase = 0;
-    if (status === "preparing") phase = 1;
-    if (status === "initializing_wasm") phase = 2;
+    if (status === "preparing") phase = 2;
+    if (status === "initializing_wasm") phase = 4;
     if (status === "proving") phase = 7;
-    if (status === "signing") phase = 9;
-    if (status === "broadcasting") phase = 11;
-    if (status === "confirming") phase = 12;
-    if (status === "completed") phase = ZK_LOG_STEPS.length;
+    if (status === "signing") phase = 8;
+    if (status === "broadcasting") phase = 10;
+    if (status === "confirming") phase = 11;
+    if (status === "completed") phase = activeSteps.length;
 
     if (phase > maxPhaseRef.current) {
       maxPhaseRef.current = phase;
-      setLog(ZK_LOG_STEPS.slice(0, phase));
+      setLog(activeSteps.slice(0, phase));
     }
-  }, [status]);
+  }, [status, activeSteps]);
 
   useEffect(() => {
     if (status === "idle" || status === "preparing") {
@@ -112,7 +130,7 @@ function ZKModal({
     }
     pct = pct!;
   } else {
-    pct = Math.min(99, Math.round((log.length / ZK_LOG_STEPS.length) * 100));
+    pct = Math.min(99, Math.round((log.length / activeSteps.length) * 100));
   }
 
   if (pct > maxPctRef.current) {
@@ -125,9 +143,11 @@ function ZKModal({
       <div className={styles.modalBox}>
         <div className={styles.modalHeader}>
           <div>
-            <span className={styles.modalEyebrow}>Client-Side ZK Execution</span>
+            <span className={styles.modalEyebrow}>
+              {rail === "tee" ? "MagicBlock Ephemeral Rollup" : "Client-Side ZK Execution"}
+            </span>
             <div className={styles.modalTitle} style={{ fontFamily: "var(--serif)" }}>
-              Proving Batch Payroll
+              {rail === "tee" ? "Confidential TEE Batch Execution" : "Proving Batch Payroll"}
             </div>
           </div>
           <div className={styles.modalStatus}>
@@ -141,7 +161,9 @@ function ZKModal({
         <div className={styles.ztBanner}>
           <span>🔒</span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
-            Your spending key never leaves this browser. All ZK proofs are generated locally via WASM.
+            {rail === "tee"
+              ? "Confidential execution inside Intel TDX hardware enclaves. Sub-second batch execution with zero client lag."
+              : "Your spending key never leaves this browser. All ZK proofs are generated locally via WASM."}
           </span>
         </div>
         <ProvingVisualizer isActive={status === "proving" || status === "initializing_wasm"} />
@@ -153,7 +175,9 @@ function ZKModal({
         </div>
         <div className={styles.modalFooter}>
           <div className={styles.progressHeader}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.25)" }}>Groth16 WASM Progress</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.25)" }}>
+              {rail === "tee" ? "MagicBlock TEE Progress" : "Groth16 WASM Progress"}
+            </span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
               {done ? "100%" : isError ? "ERR" : `${pct}%`}
             </span>
@@ -164,7 +188,7 @@ function ZKModal({
           </div>
           {(done || isError) && (
             <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
-              {done ? "✓ Transaction confirmed — Close" : "✕ Close and check errors"}
+              {done ? "✓ Batch confirmed on-chain — Close" : "✕ Close and inspect"}
             </button>
           )}
         </div>
@@ -174,7 +198,7 @@ function ZKModal({
 }
 
 export default function PayrollTerminal() {
-  const { execute, status, proofProgress, error, signingParams, recipientProgress } = usePayrollSigner();
+  const { execute, status, proofProgress, error, signingParams, recipientProgress, activeRail, setActiveRail } = usePayrollSigner();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
   const [hasRunDenominations, setHasRunDenominations] = useState(false);
@@ -238,7 +262,8 @@ export default function PayrollTerminal() {
       token_symbol: "USDC",
       token_mint: "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf",
       initiated_by: "",
-      recipients: hookRecipients
+      recipients: hookRecipients,
+      rail: activeRail,
     });
   };
 
@@ -246,7 +271,16 @@ export default function PayrollTerminal() {
 
   return (
     <div className={styles.page}>
-      {showZK && <ZKModal onClose={() => setShowZK(false)} status={status} proofProgress={proofProgress} error={error} recipientProgress={recipientProgress} />}
+      {showZK && (
+        <ExecutionModal
+          onClose={() => setShowZK(false)}
+          status={status}
+          proofProgress={proofProgress}
+          error={error}
+          recipientProgress={recipientProgress}
+          rail={activeRail}
+        />
+      )}
 
       {/* Page header */}
       <div>
@@ -266,18 +300,22 @@ export default function PayrollTerminal() {
             <span className={styles.balanceLabel}>Shielded Balance</span>
             <div className={styles.cloakPill}>
               <span className={styles.cloakPillDot} />
-              <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>MAGICBLOCK TEE</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>
+                {activeRail === "tee" ? "MAGICBLOCK TEE" : "CLOAK GROTH16"}
+              </span>
             </div>
           </div>
           <div className={styles.balanceAmount} style={{ fontFamily: "var(--serif)" }}>
             {balance}
           </div>
-          <span className={styles.balanceSub}>{utxos} UTXOs · Uniform Note Splitting · Sub-Second TEE</span>
+          <span className={styles.balanceSub}>
+            {utxos} UTXOs · Uniform Note Splitting · {activeRail === "tee" ? "Sub-Second TEE" : "Groth16 Shielded"}
+          </span>
           <div className={styles.balanceStats}>
             {[
               { label: "Available", val: available, green: false },
               { label: "Locked · payroll", val: locked, green: false },
-              { label: "TEE Batch", val: "✓ Ready", green: true },
+              { label: activeRail === "tee" ? "TEE Batch" : "ZK Pool", val: "✓ Ready", green: true },
             ].map(s => (
               <div key={s.label}>
                 <span className={styles.statLabel}>{s.label}</span>
@@ -303,6 +341,60 @@ export default function PayrollTerminal() {
             <div className={styles.batchTitle}>October 2026 Contributor Payroll</div>
           </div>
           <div className={styles.batchActions}>
+            {/* Dual-Rail Engine Selector */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "6px",
+              padding: "2px",
+              gap: "2px"
+            }}>
+              <button
+                type="button"
+                onClick={() => setActiveRail("tee")}
+                style={{
+                  background: activeRail === "tee" ? "rgba(34,224,154,0.12)" : "transparent",
+                  color: activeRail === "tee" ? "#22e09a" : "rgba(255,255,255,0.45)",
+                  border: activeRail === "tee" ? "1px solid rgba(34,224,154,0.3)" : "1px solid transparent",
+                  borderRadius: "4px",
+                  padding: "5px 10px",
+                  fontSize: "10.5px",
+                  fontFamily: "var(--mono)",
+                  cursor: "pointer",
+                  fontWeight: activeRail === "tee" ? 600 : 400,
+                  transition: "all 0.15s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px"
+                }}
+              >
+                <span>⚡</span> MagicBlock TEE <span style={{ opacity: 0.65, fontSize: "9px" }}>(&lt;1s)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveRail("cloak")}
+                style={{
+                  background: activeRail === "cloak" ? "rgba(100,160,255,0.14)" : "transparent",
+                  color: activeRail === "cloak" ? "var(--blue)" : "rgba(255,255,255,0.45)",
+                  border: activeRail === "cloak" ? "1px solid rgba(100,160,255,0.3)" : "1px solid transparent",
+                  borderRadius: "4px",
+                  padding: "5px 10px",
+                  fontSize: "10.5px",
+                  fontFamily: "var(--mono)",
+                  cursor: "pointer",
+                  fontWeight: activeRail === "cloak" ? 600 : 400,
+                  transition: "all 0.15s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px"
+                }}
+              >
+                <span>🔒</span> Cloak ZK <span style={{ opacity: 0.65, fontSize: "9px" }}>(Groth16)</span>
+              </button>
+            </div>
+
             <button 
               className={styles.addBtn} 
               onClick={() => setShowImporter((s: boolean) => !s)}
@@ -318,7 +410,7 @@ export default function PayrollTerminal() {
               onClick={handleRunBatch}
               disabled={status !== "idle" && status !== "completed" && status !== "error"}
             >
-              Run shielded batch
+              {activeRail === "tee" ? "Run TEE Batch" : "Run ZK Proof Batch"}
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
