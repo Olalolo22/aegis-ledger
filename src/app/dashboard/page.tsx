@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 
-const PayrollTerminal = dynamic(() => import("@/components/PayrollTerminal"), { ssr: false });
+const PayrollWorkflow = dynamic(() => import("@/components/PayrollWorkflow"), { ssr: false });
 const EmployeeScanner = dynamic(() => import("@/components/EmployeeScanner"), { ssr: false });
 const AuditGraph = dynamic(() => import("@/components/AuditGraph"), { ssr: false });
 
@@ -109,37 +109,37 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
     <nav style={{
       position: "sticky", top: 0, zIndex: 100,
       height: 60, display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0 32px", background: "rgba(255,255,255,0.97)",
-      backdropFilter: "blur(20px)", borderBottom: "1px solid #e8ebee",
+      padding: "0 32px", background: "rgba(9, 10, 15, 0.95)",
+      backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
     }}>
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <img src="/logo.svg" alt="Aegis Logo" style={{ width: 30, height: 30 }} />
-        <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.3px", color: "#08090b" }}>Aegis Ledger</span>
+        <img src="/logo.svg" alt="Aegis Logo" style={{ width: 28, height: 28 }} />
+        <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.3px", color: "#f8fafc" }}>Aegis Ledger</span>
         <div style={{
-          marginLeft: 8, fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#0066ff",
-          background: "rgba(0,102,255,0.07)", border: "1px solid rgba(0,102,255,0.20)",
+          marginLeft: 8, fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#818cf8",
+          background: "rgba(99, 102, 241, 0.1)", border: "1px solid rgba(99, 102, 241, 0.25)",
           padding: "3px 9px", borderRadius: 100, display: "flex", alignItems: "center", gap: 5,
         }}>
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#0066ff", display: "inline-block" }} />
-          CLOAK SHIELD
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#818cf8", display: "inline-block" }} />
+          MAGICBLOCK PER
         </div>
       </div>
 
       {/* Tab switcher */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#bdc4ce", letterSpacing: 0.4, textTransform: "uppercase" }}>Demo: View as →</span>
-        <div style={{ display: "flex", gap: 4, background: "#f4f5f7", borderRadius: 10, padding: 4, border: "1px solid #e8ebee" }}>
+        <span style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#64748b", letterSpacing: 0.4, textTransform: "uppercase" }}>Demo Role:</span>
+        <div style={{ display: "flex", gap: 4, background: "rgba(255, 255, 255, 0.03)", borderRadius: 10, padding: 4, border: "1px solid rgba(255, 255, 255, 0.08)" }}>
           {tabs.map(t => (
             <button key={t.id}
               onClick={() => setView(t.id)}
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
                 borderRadius: 7,
-                border: view === t.id ? "1.5px solid #0066ff" : "1.5px solid transparent",
-                background: view === t.id ? "#ffffff" : "none",
+                border: view === t.id ? "1.5px solid #4f46e5" : "1.5px solid transparent",
+                background: view === t.id ? "rgba(99, 102, 241, 0.15)" : "none",
                 fontSize: 12.5, fontWeight: 500,
-                color: view === t.id ? "#08090b" : "#64707f",
+                color: view === t.id ? "#ffffff" : "#94a3b8",
                 cursor: "pointer", transition: "all 0.15s",
               }}>
               <span style={{ fontSize: 13 }}>{t.icon}</span>
@@ -153,13 +153,13 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         {connected && shortAddr ? (
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#8e98a6" }}>{roleLabel} WALLET</div>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#08090b", fontWeight: 500 }}>{shortAddr}</div>
+            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#64748b" }}>{roleLabel} WALLET</div>
+            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#f8fafc", fontWeight: 500 }}>{shortAddr}</div>
           </div>
         ) : (
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#8e98a6" }}>WALLET</div>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#bdc4ce", fontWeight: 500 }}>Not connected</div>
+            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#64748b" }}>WALLET</div>
+            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#64748b", fontWeight: 500 }}>Not connected</div>
           </div>
         )}
         <button
@@ -167,10 +167,10 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
           title={connected ? `Connected: ${shortAddr} — click to disconnect` : "Click to connect wallet"}
           style={{
             width: 32, height: 32, borderRadius: 8,
-            background: connected ? "#08090b" : "#f4f5f7",
+            background: connected ? "#1e2230" : "rgba(255, 255, 255, 0.05)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            color: connected ? "#ffffff" : "#64707f", fontSize: 14,
-            border: connected ? "none" : "1px solid #e8ebee",
+            color: connected ? "#ffffff" : "#94a3b8", fontSize: 14,
+            border: connected ? "1px solid rgba(99, 102, 241, 0.3)" : "1px solid rgba(255, 255, 255, 0.08)",
             cursor: "pointer", transition: "all 0.15s",
           }}>
           {connected ? "◆" : "◇"}
@@ -182,17 +182,17 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
 
 // Root page 
 export default function DashboardPage() {
-  useExplicitWalletConnect(); // ← fires for ALL tabs now, not just Employee
+  useExplicitWalletConnect();
 
   const [view, setView] = useState("admin");
 
   return (
-    <>
+    <div style={{ background: "#090a0f", minHeight: "100vh", color: "#f8fafc" }}>
       <NavBar view={view} setView={setView} />
       <RoleBanner view={view} />
-      {view === "admin" && <PayrollTerminal />}
+      {view === "admin" && <PayrollWorkflow />}
       {view === "employee" && <EmployeeScanner />}
       {view === "auditor" && <AuditGraph />}
-    </>
+    </div>
   );
 }
