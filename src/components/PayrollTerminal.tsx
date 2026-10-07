@@ -8,20 +8,55 @@ import ProvingVisualizer from "./ProvingVisualizer";
 import PrivacyScoreCard from "./PrivacyScoreCard";
 import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
 
-interface Recipient {
+export interface Recipient {
   addr: string;
   amount: string;
   token: "USDC" | "USDT" | "SOL";
   memo: string;
+  settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+  destinationAccount?: string;
 }
+
+export const FX_RATES = {
+  NGN: 1650, // ₦1,650 / USDC (Nigeria Providus / Kuda spot)
+  KES: 130,  // KSh 130 / USDC (Kenya Safaricom M-Pesa spot)
+};
 
 const DEMO_ORG_ID = "b91a045c-27eb-44c1-8409-f62506b328a6";
 
 const MOCK_RECIPIENTS: Recipient[] = [
-  { addr: "6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC", amount: "8,500", token: "USDC", memo: "May salary" },
-  { addr: "8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH", amount: "5.00", token: "SOL", memo: "Dev retainer" },
-  { addr: "3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr", amount: "9,800", token: "USDT", memo: "Design sprint" },
-  { addr: "GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT", amount: "6,000", token: "USDC", memo: "Legal review" },
+  {
+    addr: "6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC",
+    amount: "3,800",
+    token: "USDC",
+    memo: "Senior Anchor Protocol Dev · Lagos",
+    settlementRail: "ngn_bank",
+    destinationAccount: "Providus Bank · 0128943312",
+  },
+  {
+    addr: "8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH",
+    amount: "2,600",
+    token: "USDC",
+    memo: "Mobile / iOS Lead · Nairobi",
+    settlementRail: "kes_mpesa",
+    destinationAccount: "Safaricom M-Pesa · +254 712 901844",
+  },
+  {
+    addr: "3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr",
+    amount: "2,200",
+    token: "USDC",
+    memo: "Frontend Engineer · Abuja",
+    settlementRail: "ngn_bank",
+    destinationAccount: "Kuda Microfinance · 2049182390",
+  },
+  {
+    addr: "GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT",
+    amount: "3,500",
+    token: "USDC",
+    memo: "ZK Research Fellow · Global",
+    settlementRail: "onchain_shielded",
+    destinationAccount: "Shielded Ephemeral UTXO",
+  },
 ];
 
 const TEE_LOG_STEPS = [
@@ -35,8 +70,10 @@ const TEE_LOG_STEPS = [
   { msg: " ✓ Signature verified. Submitting to TEE sub-block engine...", col: "var(--green)" },
   { msg: "› Executing batch state transition in sub-50ms slot...", col: "var(--dim)" },
   { msg: " ✓ Sub-second TEE settlement confirmed on Solana.", col: "var(--green)" },
-  { msg: " ✓ On-chain explorer view: [SHIELDED / CONFIDENTIAL]", col: "var(--blue)" },
-  { msg: " ✓ Scoped Merkle viewing keys registered for accounting.", col: "var(--green)" },
+  { msg: "› Dispatching confidential off-ramp webhooks (NGN / KES local rails)...", col: "var(--dim)" },
+  { msg: " ✓ ₦9,900,000 Providus/Kuda + KSh 338,000 M-Pesa off-ramp triggers dispatched.", col: "var(--green)" },
+  { msg: " ✓ On-chain explorer view: [CONFIDENTIAL / ZERO IDENTITY LEAK]", col: "var(--blue)" },
+  { msg: " ✓ Scoped Merkle viewing keys registered for tax & audit compliance.", col: "var(--green)" },
 ];
 
 const ZK_LOG_STEPS = [
@@ -206,7 +243,14 @@ export default function PayrollTerminal() {
   const [showAddRow, setShowAddRow] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
   const [importNotification, setImportNotification] = useState<string | null>(null);
-  const [newRow, setNewRow] = useState<Recipient>({ addr: "", amount: "", token: "USDC", memo: "" });
+  const [newRow, setNewRow] = useState<Recipient>({
+    addr: "",
+    amount: "",
+    token: "USDC",
+    memo: "",
+    settlementRail: "ngn_bank",
+    destinationAccount: "",
+  });
   const prevStatusRef = useRef(status);
 
   useEffect(() => {
@@ -240,7 +284,7 @@ export default function PayrollTerminal() {
   const handleAddRecipient = () => {
     if (!newRow.addr || !newRow.amount) return;
     setRecipients(prev => [...prev, { ...newRow }]);
-    setNewRow({ addr: "", amount: "", token: "USDC", memo: "" });
+    setNewRow({ addr: "", amount: "", token: "USDC", memo: "", settlementRail: "ngn_bank", destinationAccount: "" });
     setShowAddRow(false);
   };
 
@@ -284,10 +328,10 @@ export default function PayrollTerminal() {
 
       {/* Page header */}
       <div>
-        <span className={styles.eyebrow}>Solana Private Payroll · Treasury</span>
+        <span className={styles.eyebrow}>Solana Confidential Settlement · Superteam Nigeria Track</span>
         <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
-          Private Payroll Terminal<br />
-          <em>October 2026 operations.</em>
+          Emerging Markets Settlement Engine<br />
+          <em>October 2026 remote contributor disbursement.</em>
         </h1>
       </div>
 
@@ -450,59 +494,146 @@ export default function PayrollTerminal() {
           </div>
         )}
 
+        <div className={styles.fxBanner}>
+          <div className={styles.fxRates}>
+            <span style={{ color: "#8e98a6", fontSize: 10, textTransform: "uppercase" }}>Spot Off-Ramp Rails:</span>
+            <span className={styles.fxPill}>
+              <span>🇳🇬</span> NGN <strong>₦{FX_RATES.NGN.toLocaleString()}</strong> / USDC
+            </span>
+            <span className={styles.fxPill}>
+              <span>🇰🇪</span> KES <strong>KSh {FX_RATES.KES}</strong> / USDC
+            </span>
+            <span className={styles.fxPill}>
+              <span>🛡️</span> On-Chain Privacy <strong>100% Shielded</strong>
+            </span>
+          </div>
+          <div style={{ color: "#22e09a", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22e09a", display: "inline-block" }} />
+            Zero Solscan Ledger Leaks
+          </div>
+        </div>
+
         <div className={styles.tableHead}>
-          {["Stealth address", "Amount", "Token", "Memo", "Status", ""].map(h => (
+          {["Contributor / Stealth address", "USDC Amount", "Settlement Rail", "Est. Local Payout", "Privacy", ""].map(h => (
             <span key={h} className={styles.tableHeadCell}>{h}</span>
           ))}
         </div>
 
-        {recipients.map((r, i) => (
-          <div className={styles.tableRow} key={i}
-            style={{ borderBottom: i < recipients.length - 1 || showAddRow ? "1px solid var(--mist)" : "none",
-              gridTemplateColumns: "1fr 120px 80px 1fr 100px 36px" }}>
-            <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 11.5 }}>{r.addr.slice(0, 4)}···{r.addr.slice(-4)}</span>
-            <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
-            <span className={`${styles.tokenBadge} ${r.token === "SOL" ? styles.tokenSol : styles.tokenUsdc}`}>
-              {r.token}
-            </span>
-            <span style={{ fontSize: 12, color: "var(--slate)" }}>{r.memo}</span>
-            <span className="ae-badge ae-badge-green">
-              {status === "completed" ? "Completed" : "Ready"}
-            </span>
-            <button
-              onClick={() => handleDeleteRecipient(i)}
-              disabled={status !== "idle" && status !== "completed" && status !== "error"}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                color: "#bdc4ce", fontSize: 14, lineHeight: 1, padding: 4,
-                opacity: (status !== "idle" && status !== "completed" && status !== "error") ? 0.3 : 1,
-              }}
-              title="Remove recipient"
-            >✕</button>
-          </div>
-        ))}
+        {recipients.map((r, i) => {
+          const numericAmount = parseFloat(r.amount.replace(/,/g, '')) || 0;
+          const isNgn = r.settlementRail === "ngn_bank";
+          const isKes = r.settlementRail === "kes_mpesa";
+          const localPayout = isNgn
+            ? `₦${(numericAmount * FX_RATES.NGN).toLocaleString()}`
+            : isKes
+              ? `KSh ${(numericAmount * FX_RATES.KES).toLocaleString()}`
+              : `${r.amount} USDC`;
+
+          return (
+            <div className={styles.tableRow} key={i}
+              style={{ borderBottom: i < recipients.length - 1 || showAddRow ? "1px solid var(--mist)" : "none" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span className={styles.mono} style={{ color: "var(--ink)", fontWeight: 600, fontSize: 12 }}>
+                  {r.memo || "Contributor"}
+                </span>
+                <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 10.5 }}>
+                  {r.addr.slice(0, 4)}···{r.addr.slice(-4)}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
+                <span className={`${styles.tokenBadge} ${styles.tokenUsdc}`}>{r.token}</span>
+              </div>
+
+              <div>
+                {isNgn && (
+                  <div className={styles.railBadgeNgn} title={r.destinationAccount}>
+                    <span>🇳🇬</span> NGN Bank
+                    <span style={{ opacity: 0.7, fontSize: 9.5 }}>· {r.destinationAccount?.split("·")[0]?.trim() || "Bank"}</span>
+                  </div>
+                )}
+                {isKes && (
+                  <div className={styles.railBadgeKes} title={r.destinationAccount}>
+                    <span>🇰🇪</span> KES M-Pesa
+                    <span style={{ opacity: 0.7, fontSize: 9.5 }}>· Mobile</span>
+                  </div>
+                )}
+                {!isNgn && !isKes && (
+                  <div className={styles.railBadgeShielded} title={r.destinationAccount}>
+                    <span>🛡️</span> Shielded UTXO
+                  </div>
+                )}
+              </div>
+
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600, color: isNgn ? "#059669" : isKes ? "#d97706" : "var(--ink)" }}>
+                {localPayout}
+              </div>
+
+              <div>
+                <span className="ae-badge ae-badge-green">
+                  {status === "completed" ? "Dispatched" : "Shielded"}
+                </span>
+              </div>
+
+              <button
+                onClick={() => handleDeleteRecipient(i)}
+                disabled={status !== "idle" && status !== "completed" && status !== "error"}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#bdc4ce", fontSize: 14, lineHeight: 1, padding: 4,
+                  opacity: (status !== "idle" && status !== "completed" && status !== "error") ? 0.3 : 1,
+                }}
+                title="Remove recipient"
+              >✕</button>
+            </div>
+          );
+        })}
 
         {showAddRow && (
           <div style={{
             display: "grid",
-            gridTemplateColumns: "1fr 120px 80px 1fr 100px 36px",
+            gridTemplateColumns: "1.4fr 110px 150px 130px 95px 36px",
             padding: "10px 28px", gap: 8, alignItems: "center",
             background: "rgba(0,102,255,0.03)",
             borderBottom: "1px solid #e8ebee",
           }}>
-            <input placeholder="Wallet address (base58)" value={newRow.addr}
-              onChange={e => setNewRow(p => ({ ...p, addr: e.target.value }))}
-              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
-            <input placeholder="Amount" value={newRow.amount}
-              onChange={e => setNewRow(p => ({ ...p, amount: e.target.value }))}
-              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
-            <select value={newRow.token} onChange={e => setNewRow(p => ({ ...p, token: e.target.value as "USDC" | "USDT" | "SOL" }))}
-              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6 }}>
-              <option>USDC</option><option>USDT</option><option>SOL</option>
-            </select>
-            <input placeholder="Memo" value={newRow.memo}
-              onChange={e => setNewRow(p => ({ ...p, memo: e.target.value }))}
-              style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <input placeholder="Wallet address (base58)" value={newRow.addr}
+                onChange={e => setNewRow(p => ({ ...p, addr: e.target.value }))}
+                style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+              <input placeholder="Role / Contributor note" value={newRow.memo}
+                onChange={e => setNewRow(p => ({ ...p, memo: e.target.value }))}
+                style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "4px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+            </div>
+
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <input placeholder="Amount" value={newRow.amount}
+                onChange={e => setNewRow(p => ({ ...p, amount: e.target.value }))}
+                style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+            </div>
+
+            <div>
+              <select
+                value={newRow.settlementRail || "ngn_bank"}
+                onChange={e => setNewRow(p => ({ ...p, settlementRail: e.target.value as any }))}
+                style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
+              >
+                <option value="ngn_bank">🇳🇬 NGN Bank</option>
+                <option value="kes_mpesa">🇰🇪 KES M-Pesa</option>
+                <option value="onchain_shielded">🛡️ Shielded UTXO</option>
+              </select>
+            </div>
+
+            <div>
+              <input
+                placeholder={newRow.settlementRail === "kes_mpesa" ? "+254 7..." : "Bank & Account"}
+                value={newRow.destinationAccount || ""}
+                onChange={e => setNewRow(p => ({ ...p, destinationAccount: e.target.value }))}
+                style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
+              />
+            </div>
+
             <button onClick={handleAddRecipient}
               disabled={!newRow.addr || !newRow.amount}
               style={{
@@ -512,6 +643,57 @@ export default function PayrollTerminal() {
                 opacity: (!newRow.addr || !newRow.amount) ? 0.4 : 1,
               }}>Add</button>
             <span />
+          </div>
+        )}
+
+        {completedRuns > 0 && (
+          <div className={styles.receiptCard}>
+            <div className={styles.receiptHeader}>
+              <div className={styles.receiptTitle}>
+                <span style={{ color: "#22e09a" }}>✓</span> Emerging Markets Settlement Receipt (Batch #{completedRuns})
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "#22e09a", background: "rgba(34, 224, 154, 0.12)", padding: "4px 10px", borderRadius: 6 }}>
+                MAGICBLOCK PER CONFIRMED
+              </div>
+            </div>
+            
+            <div className={styles.receiptGrid}>
+              <div className={styles.receiptStat}>
+                <span className={styles.receiptStatLabel}>Total USDC Disbursed</span>
+                <div className={styles.receiptStatVal}>${batchTotal.toLocaleString()} USDC</div>
+              </div>
+              <div className={styles.receiptStat}>
+                <span className={styles.receiptStatLabel}>Nigerian Rails (NGN)</span>
+                <div className={styles.receiptStatVal} style={{ color: "#34d399" }}>
+                  ₦{recipients.filter(r => r.settlementRail === "ngn_bank").reduce((sum, r) => sum + ((parseFloat(r.amount.replace(/,/g, '')) || 0) * FX_RATES.NGN), 0).toLocaleString()}
+                </div>
+              </div>
+              <div className={styles.receiptStat}>
+                <span className={styles.receiptStatLabel}>Kenyan Rails (KES)</span>
+                <div className={styles.receiptStatVal} style={{ color: "#fbbf24" }}>
+                  KSh {recipients.filter(r => r.settlementRail === "kes_mpesa").reduce((sum, r) => sum + ((parseFloat(r.amount.replace(/,/g, '')) || 0) * FX_RATES.KES), 0).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, fontFamily: "var(--mono)" }}>
+              <span style={{ color: "rgba(255,255,255,0.6)" }}>
+                🔒 Public Solscan View: <strong>Amounts & Recipients Hidden (0 bytes leaked)</strong>
+              </span>
+              <a 
+                href="/audit"
+                style={{
+                  color: "#22e09a",
+                  textDecoration: "none",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4
+                }}
+              >
+                Open Auditor Viewing Portal →
+              </a>
+            </div>
           </div>
         )}
       </div>

@@ -249,7 +249,7 @@
 /* Table */
 .tableHead {
   display: grid;
-  grid-template-columns: 1fr 120px 80px 1fr 100px 36px;
+  grid-template-columns: 1.4fr 110px 150px 130px 95px 36px;
   padding: 10px 28px;
   background: #f4f5f7;
   border-bottom: 1px solid #e8ebee;
@@ -265,7 +265,7 @@
 
 .tableRow {
   display: grid;
-  grid-template-columns: 1fr 120px 80px 1fr 100px 36px;
+  grid-template-columns: 1.4fr 110px 150px 130px 95px 36px;
   padding: 14px 28px;
   align-items: center;
   transition: background 0.15s;
@@ -282,6 +282,142 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* FX & Emerging Markets Banner */
+.fxBanner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #e8ebee;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.fxRates {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.fxPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  color: #3c4455;
+  font-size: 10.5px;
+}
+
+.railBadgeNgn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.railBadgeKes {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(217, 124, 10, 0.08);
+  color: #d97706;
+  border: 1px solid rgba(217, 124, 10, 0.2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.railBadgeShielded {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(0, 102, 255, 0.07);
+  color: #0066ff;
+  border: 1px solid rgba(0, 102, 255, 0.2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+/* Settlement Receipt */
+.receiptCard {
+  margin: 20px 28px;
+  padding: 22px 24px;
+  background: #0f1218;
+  border: 1px solid rgba(34, 224, 154, 0.3);
+  border-radius: 14px;
+  color: #ffffff;
+  animation: ae-fade-up 0.4s ease both;
+}
+
+.receiptHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.receiptTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.receiptGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 800px) {
+  .receiptGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.receiptStat {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.receiptStatLabel {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.receiptStatVal {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: #22e09a;
 }
 
 /* Token badges */

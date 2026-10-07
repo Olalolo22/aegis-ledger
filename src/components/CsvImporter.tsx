@@ -10,6 +10,8 @@ export interface ParsedRecipient {
   amount: string;
   token: "USDC" | "USDT" | "SOL";
   memo: string;
+  settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+  destinationAccount?: string;
 }
 
 interface CsvImporterProps {
@@ -17,16 +19,16 @@ interface CsvImporterProps {
   onCancel?: () => void;
 }
 
-// Preset: 8-person Superteam Devshop Payroll with valid Base58 Solana addresses
-const SUPERTEAM_SAMPLE_CSV = `wallet,amount,token,memo
-6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC,4850,USDC,Lead Anchor Core Dev
-8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH,3200,USDC,Frontend / React Lead
-3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr,2500,USDC,Security Auditor Retainer
-GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT,2100,USDC,UI/UX Product Designer
-7ZchxRLHUZNLF5oxsvSoqeCUTzUF8etadYKDNd9W4xiZ,1800,USDC,DevRel & Ecosystem Lead
-Ac3BVmSyd7KmZbih1seeBP4FSsFpbVcdMcFQUQH8GZhi,1500,USDC,Fullstack Apprentice
-8c4ARfpuqCakKTxBuj854BNMdnREPfECVHx65FM6DNns,1250,USDC,Technical Writer / Docs
-G2MUCSPRifi78UycVeivjd6kgtC8ojDf1vKRqVo5S2xD,950,USDC,Community & Ops Manager`;
+// Preset: 8-person Superteam Nigeria / East Africa Devshop Payroll with valid Base58 Solana addresses
+const SUPERTEAM_SAMPLE_CSV = `wallet,amount,token,memo,rail,destination
+6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC,4850,USDC,Lead Anchor Core Dev · Lagos,ngn_bank,Providus 0128943312
+8uE6pQnHLAqLkNhMfVjC9yFeEqx3qkPx4x6VGWjE2FmH,3200,USDC,Frontend Lead · Nairobi,kes_mpesa,+254 712 901844
+3oLd7mJQ7cVRP4qUKoynTkMfVvFjUeBjG3aJXcgGxGZr,2500,USDC,Security Auditor · Abuja,ngn_bank,Kuda 2049182390
+GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT,2100,USDC,UI/UX Product Designer,onchain_shielded,Shielded UTXO
+7ZchxRLHUZNLF5oxsvSoqeCUTzUF8etadYKDNd9W4xiZ,1800,USDC,DevRel & Ecosystem Lead · Lagos,ngn_bank,Zenith 1014892211
+Ac3BVmSyd7KmZbih1seeBP4FSsFpbVcdMcFQUQH8GZhi,1500,USDC,Fullstack Apprentice · Mombasa,kes_mpesa,+254 722 411890
+8c4ARfpuqCakKTxBuj854BNMdnREPfECVHx65FM6DNns,1250,USDC,Technical Writer / Docs,onchain_shielded,Shielded UTXO
+G2MUCSPRifi78UycVeivjd6kgtC8ojDf1vKRqVo5S2xD,950,USDC,Community Ops Manager · Lagos,ngn_bank,Access 0041289941`;
 
 export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
   const [activeTab, setActiveTab] = useState<"upload" | "paste">("upload");
@@ -125,11 +127,35 @@ export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
         continue;
       }
 
+      let settlementRail: "onchain_shielded" | "ngn_bank" | "kes_mpesa" = "onchain_shielded";
+      let destinationAccount: string | undefined = undefined;
+
+      if (parts.length >= 5) {
+        const rawRail = parts[4].toLowerCase();
+        if (rawRail.includes("ngn") || rawRail.includes("naira") || rawRail.includes("bank")) {
+          settlementRail = "ngn_bank";
+        } else if (rawRail.includes("kes") || rawRail.includes("mpesa") || rawRail.includes("shilling")) {
+          settlementRail = "kes_mpesa";
+        }
+      } else if (memo.toLowerCase().includes("lagos") || memo.toLowerCase().includes("abuja")) {
+        settlementRail = "ngn_bank";
+        destinationAccount = "Local Nigerian Bank";
+      } else if (memo.toLowerCase().includes("nairobi") || memo.toLowerCase().includes("mombasa")) {
+        settlementRail = "kes_mpesa";
+        destinationAccount = "Safaricom M-Pesa";
+      }
+
+      if (parts.length >= 6) {
+        destinationAccount = parts[5];
+      }
+
       newParsed.push({
         addr,
         amount: numAmount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
         token,
         memo: memo || "Contributor Retainer",
+        settlementRail,
+        destinationAccount,
       });
     }
 
