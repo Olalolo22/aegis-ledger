@@ -56,8 +56,8 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: var(--sans);
-  background: #090a0f;
-  color: #f8fafc;
+  background: var(--paper);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
 }
 button { font-family: var(--sans); cursor: pointer; }
