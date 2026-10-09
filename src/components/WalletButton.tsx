@@ -3,6 +3,7 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useCallback, useEffect, useState } from "react";
+import { IconWallet, IconAlertTriangle } from "./Icons";
 
 /**
  *
@@ -39,10 +40,13 @@ export default function WalletButton() {
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
           }}
           title={error}
         >
-          ⚠ {error}
+          <IconAlertTriangle size={12} style={{ flexShrink: 0 }} /> {error}
         </span>
       )}
 
@@ -77,7 +81,9 @@ export default function WalletButton() {
             {truncatedKey}
           </>
         ) : (
-          <>🔌 Connect Wallet</>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <IconWallet size={13} /> Connect Wallet
+          </span>
         )}
       </button>
     </div>

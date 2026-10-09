@@ -3,6 +3,7 @@
 import type { DecryptedPayslip, ScanSummary } from "@/types/payslip";
 import type { ScanProgress } from "@/lib/noteScanner";
 import type { NoteScannerStatus } from "@/hooks/useNoteScanner";
+import { IconLock, IconShield, IconFile, IconX, IconXCircle, IconStop } from "./Icons";
 
 /**
  * Payslip results table component.
@@ -37,8 +38,8 @@ export default function PayslipTable({
           borderColor: "rgba(239, 68, 68, 0.3)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 24 }}>❌</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <IconXCircle size={26} style={{ color: "var(--accent-red, #ef4444)", flexShrink: 0 }} />
           <div>
             <div
               style={{
@@ -88,9 +89,9 @@ export default function PayslipTable({
             <button
               className="btn-ghost"
               onClick={onCancel}
-              style={{ padding: "6px 14px", fontSize: 12 }}
+              style={{ padding: "6px 14px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5 }}
             >
-              ✕ Cancel
+              <IconX size={12} /> Cancel
             </button>
           )}
         </div>
@@ -142,9 +143,9 @@ export default function PayslipTable({
   if (status === "cancelled") {
     return (
       <div className="glass-card" style={{ padding: 24, textAlign: "center" }}>
-        <span style={{ fontSize: 24, marginBottom: 8, display: "block" }}>
-          ⏹
-        </span>
+        <div style={{ marginBottom: 10, display: "flex", justifyContent: "center" }}>
+          <IconStop size={24} style={{ color: "var(--text-muted)" }} />
+        </div>
         <div
           style={{
             fontSize: 14,
@@ -284,9 +285,9 @@ export default function PayslipTable({
           className="glass-card"
           style={{ padding: 32, textAlign: "center" }}
         >
-          <span style={{ fontSize: 40, display: "block", marginBottom: 12 }}>
-            🔒
-          </span>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+            <IconLock size={36} style={{ color: "var(--text-muted)" }} />
+          </div>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
             No Payslips Found
           </div>
@@ -318,11 +319,11 @@ export default function PayslipTable({
               justifyContent: "space-between",
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 700 }}>
-              📄 Decrypted Payslips
+            <div style={{ fontSize: 14, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <IconFile size={15} /> Decrypted Payslips
             </div>
-            <span className="badge badge-green" style={{ fontSize: 11 }}>
-              🔐 Client-side only
+            <span className="badge badge-green" style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <IconShield size={12} /> Client-side only
             </span>
           </div>
 

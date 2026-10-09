@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { IconKey, IconEye, IconEyeOff, IconClipboard, IconSearch, IconX } from "./Icons";
 
 /**
  * Scoped Viewing Key input component.
@@ -100,9 +101,12 @@ export default function ViewingKeyInput({
               fontWeight: 600,
               color: "var(--text-secondary)",
               letterSpacing: "0.3px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            🔑 Scoped Viewing Key
+            <IconKey size={13} /> Scoped Viewing Key
           </label>
           {keyFormat && (
             <span
@@ -180,10 +184,12 @@ export default function ViewingKeyInput({
                     cursor: "pointer",
                     fontSize: 14,
                     padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
                   }}
                   title={revealed ? "Hide key" : "Show key"}
                 >
-                  {revealed ? "🙈" : "👁"}
+                  {revealed ? <IconEyeOff size={14} /> : <IconEye size={14} />}
                 </button>
               )}
               {value && (
@@ -197,10 +203,12 @@ export default function ViewingKeyInput({
                     cursor: "pointer",
                     fontSize: 12,
                     padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
                   }}
                   title="Clear"
                 >
-                  ✕
+                  <IconX size={12} />
                 </button>
               )}
             </div>
@@ -212,9 +220,9 @@ export default function ViewingKeyInput({
             onClick={handlePaste}
             className="btn-ghost"
             disabled={disabled || isScanning}
-            style={{ padding: "10px 14px", fontSize: 13, whiteSpace: "nowrap" }}
+            style={{ padding: "10px 14px", fontSize: 13, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}
           >
-            📋 Paste
+            <IconClipboard size={13} /> Paste
           </button>
         </div>
 
@@ -232,7 +240,9 @@ export default function ViewingKeyInput({
                 Scanning...
               </>
             ) : (
-              <>🔍 Scan My Payslips</>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <IconSearch size={13} /> Scan My Payslips
+              </span>
             )}
           </button>
 

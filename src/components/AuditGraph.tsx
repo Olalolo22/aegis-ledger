@@ -14,6 +14,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import styles from "./AuditGraph.module.css";
 import { useAuditorEngine, buildReactFlowData } from "@/hooks/useAuditorEngine";
+import { IconHourglass } from "./Icons";
 
 // Custom ReactFlow Node Components 
 const glassStyle = {
@@ -305,7 +306,9 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             ) : (
               <div className={styles.flowLocked}>
                 <div className={styles.flowLockedInner}>
-                  <span style={{ fontSize: 24, marginBottom: 8, display: "block" }}>⌛</span>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+                    <IconHourglass size={24} style={{ color: "var(--mid)" }} />
+                  </div>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--mid)" }}>Deciphering ledger...</span>
                 </div>
               </div>

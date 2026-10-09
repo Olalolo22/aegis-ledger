@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import styles from "./PrivateSwapPanel.module.css";
 import { usePrivateSwap, type PrivateSwapStatus } from "@/hooks/usePrivateSwap";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
-import { IconLock } from "./Icons";
+import { IconLock, IconAlertTriangle } from "./Icons";
 
 const ZK_SWAP_STEPS = [
   { msg: "› Fetching shielded pool state...", col: "var(--dim)" },
@@ -260,8 +260,8 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6", display: "flex", alignItems: "center", gap: 4 }}>
             1 {inputToken} ≈ {exchangeRate < 0.01 ? exchangeRate.toFixed(6) : exchangeRate.toFixed(4)} {outputToken}
             {!isLive && (
-              <span title="Using fallback/cached prices. Real-time fetch failed." style={{ color: "#f5a623", cursor: "help" }}>
-                ⚠
+              <span title="Using fallback/cached prices. Real-time fetch failed." style={{ color: "#f5a623", cursor: "help", display: "inline-flex", alignItems: "center" }}>
+                <IconAlertTriangle size={11} />
               </span>
             )}
           </span>

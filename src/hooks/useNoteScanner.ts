@@ -127,7 +127,7 @@ export function useNoteScanner(): NoteScannerResult {
             current: 0,
             total: 100,
             decryptedSoFar: 0,
-            message: `🔐 Key validated (${validatedKey.length}-byte nk · fingerprint: ${keyFingerprint}). Scanning shielded pool...`,
+            message: `Key validated (${validatedKey.length}-byte nk · fingerprint: ${keyFingerprint}). Scanning shielded pool...`,
           });
           await new Promise(r => setTimeout(r, 1200));
 

@@ -10,7 +10,7 @@ const LOG_LINES = [
   '[CLOAK] Building Merkle tree path...',
   '[CLOAK] Generating witness (1024 constraints)...',
   '[CLOAK] Constructing proof...',
-  '[CLOAK] Proof created in 1.2s ✅',
+  '[CLOAK] Proof created in 1.2s [OK]',
 ];
 
 const LINE_INTERVAL = 400; // ms between lines

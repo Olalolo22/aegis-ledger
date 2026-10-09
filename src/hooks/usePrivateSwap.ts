@@ -140,7 +140,7 @@ export function usePrivateSwap(): PrivateSwapResult {
             ).join("");
 
           setStatus("initializing_wasm");
-          setProofProgress("⚠️ SDK/Network Error. Switching to Aegis Fallback Simulation...");
+          setProofProgress("[Fallback] Switching to Aegis Offline Simulation...");
           await new Promise(r => setTimeout(r, 3000));
           
           setProofProgress("Initializing Poseidon hash state (t=5)...");

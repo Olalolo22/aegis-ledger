@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { IconCheck, IconLightbulb, IconAlertTriangle, IconX } from "./Icons";
 
 export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usingDenominations: boolean; hasRuns: boolean }) {
   const [scanTime, setScanTime] = useState<string>("Just now");
@@ -90,19 +91,21 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {issues.map((issue, i) => {
-              const dotColor = issue.pass ? '#22c55e' : (issue as { warn?: boolean }).warn ? '#f59e0b' : '#ef4444';
-              const icon = issue.pass ? '✓' : (issue as { hint?: boolean }).hint ? '💡' : (issue as { warn?: boolean }).warn ? '⚠' : '✕';
+              const renderIcon = () => {
+                if (issue.pass) return <IconCheck size={11} style={{ color: "#22c55e", flexShrink: 0 }} />;
+                if ((issue as { hint?: boolean }).hint) return <IconLightbulb size={11} style={{ color: "#3b82f6", flexShrink: 0 }} />;
+                if ((issue as { warn?: boolean }).warn) return <IconAlertTriangle size={11} style={{ color: "#f59e0b", flexShrink: 0 }} />;
+                return <IconX size={11} style={{ color: "#ef4444", flexShrink: 0 }} />;
+              };
+
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{
-                    width: 5, height: 5, borderRadius: '50%',
-                    background: dotColor, flexShrink: 0,
-                  }} />
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  {renderIcon()}
                   <span style={{
                     fontFamily: 'var(--mono)', fontSize: 10.5,
                     color: issue.pass ? '#3b4a5a' : '#64707f',
                   }}>
-                    {icon} {issue.msg}
+                    {issue.msg}
                   </span>
                 </div>
               );
