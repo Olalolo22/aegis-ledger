@@ -46,23 +46,31 @@ const ROLE_BANNERS: Record<string, { label: string; desc: string; color: string;
   },
 };
 
+import styles from "./dashboard.module.css";
+
 function RoleBanner({ view }: { view: string }) {
   const r = ROLE_BANNERS[view];
   if (!r) return null;
   return (
-    <div style={{
-      maxWidth: 1200, margin: "0 auto", padding: "0 32px",
-    }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "9px 16px", marginBottom: 0,
-        background: r.bg, border: `1px solid ${r.border}`,
-        borderRadius: "0 0 10px 10px", borderTop: "none",
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: "50%",
-          background: r.color, display: "inline-block", flexShrink: 0,
-        }} />
+    <div className={styles.roleBannerContainer}>
+      <div
+        className={styles.roleBannerInner}
+        style={{
+          background: r.bg,
+          border: `1px solid ${r.border}`,
+          borderTop: "none",
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: r.color,
+            display: "inline-block",
+            flexShrink: 0,
+          }}
+        />
         <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: r.color, fontWeight: 600 }}>
           {r.label}
         </span>
@@ -104,74 +112,60 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
       : "AUDITOR";
 
   return (
-    <nav style={{
-      position: "sticky", top: 0, zIndex: 100,
-      height: 60, display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0 32px", background: "rgba(255,255,255,0.97)",
-      backdropFilter: "blur(20px)", borderBottom: "1px solid #e8ebee",
-    }}>
+    <nav className={styles.nav}>
       {/* Logo */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <a href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-          <img src="/logo.svg" alt="Aegis Logo" style={{ width: 30, height: 30 }} />
-          <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.3px", color: "#08090b" }}>Aegis Ledger</span>
+      <div className={styles.brandGroup}>
+        <a href="/" className={styles.brandLink}>
+          <img src="/logo.svg" alt="Aegis Logo" className={styles.brandLogo} />
+          <span className={styles.brandName}>Aegis Ledger</span>
         </a>
-        <div style={{
-          marginLeft: 8, fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#0066ff",
-          background: "rgba(0,102,255,0.07)", border: "1px solid rgba(0,102,255,0.20)",
-          padding: "3px 9px", borderRadius: 100, display: "flex", alignItems: "center", gap: 5,
-        }}>
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#0066ff", display: "inline-block" }} />
+        <div className={styles.magicBadge}>
+          <span className={styles.badgeDot} />
           MAGICBLOCK PER
         </div>
       </div>
 
       {/* Tab switcher */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#bdc4ce", letterSpacing: 0.4, textTransform: "uppercase" }}>Demo: View as →</span>
-        <div style={{ display: "flex", gap: 4, background: "#f4f5f7", borderRadius: 10, padding: 4, border: "1px solid #e8ebee" }}>
+      <div className={styles.tabSwitcher}>
+        <span className={styles.demoLabel}>Demo: View as →</span>
+        <div className={styles.tabsList}>
           {tabs.map(t => (
             <button key={t.id}
               onClick={() => setView(t.id)}
+              className={styles.tabBtn}
               style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
-                borderRadius: 7,
                 border: view === t.id ? "1.5px solid #0066ff" : "1.5px solid transparent",
                 background: view === t.id ? "#ffffff" : "none",
-                fontSize: 12.5, fontWeight: 500,
                 color: view === t.id ? "#08090b" : "#64707f",
-                cursor: "pointer", transition: "all 0.15s",
               }}>
               <span style={{ fontSize: 13 }}>{t.icon}</span>
-              {t.label}
+              <span>{t.label}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Live wallet status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className={styles.walletGroup}>
         {connected && shortAddr ? (
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#8e98a6" }}>{roleLabel} WALLET</div>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#08090b", fontWeight: 500 }}>{shortAddr}</div>
+          <div className={styles.walletInfo}>
+            <div className={styles.walletRole}>{roleLabel} WALLET</div>
+            <div className={styles.walletAddress}>{shortAddr}</div>
           </div>
         ) : (
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 9.5, color: "#8e98a6" }}>WALLET</div>
-            <div style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#bdc4ce", fontWeight: 500 }}>Not connected</div>
+          <div className={styles.walletInfo}>
+            <div className={styles.walletRole}>WALLET</div>
+            <div className={styles.walletAddress} style={{ color: "#bdc4ce" }}>Not connected</div>
           </div>
         )}
         <button
           onClick={handleWalletClick}
           title={connected ? `Connected: ${shortAddr} — click to disconnect` : "Click to connect wallet"}
+          className={styles.walletToggleBtn}
           style={{
-            width: 32, height: 32, borderRadius: 8,
             background: connected ? "#08090b" : "#f4f5f7",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: connected ? "#ffffff" : "#64707f", fontSize: 14,
+            color: connected ? "#ffffff" : "#64707f",
             border: connected ? "none" : "1px solid #e8ebee",
-            cursor: "pointer", transition: "all 0.15s",
           }}>
           {connected ? "◆" : "◇"}
         </button>

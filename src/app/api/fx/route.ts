@@ -44,10 +44,9 @@ export async function GET() {
     const officialNgn = Number(data.rates?.NGN) || 1331;
     const officialKes = Number(data.rates?.KES) || 129.6;
 
-    // African Crypto Off-Ramp Spot Rates:
-    // In Nigeria, peer-to-peer / crypto off-ramps (Providus, Kuda, Paycrest) trade at parallel market spot (~1.24x official).
-    // In Kenya, crypto-to-M-Pesa executes within ~1% of interbank spot.
-    const ngnSpot = Math.round(officialNgn * 1.24); // e.g. ~1,650 NGN
+    // African Off-Ramp Spot Rates:
+    // Nigeria interbank spot (~1,331 NGN/USD) and Kenya M-Pesa spot (~129.6 KES/USD)
+    const ngnSpot = Math.round(officialNgn); // e.g. ~1,331 NGN
     const kesSpot = Number(officialKes.toFixed(2)); // e.g. ~129.6 KES
 
     cachedData = {
@@ -73,9 +72,9 @@ export async function GET() {
       success: true,
       cached: false,
       rates: {
-        NGN: 1650,
+        NGN: 1331,
         KES: 130,
-        NGN_OFFICIAL: 1330,
+        NGN_OFFICIAL: 1331,
       },
       updatedAt: new Date().toISOString(),
       timestamp: now,

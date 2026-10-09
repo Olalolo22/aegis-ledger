@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Instrument_Serif } from "next/font/google";
 import localFont from "next/font/local";
 import dynamic from "next/dynamic";
@@ -29,6 +29,12 @@ const WalletProvider = dynamic(
   () => import("@/components/WalletProvider"),
   { ssr: false }
 );
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
 
 export const metadata: Metadata = {
   title: "Aegis Ledger | Private Payroll & Treasury Platform",

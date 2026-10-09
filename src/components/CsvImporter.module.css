@@ -336,3 +336,32 @@
   cursor: not-allowed;
   transform: none;
 }
+
+/* ─── Mobile Responsiveness ─── */
+@media (max-width: 600px) {
+  .importerContainer {
+    padding: 16px 14px;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .actionsGroup {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .footerRow {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .applyBtn {
+    width: 100%;
+    justify-content: center;
+  }
+}

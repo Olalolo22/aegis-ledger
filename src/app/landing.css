@@ -1147,3 +1147,50 @@ footer {
         padding: 0 20px 20px;
     }
 }
+
+@media (max-width: 520px) {
+    nav {
+        padding: 0 16px;
+    }
+    .hero {
+        padding-top: 88px;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    .hero h1 {
+        font-size: 30px;
+        letter-spacing: -1px;
+    }
+    .hero-sub {
+        font-size: 15px;
+    }
+    .btn-lg, .btn-lg-ghost {
+        width: 100%;
+        text-align: center;
+        justify-content: center;
+    }
+    .card-treasury {
+        padding: 20px 16px;
+        border-radius: 16px;
+    }
+    .card-t-amount {
+        font-size: 32px;
+    }
+    .card-t-grid {
+        gap: 6px;
+    }
+    .card-t-stat-label {
+        font-size: 8.5px;
+    }
+    .card-t-stat-val {
+        font-size: 11.5px;
+    }
+    .recip-row {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .section-h2 {
+        font-size: 26px;
+    }
+}
+

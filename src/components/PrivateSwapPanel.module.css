@@ -393,3 +393,23 @@
 .confirmBtn:hover {
   opacity: 0.88;
 }
+
+/* ─── Mobile Responsiveness ─── */
+@media (max-width: 900px) {
+  .page {
+    padding: 20px 14px;
+  }
+
+  .h1 {
+    font-size: 28px;
+    margin-bottom: 24px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .swapCard {
+    padding: 20px 16px;
+  }
+}

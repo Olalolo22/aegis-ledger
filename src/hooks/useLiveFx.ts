@@ -14,9 +14,9 @@ export interface LiveFxState {
 }
 
 const DEFAULT_RATES = {
-  NGN: 1650,
+  NGN: 1331,
   KES: 130,
-  NGN_OFFICIAL: 1330,
+  NGN_OFFICIAL: 1331,
 };
 
 export function useLiveFx(): LiveFxState {

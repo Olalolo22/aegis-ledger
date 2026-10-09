@@ -19,7 +19,7 @@ export interface Recipient {
 }
 
 export const FX_RATES = {
-  NGN: 1650, // ₦1,650 / USDC (Nigeria Providus / Kuda spot)
+  NGN: 1331, // ₦1,331 / USDC (Nigeria interbank spot)
   KES: 130,  // KSh 130 / USDC (Kenya Safaricom M-Pesa spot)
 };
 
@@ -515,138 +515,134 @@ export default function PayrollTerminal() {
           </div>
         </div>
 
-        <div className={styles.tableHead}>
-          {["Contributor / Stealth address", "USDC Amount", "Settlement Rail", "Est. Local Payout", "Privacy", ""].map(h => (
-            <span key={h} className={styles.tableHeadCell}>{h}</span>
-          ))}
-        </div>
-
-        {recipients.map((r, i) => {
-          const numericAmount = parseFloat(r.amount.replace(/,/g, '')) || 0;
-          const isNgn = r.settlementRail === "ngn_bank";
-          const isKes = r.settlementRail === "kes_mpesa";
-          const localPayout = isNgn
-            ? `₦${(numericAmount * liveFx.NGN).toLocaleString()}`
-            : isKes
-              ? `KSh ${(numericAmount * liveFx.KES).toLocaleString()}`
-              : `${r.amount} USDC`;
-
-          return (
-            <div className={styles.tableRow} key={i}
-              style={{ borderBottom: i < recipients.length - 1 || showAddRow ? "1px solid var(--mist)" : "none" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span className={styles.mono} style={{ color: "var(--ink)", fontWeight: 600, fontSize: 12 }}>
-                  {r.memo || "Contributor"}
-                </span>
-                <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 10.5 }}>
-                  {r.addr.slice(0, 4)}···{r.addr.slice(-4)}
-                </span>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
-                <span className={`${styles.tokenBadge} ${styles.tokenUsdc}`}>{r.token}</span>
-              </div>
-
-              <div>
-                {isNgn && (
-                  <div className={styles.railBadgeNgn} title={r.destinationAccount}>
-                    <span>🇳🇬</span> NGN Bank
-                    <span style={{ opacity: 0.7, fontSize: 9.5 }}>· {r.destinationAccount?.split("·")[0]?.trim() || "Bank"}</span>
-                  </div>
-                )}
-                {isKes && (
-                  <div className={styles.railBadgeKes} title={r.destinationAccount}>
-                    <span>🇰🇪</span> KES M-Pesa
-                    <span style={{ opacity: 0.7, fontSize: 9.5 }}>· Mobile</span>
-                  </div>
-                )}
-                {!isNgn && !isKes && (
-                  <div className={styles.railBadgeShielded} title={r.destinationAccount}>
-                    <span>🛡️</span> Shielded UTXO
-                  </div>
-                )}
-              </div>
-
-              <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600, color: isNgn ? "#059669" : isKes ? "#d97706" : "var(--ink)" }}>
-                {localPayout}
-              </div>
-
-              <div>
-                <span className="ae-badge ae-badge-green">
-                  {status === "completed" ? "Dispatched" : "Shielded"}
-                </span>
-              </div>
-
-              <button
-                onClick={() => handleDeleteRecipient(i)}
-                disabled={status !== "idle" && status !== "completed" && status !== "error"}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: "#bdc4ce", fontSize: 14, lineHeight: 1, padding: 4,
-                  opacity: (status !== "idle" && status !== "completed" && status !== "error") ? 0.3 : 1,
-                }}
-                title="Remove recipient"
-              >✕</button>
-            </div>
-          );
-        })}
-
-        {showAddRow && (
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1.4fr 110px 150px 130px 95px 36px",
-            padding: "10px 28px", gap: 8, alignItems: "center",
-            background: "rgba(0,102,255,0.03)",
-            borderBottom: "1px solid #e8ebee",
-          }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <input placeholder="Wallet address (base58)" value={newRow.addr}
-                onChange={e => setNewRow(p => ({ ...p, addr: e.target.value }))}
-                style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
-              <input placeholder="Role / Contributor note" value={newRow.memo}
-                onChange={e => setNewRow(p => ({ ...p, memo: e.target.value }))}
-                style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "4px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
-            </div>
-
-            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <input placeholder="Amount" value={newRow.amount}
-                onChange={e => setNewRow(p => ({ ...p, amount: e.target.value }))}
-                style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
-            </div>
-
-            <div>
-              <select
-                value={newRow.settlementRail || "ngn_bank"}
-                onChange={e => setNewRow(p => ({ ...p, settlementRail: e.target.value as any }))}
-                style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
-              >
-                <option value="ngn_bank">🇳🇬 NGN Bank</option>
-                <option value="kes_mpesa">🇰🇪 KES M-Pesa</option>
-                <option value="onchain_shielded">🛡️ Shielded UTXO</option>
-              </select>
-            </div>
-
-            <div>
-              <input
-                placeholder={newRow.settlementRail === "kes_mpesa" ? "+254 7..." : "Bank & Account"}
-                value={newRow.destinationAccount || ""}
-                onChange={e => setNewRow(p => ({ ...p, destinationAccount: e.target.value }))}
-                style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
-              />
-            </div>
-
-            <button onClick={handleAddRecipient}
-              disabled={!newRow.addr || !newRow.amount}
-              style={{
-                padding: "6px 12px", borderRadius: 6, background: "#08090b",
-                color: "#fff", border: "none", fontFamily: "var(--mono)",
-                fontSize: 11, cursor: "pointer", fontWeight: 600,
-                opacity: (!newRow.addr || !newRow.amount) ? 0.4 : 1,
-              }}>Add</button>
-            <span />
+        <div className={styles.tableScrollWrapper}>
+          <div className={styles.tableHead}>
+            {["Contributor / Stealth address", "USDC Amount", "Settlement Rail", "Est. Local Payout", "Privacy", ""].map(h => (
+              <span key={h} className={styles.tableHeadCell}>{h}</span>
+            ))}
           </div>
-        )}
+
+          {recipients.map((r, i) => {
+            const numericAmount = parseFloat(r.amount.replace(/,/g, '')) || 0;
+            const isNgn = r.settlementRail === "ngn_bank";
+            const isKes = r.settlementRail === "kes_mpesa";
+            const localPayout = isNgn
+              ? `₦${(numericAmount * liveFx.NGN).toLocaleString()}`
+              : isKes
+                ? `KSh ${(numericAmount * liveFx.KES).toLocaleString()}`
+                : `${r.amount} USDC`;
+
+            return (
+              <div className={styles.tableRow} key={i}
+                style={{ borderBottom: i < recipients.length - 1 || showAddRow ? "1px solid var(--mist)" : "none" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span className={styles.mono} style={{ color: "var(--ink)", fontWeight: 600, fontSize: 12 }}>
+                    {r.memo || "Contributor"}
+                  </span>
+                  <span className={styles.mono} style={{ color: "var(--mid)", fontSize: 10.5 }}>
+                    {r.addr.slice(0, 4)}···{r.addr.slice(-4)}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className={styles.mono} style={{ fontWeight: 600, fontSize: 12.5 }}>{r.amount}</span>
+                  <span className={`${styles.tokenBadge} ${styles.tokenUsdc}`}>{r.token}</span>
+                </div>
+
+                <div>
+                  {isNgn && (
+                    <div className={styles.railBadgeNgn} title={r.destinationAccount}>
+                      <span>🇳🇬</span> NGN Bank
+                      <span style={{ opacity: 0.7, fontSize: 9.5 }}>· {r.destinationAccount?.split("·")[0]?.trim() || "Bank"}</span>
+                    </div>
+                  )}
+                  {isKes && (
+                    <div className={styles.railBadgeKes} title={r.destinationAccount}>
+                      <span>🇰🇪</span> KES M-Pesa
+                      <span style={{ opacity: 0.7, fontSize: 9.5 }}>· Mobile</span>
+                    </div>
+                  )}
+                  {!isNgn && !isKes && (
+                    <div className={styles.railBadgeShielded} title={r.destinationAccount}>
+                      <span>🛡️</span> Shielded UTXO
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600, color: isNgn ? "#059669" : isKes ? "#d97706" : "var(--ink)" }}>
+                  {localPayout}
+                </div>
+
+                <div>
+                  <span className="ae-badge ae-badge-green">
+                    {status === "completed" ? "Dispatched" : "Shielded"}
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => handleDeleteRecipient(i)}
+                  disabled={status !== "idle" && status !== "completed" && status !== "error"}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "#bdc4ce", fontSize: 14, lineHeight: 1, padding: 4,
+                    opacity: (status !== "idle" && status !== "completed" && status !== "error") ? 0.3 : 1,
+                  }}
+                  title="Remove recipient"
+                >✕</button>
+              </div>
+            );
+          })}
+
+          {showAddRow && (
+            <div className={styles.addRowContainer}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <input placeholder="Wallet address (base58)" value={newRow.addr}
+                  onChange={e => setNewRow(p => ({ ...p, addr: e.target.value }))}
+                  style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+                <input placeholder="Role / Contributor note" value={newRow.memo}
+                  onChange={e => setNewRow(p => ({ ...p, memo: e.target.value }))}
+                  style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "4px 8px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+              </div>
+
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <input placeholder="Amount" value={newRow.amount}
+                  onChange={e => setNewRow(p => ({ ...p, amount: e.target.value }))}
+                  style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+              </div>
+
+              <div>
+                <select
+                  value={newRow.settlementRail || "ngn_bank"}
+                  onChange={e => setNewRow(p => ({ ...p, settlementRail: e.target.value as any }))}
+                  style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
+                >
+                  <option value="ngn_bank">🇳🇬 NGN Bank</option>
+                  <option value="kes_mpesa">🇰🇪 KES M-Pesa</option>
+                  <option value="onchain_shielded">🛡️ Shielded UTXO</option>
+                </select>
+              </div>
+
+              <div>
+                <input
+                  placeholder={newRow.settlementRail === "kes_mpesa" ? "+254 7..." : "Bank & Account"}
+                  value={newRow.destinationAccount || ""}
+                  onChange={e => setNewRow(p => ({ ...p, destinationAccount: e.target.value }))}
+                  style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
+                />
+              </div>
+
+              <button onClick={handleAddRecipient}
+                disabled={!newRow.addr || !newRow.amount}
+                style={{
+                  padding: "6px 12px", borderRadius: 6, background: "#08090b",
+                  color: "#fff", border: "none", fontFamily: "var(--mono)",
+                  fontSize: 11, cursor: "pointer", fontWeight: 600,
+                  opacity: (!newRow.addr || !newRow.amount) ? 0.4 : 1,
+                }}>Add</button>
+              <span />
+            </div>
+          )}
+        </div>
 
         {completedRuns > 0 && (
           <div className={styles.receiptCard}>
