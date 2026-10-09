@@ -3,8 +3,11 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import "./landing.css";
+import { useLiveFx } from "@/hooks/useLiveFx";
 
 export default function LandingPage() {
+    const { rates: liveFx } = useLiveFx();
+
     useEffect(() => {
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
@@ -81,22 +84,22 @@ export default function LandingPage() {
                         <div className="card-treasury reveal" style={{ transitionDelay: '0.5s' }}>
                             <div className="card-t-header">
                                 <div>
-                                    <div className="card-t-label">Shielded treasury</div>
+                                    <div className="card-t-label">Operating runway (Shielded)</div>
                                 </div>
                                 <div className="card-t-shield">
                                     ⚡ MAGICBLOCK PER
                                 </div>
                             </div>
-                            <div className="card-t-amount">$4,218,440</div>
-                            <div className="card-t-sub">Uniform note splitting · Direct NGN/KES off-ramps</div>
+                            <div className="card-t-amount">$148,500</div>
+                            <div className="card-t-sub">Active startup payroll pool · Uniform note splitting</div>
                             <div className="card-t-grid">
                                 <div>
                                     <div className="card-t-stat-label">Available</div>
-                                    <div className="card-t-stat-val">$3.9M</div>
+                                    <div className="card-t-stat-val">$136,400</div>
                                 </div>
                                 <div>
                                     <div className="card-t-stat-label">Locked (payroll)</div>
-                                    <div className="card-t-stat-val">$124K</div>
+                                    <div className="card-t-stat-val">$12,100</div>
                                 </div>
                                 <div>
                                     <div className="card-t-stat-label">TEE Enclave</div>
@@ -117,11 +120,11 @@ export default function LandingPage() {
                             <div className="recipients">
                                 <div className="recip-row">
                                     <span className="recip-addr">Lead Anchor Dev · Lagos</span>
-                                    <span><span className="recip-amount">$4,850</span><span className="recip-token">USDC (₦8.0M)</span></span>
+                                    <span><span className="recip-amount">$4,850</span><span className="recip-token">USDC (₦{((4850 * liveFx.NGN) / 1e6).toFixed(1)}M)</span></span>
                                 </div>
                                 <div className="recip-row">
                                     <span className="recip-addr">Frontend Lead · Nairobi</span>
-                                    <span><span className="recip-amount">$3,200</span><span className="recip-token">USDC (KSh 416K)</span></span>
+                                    <span><span className="recip-amount">$3,200</span><span className="recip-token">USDC (KSh {Math.round((3200 * liveFx.KES) / 1000)}K)</span></span>
                                 </div>
                                 <div className="recip-row">
                                     <span className="recip-addr">ZK Research Fellow · Global</span>
@@ -203,7 +206,7 @@ export default function LandingPage() {
                         <span className="feat-icon">₦</span>
                         <div className="feat-title">Native dual-rail settlement (NGN / KES)</div>
                         <div className="feat-desc">Direct automated off-ramp triggers into Nigerian banks (Providus/Kuda) and Kenyan Safaricom M-Pesa with live Spot FX and zero P2P bank-freeze risk.</div>
-                        <div className="feat-tag">Spot: ₦1,650 / KSh 130</div>
+                        <div className="feat-tag">Live Spot: ₦{liveFx.NGN.toLocaleString()} / KSh {liveFx.KES}</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.6s' }}>
                         <div className="feat-num">04</div>

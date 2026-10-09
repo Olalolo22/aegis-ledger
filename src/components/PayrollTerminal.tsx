@@ -7,6 +7,7 @@ import PrivateSwapPanel from "./PrivateSwapPanel";
 import ProvingVisualizer from "./ProvingVisualizer";
 import PrivacyScoreCard from "./PrivacyScoreCard";
 import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
+import { useLiveFx } from "@/hooks/useLiveFx";
 
 export interface Recipient {
   addr: string;
@@ -236,6 +237,7 @@ function ExecutionModal({
 
 export default function PayrollTerminal() {
   const { execute, status, proofProgress, error, signingParams, recipientProgress, activeRail, setActiveRail } = usePayrollSigner();
+  const { rates: liveFx, isLive, lastUpdated } = useLiveFx();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
   const [hasRunDenominations, setHasRunDenominations] = useState(false);
@@ -260,14 +262,14 @@ export default function PayrollTerminal() {
     prevStatusRef.current = status;
   }, [status]);
 
-  const BASE_BALANCE = 4_218_440;
+  const BASE_BALANCE = 148_500; // Realistic operational startup payroll runway
   const batchTotal = recipients.reduce((sum, r) => {
     const numeric = parseFloat(r.amount.replace(/,/g, ""));
     return sum + (isNaN(numeric) ? 0 : numeric);
   }, 0);
   const currentBalance = BASE_BALANCE - (batchTotal * completedRuns);
   const balance = `$${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-  const utxos = String(847 - (completedRuns * recipients.length));
+  const utxos = String(48 - (completedRuns * recipients.length));
   const utxoSum = signingParams?.selected_utxos 
     ? signingParams.selected_utxos.reduce((sum, u) => sum + parseInt(u.amount), 0) / 1e6
     : 0;
@@ -277,9 +279,9 @@ export default function PayrollTerminal() {
     ? 0
     : isRunning
       ? (utxoSum > 0 ? utxoSum : batchTotal)
-      : completedRuns > 0 ? 0 : 124_000;
+      : completedRuns > 0 ? 0 : batchTotal;
   const locked = lockedAmount === 0 ? "$0" : `$${lockedAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-  const available = `$${((currentBalance - lockedAmount) / 1_000_000).toFixed(1)}M`;
+  const available = `$${(currentBalance - lockedAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
   const handleAddRecipient = () => {
     if (!newRow.addr || !newRow.amount) return;
@@ -498,18 +500,18 @@ export default function PayrollTerminal() {
           <div className={styles.fxRates}>
             <span style={{ color: "#8e98a6", fontSize: 10, textTransform: "uppercase" }}>Spot Off-Ramp Rails:</span>
             <span className={styles.fxPill}>
-              <span>🇳🇬</span> NGN <strong>₦{FX_RATES.NGN.toLocaleString()}</strong> / USDC
+              <span>🇳🇬</span> NGN <strong>₦{liveFx.NGN.toLocaleString()}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
-              <span>🇰🇪</span> KES <strong>KSh {FX_RATES.KES}</strong> / USDC
+              <span>🇰🇪</span> KES <strong>KSh {liveFx.KES}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
               <span>🛡️</span> On-Chain Privacy <strong>100% Shielded</strong>
             </span>
           </div>
-          <div style={{ color: "#22e09a", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22e09a", display: "inline-block" }} />
-            Zero Solscan Ledger Leaks
+          <div style={{ color: isLive ? "#22e09a" : "#8e98a6", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: isLive ? "#22e09a" : "#8e98a6", display: "inline-block" }} />
+            {isLive ? `Live FX Feed (${lastUpdated || "Synced"})` : "Live FX Syncing..."}
           </div>
         </div>
 
@@ -524,9 +526,9 @@ export default function PayrollTerminal() {
           const isNgn = r.settlementRail === "ngn_bank";
           const isKes = r.settlementRail === "kes_mpesa";
           const localPayout = isNgn
-            ? `₦${(numericAmount * FX_RATES.NGN).toLocaleString()}`
+            ? `₦${(numericAmount * liveFx.NGN).toLocaleString()}`
             : isKes
-              ? `KSh ${(numericAmount * FX_RATES.KES).toLocaleString()}`
+              ? `KSh ${(numericAmount * liveFx.KES).toLocaleString()}`
               : `${r.amount} USDC`;
 
           return (
@@ -665,13 +667,13 @@ export default function PayrollTerminal() {
               <div className={styles.receiptStat}>
                 <span className={styles.receiptStatLabel}>Nigerian Rails (NGN)</span>
                 <div className={styles.receiptStatVal} style={{ color: "#34d399" }}>
-                  ₦{recipients.filter(r => r.settlementRail === "ngn_bank").reduce((sum, r) => sum + ((parseFloat(r.amount.replace(/,/g, '')) || 0) * FX_RATES.NGN), 0).toLocaleString()}
+                  ₦{recipients.filter(r => r.settlementRail === "ngn_bank").reduce((sum, r) => sum + ((parseFloat(r.amount.replace(/,/g, '')) || 0) * liveFx.NGN), 0).toLocaleString()}
                 </div>
               </div>
               <div className={styles.receiptStat}>
                 <span className={styles.receiptStatLabel}>Kenyan Rails (KES)</span>
                 <div className={styles.receiptStatVal} style={{ color: "#fbbf24" }}>
-                  KSh {recipients.filter(r => r.settlementRail === "kes_mpesa").reduce((sum, r) => sum + ((parseFloat(r.amount.replace(/,/g, '')) || 0) * FX_RATES.KES), 0).toLocaleString()}
+                  KSh {recipients.filter(r => r.settlementRail === "kes_mpesa").reduce((sum, r) => sum + ((parseFloat(r.amount.replace(/,/g, '')) || 0) * liveFx.KES), 0).toLocaleString()}
                 </div>
               </div>
             </div>
