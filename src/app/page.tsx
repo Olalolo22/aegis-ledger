@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import "./landing.css";
 import { useLiveFx } from "@/hooks/useLiveFx";
+import { IconBolt, IconShield, IconKey, IconFlagNG } from "@/components/Icons";
 
 export default function LandingPage() {
     const { rates: liveFx } = useLiveFx();
@@ -37,7 +38,9 @@ export default function LandingPage() {
                     <li><a href="#compare">Compare</a></li>
                 </ul>
                 <div className="nav-cta">
-                    <span className="cloak-badge">🇳🇬 Superteam NG Track</span>
+                    <span className="cloak-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <IconFlagNG width={13} height={9} /> Superteam Nigeria Track
+                    </span>
                     <a href="https://github.com/Olalolo22/aegis-ledger" target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ textDecoration: 'none' }}>Docs</a>
                     <Link href="/dashboard" className="btn-primary" style={{ textDecoration: 'none', display: 'inline-block' }}>
                         Launch Terminal
@@ -86,8 +89,8 @@ export default function LandingPage() {
                                 <div>
                                     <div className="card-t-label">Operating runway (Shielded)</div>
                                 </div>
-                                <div className="card-t-shield">
-                                    ⚡ MAGICBLOCK PER
+                                <div className="card-t-shield" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    <IconBolt size={10} /> MAGICBLOCK PER
                                 </div>
                             </div>
                             <div className="card-t-amount">$148,500</div>
@@ -139,7 +142,9 @@ export default function LandingPage() {
 
                         {/* Audit key */}
                         <div className="card-audit reveal" style={{ transitionDelay: '0.7s' }}>
-                            <div className="audit-icon">🔑</div>
+                            <div className="audit-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <IconKey size={16} />
+                            </div>
                             <div className="audit-key">
                                 <div className="audit-key-label">Auditor viewing key (24-hr)</div>
                                 <div className="audit-key-val">vk_aegis_3f9a···c2d1</div>
@@ -189,28 +194,36 @@ export default function LandingPage() {
                 <div className="features-grid">
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.3s' }}>
                         <div className="feat-num">01</div>
-                        <span className="feat-icon">⚡</span>
+                        <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <IconBolt size={20} />
+                        </span>
                         <div className="feat-title">Sub-50ms TEE batch execution</div>
                         <div className="feat-desc">Run payroll for 50+ contributors in a single hardware-enclave transaction. Sub-second execution with zero browser Groth16 WASM lag.</div>
                         <div className="feat-tag">magicblock.perBatch()</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.4s' }}>
                         <div className="feat-num">02</div>
-                        <span className="feat-icon">🛡</span>
+                        <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <IconShield size={20} />
+                        </span>
                         <div className="feat-title">Uniform note splitting</div>
                         <div className="feat-desc">Decomposes non-uniform salaries into standardized $1000, $500, and $100 notes. Destroys amount-clustering and balance-correlation attacks on Solscan.</div>
                         <div className="feat-tag">denominate.ts</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.5s' }}>
                         <div className="feat-num">03</div>
-                        <span className="feat-icon">₦</span>
+                        <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <IconFlagNG width={22} height={15} />
+                        </span>
                         <div className="feat-title">Native dual-rail settlement (NGN / KES)</div>
                         <div className="feat-desc">Direct automated off-ramp triggers into Nigerian banks (Providus/Kuda) and Kenyan Safaricom M-Pesa with live Spot FX and zero P2P bank-freeze risk.</div>
                         <div className="feat-tag">Live Spot: ₦{liveFx.NGN.toLocaleString()} / KSh {liveFx.KES}</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.6s' }}>
                         <div className="feat-num">04</div>
-                        <span className="feat-icon">🔑</span>
+                        <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <IconKey size={20} />
+                        </span>
                         <div className="feat-title">Cryptographic audit access</div>
                         <div className="feat-desc">Issue time-limited viewing keys to auditors via magic-link sessions. Verify tax compliance without leaking ongoing treasury activity.</div>
                         <div className="feat-tag">AES-256-GCM + HKDF</div>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import styles from "./PrivateSwapPanel.module.css";
 import { usePrivateSwap, type PrivateSwapStatus } from "@/hooks/usePrivateSwap";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
+import { IconLock } from "./Icons";
 
 const ZK_SWAP_STEPS = [
   { msg: "› Fetching shielded pool state...", col: "var(--dim)" },
@@ -81,7 +82,7 @@ function ZKSwapModal({
         </div>
 
         <div className={styles.ztBanner}>
-          <span>🔒</span>
+          <IconLock size={13} style={{ color: "var(--amber)", flexShrink: 0 }} />
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
             Swap routed through shielded pool. Your spending key never leaves this browser.
           </span>

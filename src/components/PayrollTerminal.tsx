@@ -8,6 +8,16 @@ import ProvingVisualizer from "./ProvingVisualizer";
 import PrivacyScoreCard from "./PrivacyScoreCard";
 import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
 import { useLiveFx } from "@/hooks/useLiveFx";
+import { 
+  IconBolt, 
+  IconLock, 
+  IconShield, 
+  IconFile, 
+  IconCopy, 
+  IconCheck, 
+  IconFlagNG, 
+  IconFlagKE 
+} from "./Icons";
 
 export interface Recipient {
   addr: string;
@@ -197,7 +207,7 @@ function ExecutionModal({
           </div>
         </div>
         <div className={styles.ztBanner}>
-          <span>🔒</span>
+          <IconLock size={13} style={{ color: "var(--amber)", flexShrink: 0 }} />
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
             {rail === "tee"
               ? "Confidential execution inside Intel TDX hardware enclaves. Sub-second batch execution with zero client lag."
@@ -413,10 +423,12 @@ export default function PayrollTerminal() {
                   transition: "all 0.15s ease",
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px"
+                  gap: "6px"
                 }}
               >
-                <span>⚡</span> MagicBlock TEE <span style={{ opacity: 0.65, fontSize: "9px" }}>(&lt;1s)</span>
+                <IconBolt size={12} />
+                <span>MagicBlock TEE</span>
+                <span style={{ opacity: 0.65, fontSize: "9px" }}>(&lt;1s)</span>
               </button>
               <button
                 type="button"
@@ -434,10 +446,12 @@ export default function PayrollTerminal() {
                   transition: "all 0.15s ease",
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px"
+                  gap: "6px"
                 }}
               >
-                <span>🔒</span> Cloak ZK <span style={{ opacity: 0.65, fontSize: "9px" }}>(Groth16)</span>
+                <IconLock size={12} />
+                <span>Cloak ZK</span>
+                <span style={{ opacity: 0.65, fontSize: "9px" }}>(Groth16)</span>
               </button>
             </div>
 
@@ -446,7 +460,13 @@ export default function PayrollTerminal() {
               onClick={() => setShowImporter((s: boolean) => !s)}
               style={showImporter ? { background: "var(--ink)", color: "#fff" } : undefined}
             >
-              {showImporter ? "✕ Close CSV" : "📁 Import CSV"}
+              {showImporter ? (
+                "✕ Close CSV"
+              ) : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <IconFile size={12} /> Import CSV
+                </span>
+              )}
             </button>
             <button className={`${styles.addBtn}`} onClick={() => setShowAddRow((s: boolean) => !s)}>
               {showAddRow ? "✕ Cancel" : "+ Add row"}
@@ -500,13 +520,13 @@ export default function PayrollTerminal() {
           <div className={styles.fxRates}>
             <span style={{ color: "#8e98a6", fontSize: 10, textTransform: "uppercase" }}>Spot Off-Ramp Rails:</span>
             <span className={styles.fxPill}>
-              <span>🇳🇬</span> NGN <strong>₦{liveFx.NGN.toLocaleString()}</strong> / USDC
+              <IconFlagNG width={14} height={10} /> NGN <strong>₦{liveFx.NGN.toLocaleString()}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
-              <span>🇰🇪</span> KES <strong>KSh {liveFx.KES}</strong> / USDC
+              <IconFlagKE width={14} height={10} /> KES <strong>KSh {liveFx.KES}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
-              <span>🛡️</span> On-Chain Privacy <strong>100% Shielded</strong>
+              <IconShield size={12} style={{ color: "#0066ff" }} /> On-Chain Privacy <strong>100% Shielded</strong>
             </span>
           </div>
           <div style={{ color: isLive ? "#22e09a" : "#8e98a6", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -552,19 +572,19 @@ export default function PayrollTerminal() {
                 <div>
                   {isNgn && (
                     <div className={styles.railBadgeNgn} title={r.destinationAccount}>
-                      <span>🇳🇬</span> NGN Bank
+                      <IconFlagNG width={13} height={9} /> NGN Bank
                       <span style={{ opacity: 0.7, fontSize: 9.5 }}>· {r.destinationAccount?.split("·")[0]?.trim() || "Bank"}</span>
                     </div>
                   )}
                   {isKes && (
                     <div className={styles.railBadgeKes} title={r.destinationAccount}>
-                      <span>🇰🇪</span> KES M-Pesa
+                      <IconFlagKE width={13} height={9} /> KES M-Pesa
                       <span style={{ opacity: 0.7, fontSize: 9.5 }}>· Mobile</span>
                     </div>
                   )}
                   {!isNgn && !isKes && (
                     <div className={styles.railBadgeShielded} title={r.destinationAccount}>
-                      <span>🛡️</span> Shielded UTXO
+                      <IconShield size={11} /> Shielded UTXO
                     </div>
                   )}
                 </div>
@@ -616,9 +636,9 @@ export default function PayrollTerminal() {
                   onChange={e => setNewRow(p => ({ ...p, settlementRail: e.target.value as any }))}
                   style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }}
                 >
-                  <option value="ngn_bank">🇳🇬 NGN Bank</option>
-                  <option value="kes_mpesa">🇰🇪 KES M-Pesa</option>
-                  <option value="onchain_shielded">🛡️ Shielded UTXO</option>
+                  <option value="ngn_bank">NGN Bank (Nigeria)</option>
+                  <option value="kes_mpesa">KES M-Pesa (Kenya)</option>
+                  <option value="onchain_shielded">Shielded UTXO</option>
                 </select>
               </div>
 
@@ -648,7 +668,8 @@ export default function PayrollTerminal() {
           <div className={styles.receiptCard}>
             <div className={styles.receiptHeader}>
               <div className={styles.receiptTitle}>
-                <span style={{ color: "#22e09a" }}>✓</span> Emerging Markets Settlement Receipt (Batch #{completedRuns})
+                <IconCheck size={14} style={{ color: "#22e09a", display: "inline-block", verticalAlign: "middle" }} />
+                <span>Emerging Markets Settlement Receipt (Batch #{completedRuns})</span>
               </div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "#22e09a", background: "rgba(34, 224, 154, 0.12)", padding: "4px 10px", borderRadius: 6 }}>
                 MAGICBLOCK PER CONFIRMED
@@ -675,8 +696,8 @@ export default function PayrollTerminal() {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, fontFamily: "var(--mono)" }}>
-              <span style={{ color: "rgba(255,255,255,0.6)" }}>
-                🔒 Public Solscan View: <strong>Amounts & Recipients Hidden (0 bytes leaked)</strong>
+              <span style={{ color: "rgba(255,255,255,0.6)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <IconLock size={12} /> Public Solscan View: <strong>Amounts & Recipients Hidden (0 bytes leaked)</strong>
               </span>
               <a 
                 href="/audit"
@@ -762,12 +783,12 @@ export default function PayrollTerminal() {
                   navigator.clipboard.writeText(generatedKey);
                   const btn = document.getElementById('copy-btn');
                   if (btn) btn.innerText = "✓ Copied";
-                  setTimeout(() => { if (btn) btn.innerText = "📋 Copy Key"; }, 2000);
+                  setTimeout(() => { if (btn) btn.innerText = "Copy Key"; }, 2000);
                 }}
                 id="copy-btn"
-                style={{ background: 'none', border: '1px solid var(--green)', color: 'var(--green)', padding: '4px 10px', borderRadius: 6, fontSize: 10, cursor: 'pointer' }}
+                style={{ background: 'none', border: '1px solid var(--green)', color: 'var(--green)', padding: '4px 10px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
               >
-                📋 Copy Key
+                <IconCopy size={11} /> Copy Key
               </button>
             </div>
             <div style={{ 

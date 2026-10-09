@@ -6,8 +6,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import styles from "./EmployeeScanner.module.css";
 import { useNoteScanner } from "@/hooks/useNoteScanner";
 import PrivacyAuditModal from "./PrivacyAuditModal";
-
-
+import { IconKey, IconFlame } from "./Icons";
 
 export default function EmployeeScanner() {
 
@@ -176,9 +175,9 @@ export default function EmployeeScanner() {
                     startScan(demoHex);
                   }}
                   className="ae-badge ae-badge-blue"
-                  style={{ cursor: 'pointer', border: 'none', padding: '6px 12px' }}
+                  style={{ cursor: 'pointer', border: 'none', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                  🚀 GENERATE DEMO KEY & SCAN
+                  <IconKey size={12} /> GENERATE DEMO KEY & SCAN
                 </button>
               </div>
             )}
@@ -243,7 +242,7 @@ export default function EmployeeScanner() {
           {/* Coming soon */}
           <div className={styles.comingSoonWrap}>
             <button disabled className={styles.comingSoonBtn}>
-              <span>🔥</span>
+              <IconFlame size={14} style={{ color: "var(--amber)" }} />
               Anonymous Burn & Withdraw
               <span className="ae-badge ae-badge-ghost">Coming Q3 2026</span>
             </button>

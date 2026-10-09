@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import { PublicKey } from "@solana/web3.js";
 import styles from "./CsvImporter.module.css";
 import { denominate } from "@/lib/denominate";
+import { IconBolt, IconCheck } from "./Icons";
 
 export interface ParsedRecipient {
   addr: string;
@@ -242,7 +243,9 @@ export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
             Template CSV
           </button>
           <button className={styles.samplePresetBtn} onClick={handleLoadPreset}>
-            ⚡ Load Superteam Sample Run (8 Devs)
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <IconBolt size={11} /> Load Superteam Sample Run (8 Devs)
+            </span>
           </button>
         </div>
       </div>
@@ -301,7 +304,7 @@ export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
       {/* Errors list */}
       {errors.length > 0 && (
         <div className={styles.errorBox} style={{ marginTop: 14 }}>
-          <span className={styles.errorTitle}>⚠️ Found {errors.length} formatting issues:</span>
+          <span className={styles.errorTitle}>Found {errors.length} formatting issues:</span>
           {errors.slice(0, 3).map((err, idx) => (
             <span key={idx} className={styles.errorItem}>• {err}</span>
           ))}
@@ -357,7 +360,9 @@ export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
               className={styles.applyBtn}
               onClick={() => onImport(parsed)}
             >
-              ✓ Load {parsed.length} Recipients into Batch
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <IconCheck size={13} /> Load {parsed.length} Recipients into Batch
+              </span>
             </button>
           </div>
         </div>

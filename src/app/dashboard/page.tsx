@@ -82,15 +82,17 @@ function RoleBanner({ view }: { view: string }) {
   );
 }
 
+import { IconVault, IconUser, IconSearch } from "@/components/Icons";
+
 // ─── Clean White NavBar ─────────────────────────────────────────
 const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void }) => {
   const { connected, publicKey, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
 
   const tabs = [
-    { id: "admin", label: "Treasury", icon: "🏛" },
-    { id: "employee", label: "My Payslips", icon: "👤" },
-    { id: "auditor", label: "Audit Portal", icon: "🔍" },
+    { id: "admin", label: "Treasury", icon: <IconVault size={13} /> },
+    { id: "employee", label: "My Payslips", icon: <IconUser size={13} /> },
+    { id: "auditor", label: "Audit Portal", icon: <IconSearch size={13} /> },
   ];
 
   const handleWalletClick = () => {
@@ -138,7 +140,7 @@ const NavBar = ({ view, setView }: { view: string; setView: (v: string) => void 
                 background: view === t.id ? "#ffffff" : "none",
                 color: view === t.id ? "#08090b" : "#64707f",
               }}>
-              <span style={{ fontSize: 13 }}>{t.icon}</span>
+              <span style={{ display: "flex", alignItems: "center" }}>{t.icon}</span>
               <span>{t.label}</span>
             </button>
           ))}

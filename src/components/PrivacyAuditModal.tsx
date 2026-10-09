@@ -1,10 +1,12 @@
+import { IconLock } from "./Icons";
+
 export default function PrivacyAuditModal({ isOpen, onClose, txId }: { isOpen: boolean; onClose: () => void; txId: string }) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="bg-[#1a1c2e] text-green-300 p-8 rounded-xl max-w-md border border-green-500/30 shadow-2xl shadow-green-500/10">
         <div className="flex items-center gap-3 mb-4">
-          <span className="text-2xl">🔒</span>
+          <IconLock size={20} className="text-green-400" />
           <h3 className="text-xl font-bold tracking-tight text-white">Zero-Trust Verification</h3>
         </div>
         
