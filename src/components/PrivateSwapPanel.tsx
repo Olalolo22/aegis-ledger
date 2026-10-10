@@ -7,17 +7,17 @@ import { useTokenPrices } from "@/hooks/useTokenPrices";
 import { IconLock, IconAlertTriangle } from "./Icons";
 
 const ZK_SWAP_STEPS = [
-  { msg: "› Fetching shielded pool state...", col: "var(--dim)" },
-  { msg: "› Preparing swap output notes...", col: "var(--dim)" },
+  { msg: "› Connecting to shielded payroll pool...", col: "var(--dim)" },
+  { msg: "› Preparing payroll reserve notes...", col: "var(--dim)" },
   { msg: "› Loading Groth16 WASM prover circuit...", col: "var(--dim)" },
   { msg: " [!] Private inputs stay browser-local.", col: "var(--amber)" },
-  { msg: "› Generating witness from swap parameters...", col: "var(--dim)" },
+  { msg: "› Generating witness from conversion parameters...", col: "var(--dim)" },
   { msg: " ✓ 128,480 constraints satisfied.", col: "var(--green)" },
   { msg: "› Building Groth16 proof (π_a, π_b, π_c)...", col: "var(--dim)" },
   { msg: " ✓ Proof generated. Size: 192 bytes.", col: "var(--green)" },
-  { msg: "› Submitting shielded swap to Cloak pool...", col: "var(--dim)" },
-  { msg: " ✓ Swap confirmed. Shielded routing complete.", col: "var(--green)" },
-  { msg: " ✓ Output notes deposited into shielded pool.", col: "var(--blue)" },
+  { msg: "› Depositing USDC into shielded payroll reserve...", col: "var(--dim)" },
+  { msg: " ✓ Conversion confirmed. Shielded balance updated.", col: "var(--green)" },
+  { msg: " ✓ Funds ready for next payroll batch.", col: "var(--blue)" },
 ];
 
 function ZKSwapModal({ 
@@ -66,7 +66,7 @@ function ZKSwapModal({
           <div>
             <span className={styles.modalEyebrow}>Client-Side ZK Execution</span>
             <div className={styles.modalTitle} style={{ fontFamily: "var(--serif)" }}>
-              Proving Private Swap
+              Funding Payroll Runway
             </div>
           </div>
           <div className={styles.modalStatus}>
@@ -84,7 +84,7 @@ function ZKSwapModal({
         <div className={styles.ztBanner}>
           <IconLock size={13} style={{ color: "var(--amber)", flexShrink: 0 }} />
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
-            Swap routed through shielded pool. Your spending key never leaves this browser.
+            Converting funds into shielded USDC. Your spending key stays in this browser.
           </span>
         </div>
 
@@ -108,7 +108,7 @@ function ZKSwapModal({
           </div>
           {(done || isError) && (
             <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
-              {done ? "✓ Swap confirmed — Close" : "✕ Close and check errors"}
+              {done ? "✓ Payroll runway funded — Close" : "✕ Close and check errors"}
             </button>
           )}
         </div>
@@ -185,8 +185,8 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
       <div className={styles.swapCard} style={{ height: "100%" }}>
         <div className={styles.swapCardHeader}>
           <div>
-            <span className={styles.swapEyebrow}>Private Swap</span>
-            <div className={styles.swapTitle}>Shielded pool routing</div>
+            <span className={styles.swapEyebrow}>Treasury Runway</span>
+            <div className={styles.swapTitle}>Fund Payroll Reserve</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{
@@ -203,7 +203,7 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
         {/* From */}
         <div className={styles.inputGroup}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label className={styles.inputLabel}>From</label>
+            <label className={styles.inputLabel}>From Treasury</label>
             <button 
               style={{ background: "none", border: "none", color: "var(--blue)", fontSize: 10, cursor: "pointer", fontFamily: "var(--mono)" }}
               onClick={handleFlip}
@@ -236,7 +236,7 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
 
         {/* To */}
         <div className={styles.inputGroup}>
-          <label className={styles.inputLabel}>To (estimated)</label>
+          <label className={styles.inputLabel}>To Shielded Payroll (estimated)</label>
           <div className={styles.inputRow}>
             <div className={styles.tokenIcon} style={{ background: tokenIcon(outputToken).bg }}>
               {tokenIcon(outputToken).sym}
@@ -266,7 +266,7 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
             )}
           </span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#00b87a" }}>
-            Shielded routing
+            Shielded conversion
           </span>
         </div>
 
@@ -288,7 +288,7 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
           onClick={handleExecute}
           disabled={!fromAmount || (status !== "idle" && status !== "success" && status !== "error")}
         >
-          Execute Private Swap
+          Convert to Payroll USDC
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>

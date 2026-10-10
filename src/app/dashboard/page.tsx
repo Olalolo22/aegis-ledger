@@ -25,21 +25,21 @@ function useExplicitWalletConnect() {
 const ROLE_BANNERS: Record<string, { label: string; desc: string; color: string; bg: string; border: string }> = {
   admin: {
     label: "Treasury Admin",
-    desc: "You are acting as the treasury operator. Full access to confidential payroll, emerging-market rails, and shielded balance.",
+    desc: "Run payroll batches, disburse to local bank & M-Pesa rails, and manage company funds.",
     color: "#0066ff",
     bg: "rgba(0,102,255,0.04)",
     border: "rgba(0,102,255,0.12)",
   },
   employee: {
     label: "Employee / Contractor",
-    desc: "You are acting as a payroll recipient. Connect your wallet to scan the pool for notes addressed to you.",
+    desc: "View your private paystubs and track your local bank or M-Pesa deposits.",
     color: "#22c55e",
     bg: "rgba(34,197,94,0.04)",
     border: "rgba(34,197,94,0.12)",
   },
   auditor: {
     label: "Compliance Auditor",
-    desc: "You are acting as an auditor with a scoped viewing key. You can see decrypted flows without accessing spending keys.",
+    desc: "Read-only view for tax prep and compliance audits. Decrypted records without spending authority.",
     color: "#f59e0b",
     bg: "rgba(245,158,11,0.04)",
     border: "rgba(245,158,11,0.12)",

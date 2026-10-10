@@ -243,12 +243,11 @@ export default function EmployeeScanner() {
           <div className={styles.comingSoonWrap}>
             <button disabled className={styles.comingSoonBtn}>
               <IconFlame size={14} style={{ color: "var(--amber)" }} />
-              Anonymous Burn & Withdraw
-              <span className="ae-badge ae-badge-ghost">Coming Q3 2026</span>
+              Direct Off-Ramp to Bank / Mobile
+              <span className="ae-badge ae-badge-ghost">Q4 2026</span>
             </button>
             <p className={styles.comingSoonDesc}>
-              Destroys your shielded note and mints SPL tokens to a fresh burner wallet —
-              permanently breaking heuristic chain links between your identity and the payment.
+              Withdraw your salary directly to your Providus/Kuda bank account (NGN) or Safaricom M-Pesa (KES) without needing centralized crypto exchanges.
             </p>
           </div>
         </div>

@@ -71,8 +71,8 @@ const MOCK_RECIPIENTS: Recipient[] = [
 ];
 
 const TEE_LOG_STEPS = [
-  { msg: "› Partitioning non-uniform salaries into standardized uniform notes...", col: "var(--dim)" },
-  { msg: " ✓ Amount-clustering defense active ($1000, $500, $100 notes).", col: "var(--green)" },
+  { msg: "› Splitting salaries into uniform notes to hide exact compensation...", col: "var(--dim)" },
+  { msg: " ✓ Note splitting active ($1000, $500, $100 notes protect salary privacy).", col: "var(--green)" },
   { msg: "› Connecting to MagicBlock TEE validator (devnet-tee.magicblock.app)...", col: "var(--dim)" },
   { msg: " [!] Hardware enclave execution: zero client WASM lag.", col: "var(--amber)" },
   { msg: "› Delegating batch account state to Ephemeral Rollup enclave...", col: "var(--dim)" },
@@ -83,7 +83,7 @@ const TEE_LOG_STEPS = [
   { msg: " ✓ Sub-second TEE settlement confirmed on Solana.", col: "var(--green)" },
   { msg: "› Dispatching confidential off-ramp webhooks (NGN / KES local rails)...", col: "var(--dim)" },
   { msg: " ✓ ₦9,900,000 Providus/Kuda + KSh 338,000 M-Pesa off-ramp triggers dispatched.", col: "var(--green)" },
-  { msg: " ✓ On-chain explorer view: [CONFIDENTIAL / ZERO IDENTITY LEAK]", col: "var(--blue)" },
+  { msg: " ✓ On-chain explorer view: [CONFIDENTIAL · RECIPIENTS & AMOUNTS REDACTED]", col: "var(--blue)" },
   { msg: " ✓ Scoped Merkle viewing keys registered for tax & audit compliance.", col: "var(--green)" },
 ];
 
@@ -340,10 +340,10 @@ export default function PayrollTerminal() {
 
       {/* Page header */}
       <div>
-        <span className={styles.eyebrow}>Solana Confidential Settlement · Superteam Nigeria Track</span>
+        <span className={styles.eyebrow}>Confidential Global Payroll · Superteam Nigeria Track</span>
         <h1 className={styles.h1} style={{ fontFamily: "var(--serif)" }}>
-          Emerging Markets Settlement Engine<br />
-          <em>October 2026 remote contributor disbursement.</em>
+          Private Payroll for Global Teams<br />
+          <em>Pay in USDC. Payout in local bank or M-Pesa. Solscan sees nothing.</em>
         </h1>
       </div>
 
@@ -353,7 +353,7 @@ export default function PayrollTerminal() {
           <div className={styles.balanceGlow1} />
           <div className={styles.balanceGlow2} />
           <div className={styles.balanceHeader}>
-            <span className={styles.balanceLabel}>Shielded Balance</span>
+            <span className={styles.balanceLabel}>Shielded Treasury</span>
             <div className={styles.cloakPill}>
               <span className={styles.cloakPillDot} />
               <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>
@@ -365,7 +365,7 @@ export default function PayrollTerminal() {
             {balance}
           </div>
           <span className={styles.balanceSub}>
-            {utxos} UTXOs · Uniform Note Splitting · {activeRail === "tee" ? "Sub-Second TEE" : "Groth16 Shielded"}
+            {utxos} Shielded Notes · {activeRail === "tee" ? "Sub-Second TEE" : "Groth16 Shielded"}
           </span>
           <div className={styles.balanceStats}>
             {[
@@ -427,7 +427,7 @@ export default function PayrollTerminal() {
                 }}
               >
                 <IconBolt size={12} />
-                <span>MagicBlock TEE</span>
+                <span>Instant (MagicBlock TEE)</span>
                 <span style={{ opacity: 0.65, fontSize: "9px" }}>(&lt;1s)</span>
               </button>
               <button
@@ -450,7 +450,7 @@ export default function PayrollTerminal() {
                 }}
               >
                 <IconLock size={12} />
-                <span>Cloak ZK</span>
+                <span>Zero-Knowledge (Cloak ZK)</span>
                 <span style={{ opacity: 0.65, fontSize: "9px" }}>(Groth16)</span>
               </button>
             </div>
@@ -476,7 +476,7 @@ export default function PayrollTerminal() {
               onClick={handleRunBatch}
               disabled={status !== "idle" && status !== "completed" && status !== "error"}
             >
-              {activeRail === "tee" ? "Run TEE Batch" : "Run ZK Proof Batch"}
+              {activeRail === "tee" ? "Run Instant Batch (<1s)" : "Run ZK Proof Batch"}
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -526,7 +526,7 @@ export default function PayrollTerminal() {
               <IconFlagKE width={14} height={10} /> KES <strong>KSh {liveFx.KES}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
-              <IconShield size={12} style={{ color: "#0066ff" }} /> On-Chain Privacy <strong>100% Shielded</strong>
+              <IconShield size={12} style={{ color: "#0066ff" }} /> Solscan Visibility <strong>Hidden</strong>
             </span>
           </div>
           <div style={{ color: isLive ? "#22e09a" : "#8e98a6", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -537,7 +537,7 @@ export default function PayrollTerminal() {
 
         <div className={styles.tableScrollWrapper}>
           <div className={styles.tableHead}>
-            {["Contributor / Stealth address", "USDC Amount", "Settlement Rail", "Est. Local Payout", "Privacy", ""].map(h => (
+            {["Contributor / Stealth address", "USDC Amount", "Settlement Rail", "Est. Local Payout", "Solscan Visibility", ""].map(h => (
               <span key={h} className={styles.tableHeadCell}>{h}</span>
             ))}
           </div>
@@ -595,7 +595,7 @@ export default function PayrollTerminal() {
 
                 <div>
                   <span className="ae-badge ae-badge-green">
-                    {status === "completed" ? "Dispatched" : "Shielded"}
+                    {status === "completed" ? "Paid (Private)" : "Hidden"}
                   </span>
                 </div>
 
@@ -697,7 +697,7 @@ export default function PayrollTerminal() {
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, fontFamily: "var(--mono)" }}>
               <span style={{ color: "rgba(255,255,255,0.6)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <IconLock size={12} /> Public Solscan View: <strong>Amounts & Recipients Hidden (0 bytes leaked)</strong>
+                <IconLock size={12} /> Public Solscan View: <strong>Sender, amounts & recipients hidden (Zero leakage)</strong>
               </span>
               <a 
                 href="/audit"
@@ -710,7 +710,7 @@ export default function PayrollTerminal() {
                   gap: 4
                 }}
               >
-                Open Auditor Viewing Portal →
+                Open Auditor Viewing Link →
               </a>
             </div>
           </div>
@@ -721,8 +721,8 @@ export default function PayrollTerminal() {
       <div className={styles.batchCard} style={{ marginTop: 24 }}>
         <div className={styles.batchHeader}>
           <div>
-            <span className={styles.batchEyebrow}>Compliance & Audit</span>
-            <div className={styles.batchTitle}>Issue Access Magic Link</div>
+            <span className={styles.batchEyebrow}>Tax & Compliance</span>
+            <div className={styles.batchTitle}>Issue Auditor Magic Link</div>
           </div>
           <button 
             className={styles.runBtn}
@@ -809,7 +809,7 @@ export default function PayrollTerminal() {
           </div>
         ) : (
           <div style={{ padding: '0 28px 24px', fontSize: 12, color: 'var(--slate)', lineHeight: 1.5 }}>
-            Generate a time-scoped cryptographic viewing key for external audit or internal compliance review.
+            Generate a read-only viewing link for your CPA, tax accountant, or compliance auditor. Lets them inspect payroll records without spending authority.
           </div>
         )}
       </div>

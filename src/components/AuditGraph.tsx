@@ -202,8 +202,8 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
         ...n,
         data: {
           ...n.data,
-          label: decrypted ? "DAO Treasury" : "0xc8d2···3f9a",
-          sublabel: decrypted ? "Aegis Ledger — Verified" : "Shielded Pool — Cloak Protocol",
+          label: decrypted ? "Company Treasury" : "0xc8d2···3f9a",
+          sublabel: decrypted ? "Aegis Ledger — Verified" : "Confidential Shielded Pool",
         }
       };
     }

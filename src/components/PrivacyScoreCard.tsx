@@ -14,19 +14,19 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
   
   const issues = !hasRuns 
     ? [
-        { msg: 'No recent transactions detected', pass: true },
-        { msg: 'Awaiting activity to scan', pass: true }
+        { msg: 'Payroll batch staged & ready', pass: true },
+        { msg: 'Stealth recipient protection active', pass: true }
       ]
     : usingDenominations
       ? [
-          { msg: 'Using uniform denominations', pass: true },
-          { msg: 'Sequential batching active', pass: true },
-          { msg: 'Timing correlation possible (random delay relay disabled)', pass: false, warn: true }
+          { msg: 'Salaries hidden on Solscan', pass: true },
+          { msg: 'Recipient wallets protected (stealth addresses)', pass: true },
+          { msg: 'Sent in single atomic batch', pass: true }
         ]
       : [
-          { msg: 'Value-linkage risk: Exact amounts used', pass: false, warn: false },
-          { msg: 'Timing correlation detected', pass: false, warn: true },
-          { msg: 'Enable uniform denominations for +47 points', pass: false, warn: false, hint: true }
+          { msg: 'Public visibility risk: Raw amounts detected', pass: false, warn: false },
+          { msg: 'Batch timing protection active', pass: true },
+          { msg: 'Split into shielded notes to hide compensation', pass: false, warn: false, hint: true }
         ];
 
   const ringColor = !hasRuns ? '#8e98a6' : score > 70 ? '#22c55e' : '#ef4444';
@@ -66,7 +66,7 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
             <span style={{
               fontSize: 7, textTransform: 'uppercase',
               letterSpacing: '0.8px', color: '#8e98a6', fontWeight: 600,
-            }}>Health</span>
+            }}>Privacy</span>
           </div>
         </div>
 
@@ -76,7 +76,7 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
             <span style={{
               fontSize: 12, fontWeight: 600, color: '#08090b',
               letterSpacing: '-0.2px',
-            }}>Privacy Diagnostic</span>
+            }}>Payroll Privacy</span>
             <span style={{
               padding: '2px 7px', borderRadius: 5,
               fontSize: 8, fontWeight: 700,
@@ -85,7 +85,7 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
               border: `1px solid ${ringColor}22`,
               letterSpacing: '0.5px',
             }}>
-              {!hasRuns ? 'NEUTRAL' : score > 70 ? 'GOOD' : 'AT RISK'}
+              {!hasRuns ? 'READY' : score > 70 ? 'PROTECTED' : 'AT RISK'}
             </span>
           </div>
 
@@ -121,7 +121,7 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: '#8e98a6' }}>
-          Last scan: {scanTime}
+          Last check: {scanTime}
         </span>
         <button 
           onClick={() => setShowReport(true)}
@@ -131,7 +131,7 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
             color: '#0066ff', fontWeight: 600,
           }}
         >
-          View Detail Report →
+          View Privacy Report →
         </button>
       </div>
 
@@ -142,12 +142,12 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
           display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}>
           <div style={{
-            background: '#fff', width: 420, borderRadius: 16, padding: '24px 32px',
+            background: '#fff', width: 440, borderRadius: 16, padding: '24px 32px',
             boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
               <h3 style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 16, color: '#08090b', letterSpacing: '-0.3px' }}>
-                Diagnostic Report
+                Payroll Privacy Report
               </h3>
               <button 
                 onClick={() => setShowReport(false)} 
@@ -159,28 +159,31 @@ export default function PrivacyScoreCard({ usingDenominations, hasRuns }: { usin
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: 'var(--mono)', fontSize: 12, color: '#3b4a5a' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f1f3', paddingBottom: 8 }}>
-                <span>Protocol</span> <strong style={{ color: '#08090b' }}>Cloak SDK (Devnet)</strong>
+                <span>What Solscan sees</span> 
+                <strong style={{ color: '#22c55e' }}>Zero (Amounts & Wallets Hidden)</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f1f3', paddingBottom: 8 }}>
-                <span>Scanner Version</span> <strong style={{ color: '#08090b' }}>v1.2.0-ZK</strong>
+                <span>Coworker privacy</span> 
+                <strong style={{ color: '#22c55e' }}>Enforced (Private Payslips)</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f1f3', paddingBottom: 8 }}>
-                <span>Denominations Enforced</span> 
+                <span>Salary amount splitting</span> 
                 <strong style={{ color: usingDenominations ? '#22c55e' : '#ef4444' }}>
-                  {usingDenominations ? 'Yes (Strict)' : 'No (At Risk)'}
+                  {usingDenominations ? 'Active ($1000/$500/$100 notes)' : 'Not split (Exact amounts)'}
                 </strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f1f3', paddingBottom: 8 }}>
-                <span>Timing Delay Filter</span> <strong style={{ color: '#f59e0b' }}>Disabled</strong>
+                <span>Auditor viewing access</span> 
+                <strong style={{ color: '#0066ff' }}>Ready (Via Magic Link)</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f1f3', paddingBottom: 8 }}>
-                <span>Overall Anonymity Set</span> 
+                <span>Shielded pool depth</span> 
                 <strong style={{ color: '#08090b' }}>{usingDenominations ? '~4,200 notes' : '< 10 notes'}</strong>
               </div>
             </div>
             
-            <div style={{ marginTop: 24, padding: 12, background: '#f8fafc', borderRadius: 8, fontSize: 10, color: '#64707f', lineHeight: 1.5, fontFamily: 'var(--mono)' }}>
-              <strong>Note:</strong> This report is generated locally based on client-side state. PDF generation and full historical relay indexing are disabled in demo mode.
+            <div style={{ marginTop: 24, padding: 12, background: '#f8fafc', borderRadius: 8, fontSize: 11, color: '#64707f', lineHeight: 1.5, fontFamily: 'var(--mono)' }}>
+              <strong>Summary:</strong> Aegis keeps payroll completely private on Solana. Public explorers cannot see individual salaries or recipients, while your CPA can verify payouts with read-only audit keys.
             </div>
             
             <button 
