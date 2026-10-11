@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import styles from "./PayrollTerminal.module.css";
 import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSigner";
 import PrivateSwapPanel from "./PrivateSwapPanel";
+import RunwayRailsCard from "./RunwayRailsCard";
 import ProvingVisualizer from "./ProvingVisualizer";
 import PrivacyScoreCard from "./PrivacyScoreCard";
 import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
@@ -250,6 +251,7 @@ export default function PayrollTerminal() {
   const { rates: liveFx, isLive, lastUpdated } = useLiveFx();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [hasRunDenominations, setHasRunDenominations] = useState(false);
   const [completedRuns, setCompletedRuns] = useState(0);
   const [showAddRow, setShowAddRow] = useState(false);
@@ -338,6 +340,29 @@ export default function PayrollTerminal() {
         />
       )}
 
+      {showTopUpModal && (
+        <div 
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9998,
+            background: "rgba(0, 0, 0, 0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowTopUpModal(false);
+          }}
+        >
+          <div style={{ maxWidth: 440, width: "100%", animation: "ae-fade-up 0.25s ease both" }}>
+            <PrivateSwapPanel onClose={() => setShowTopUpModal(false)} />
+          </div>
+        </div>
+      )}
+
       {/* Page header */}
       <div>
         <span className={styles.eyebrow}>Confidential Global Payroll · Superteam Nigeria Track</span>
@@ -357,21 +382,45 @@ export default function PayrollTerminal() {
             <div className={styles.cloakPill}>
               <span className={styles.cloakPillDot} />
               <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>
-                {activeRail === "tee" ? "MAGICBLOCK TEE" : "CLOAK GROTH16"}
+                MAGICBLOCK PER
               </span>
             </div>
           </div>
           <div className={styles.balanceAmount} style={{ fontFamily: "var(--serif)" }}>
             {balance}
           </div>
-          <span className={styles.balanceSub}>
-            {utxos} Shielded Notes · {activeRail === "tee" ? "Sub-Second TEE" : "Groth16 Shielded"}
-          </span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 12, flexWrap: "wrap" }}>
+            <span className={styles.balanceSub} style={{ margin: 0 }}>
+              {utxos} Shielded Notes · Sub-Second TEE Settlement
+            </span>
+            <button
+              onClick={() => setShowTopUpModal(true)}
+              style={{
+                background: "rgba(255, 255, 255, 0.08)",
+                border: "1px solid rgba(255, 255, 255, 0.18)",
+                color: "#ffffff",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.15)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)"; }}
+            >
+              + Top Up Runway
+            </button>
+          </div>
           <div className={styles.balanceStats}>
             {[
               { label: "Available", val: available, green: false },
               { label: "Locked · payroll", val: locked, green: false },
-              { label: activeRail === "tee" ? "TEE Batch" : "ZK Pool", val: "✓ Ready", green: true },
+              { label: "TEE Batch", val: "✓ Ready", green: true },
             ].map(s => (
               <div key={s.label}>
                 <span className={styles.statLabel}>{s.label}</span>
@@ -385,7 +434,12 @@ export default function PayrollTerminal() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1 }}>
           <PrivacyScoreCard usingDenominations={hasRunDenominations} hasRuns={completedRuns > 0} />
-          <PrivateSwapPanel />
+          <RunwayRailsCard 
+            monthlyBurn={batchTotal} 
+            currentBalance={currentBalance} 
+            recipientCount={recipients.length} 
+            onTopUpClick={() => setShowTopUpModal(true)} 
+          />
         </div>
       </div>
 
@@ -397,64 +451,6 @@ export default function PayrollTerminal() {
             <div className={styles.batchTitle}>October 2026 Contributor Payroll</div>
           </div>
           <div className={styles.batchActions}>
-            {/* Dual-Rail Engine Selector */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: "6px",
-              padding: "2px",
-              gap: "2px"
-            }}>
-              <button
-                type="button"
-                onClick={() => setActiveRail("tee")}
-                style={{
-                  background: activeRail === "tee" ? "rgba(34,224,154,0.12)" : "transparent",
-                  color: activeRail === "tee" ? "#22e09a" : "rgba(255,255,255,0.45)",
-                  border: activeRail === "tee" ? "1px solid rgba(34,224,154,0.3)" : "1px solid transparent",
-                  borderRadius: "4px",
-                  padding: "5px 10px",
-                  fontSize: "10.5px",
-                  fontFamily: "var(--mono)",
-                  cursor: "pointer",
-                  fontWeight: activeRail === "tee" ? 600 : 400,
-                  transition: "all 0.15s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px"
-                }}
-              >
-                <IconBolt size={12} />
-                <span>Instant (MagicBlock TEE)</span>
-                <span style={{ opacity: 0.65, fontSize: "9px" }}>(&lt;1s)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveRail("cloak")}
-                style={{
-                  background: activeRail === "cloak" ? "rgba(100,160,255,0.14)" : "transparent",
-                  color: activeRail === "cloak" ? "var(--blue)" : "rgba(255,255,255,0.45)",
-                  border: activeRail === "cloak" ? "1px solid rgba(100,160,255,0.3)" : "1px solid transparent",
-                  borderRadius: "4px",
-                  padding: "5px 10px",
-                  fontSize: "10.5px",
-                  fontFamily: "var(--mono)",
-                  cursor: "pointer",
-                  fontWeight: activeRail === "cloak" ? 600 : 400,
-                  transition: "all 0.15s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px"
-                }}
-              >
-                <IconLock size={12} />
-                <span>Zero-Knowledge (Cloak ZK)</span>
-                <span style={{ opacity: 0.65, fontSize: "9px" }}>(Groth16)</span>
-              </button>
-            </div>
-
             <button 
               className={styles.addBtn} 
               onClick={() => setShowImporter((s: boolean) => !s)}
@@ -476,7 +472,7 @@ export default function PayrollTerminal() {
               onClick={handleRunBatch}
               disabled={status !== "idle" && status !== "completed" && status !== "error"}
             >
-              {activeRail === "tee" ? "Run Instant Batch (<1s)" : "Run ZK Proof Batch"}
+              Run TEE Batch
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>

@@ -117,7 +117,13 @@ function ZKSwapModal({
   );
 }
 
-export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f62506b328a6" }: { orgId?: string }) {
+export default function PrivateSwapPanel({ 
+  orgId = "b91a045c-27eb-44c1-8409-f62506b328a6",
+  onClose,
+}: { 
+  orgId?: string;
+  onClose?: () => void;
+}) {
   const { execute, status, proofProgress, error, quote } = usePrivateSwap();
   const { getRate, isLive } = useTokenPrices();
   
@@ -188,7 +194,7 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
             <span className={styles.swapEyebrow}>Treasury Runway</span>
             <div className={styles.swapTitle}>Fund Payroll Reserve</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{
               width: 5, height: 5, borderRadius: "50%", display: "inline-block",
               background: isLive ? "#22e09a" : "#f59e0b",
@@ -197,6 +203,24 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
             <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, color: isLive ? "#22e09a" : "#f59e0b" }}>
               {isLive ? "LIVE" : "CACHED"}
             </span>
+            {onClose && (
+              <button 
+                onClick={onClose}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#8e98a6",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  padding: "0 2px",
+                  marginLeft: 4,
+                }}
+                title="Close"
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
 
@@ -270,17 +294,14 @@ export default function PrivateSwapPanel({ orgId = "b91a045c-27eb-44c1-8409-f625
           </span>
         </div>
 
-        {/* Slippage */}
-        <div className={styles.slippageRow}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#8e98a6" }}>Max slippage</span>
-          <div className={styles.slippageBtns}>
-            {["0.1", "0.5", "1.0"].map(s => (
-              <button key={s} onClick={() => setSlippage(s)} 
-                      className={`${styles.slippageBtn} ${slippage === s ? styles.slippageActive : ""}`}>
-                {s}%
-              </button>
-            ))}
-          </div>
+        {/* Slippage & Protection */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderTop: "1px solid #f0f1f4" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "#8e98a6" }}>
+            Protection: <strong>0.5% max slippage</strong>
+          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "#0066ff" }}>
+            Direct Treasury Route
+          </span>
         </div>
 
         <button 
