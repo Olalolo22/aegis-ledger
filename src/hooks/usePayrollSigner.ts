@@ -110,6 +110,7 @@ export function usePayrollSigner(): PayrollSignerResult {
       setRecipientProgress(null);
 
       try {
+        const batchStartTime = Date.now();
         setStatus("preparing");
         setProofProgress("Initializing batch payroll session...");
 
@@ -140,8 +141,8 @@ export function usePayrollSigner(): PayrollSignerResult {
           recipients: request.recipients,
           token_mint: request.token_mint,
           token_symbol: request.token_symbol,
-          program_id: "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE",
-          relay_url: "https://api.devnet.cloak.ag",
+          program_id: process.env.NEXT_PUBLIC_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo",
+          relay_url: process.env.NEXT_PUBLIC_ER_RPC || "https://devnet-tee.magicblock.app",
           rpc_url: "https://api.devnet.solana.com",
           merkle_root: "0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
           merkle_proofs: [],
@@ -176,7 +177,7 @@ export function usePayrollSigner(): PayrollSignerResult {
           await new Promise((r) => setTimeout(r, 450));
 
           setStatus("proving");
-          setProofProgress("Generating confidential note commitments inside Intel TDX enclave...");
+          setProofProgress("Computing client-side note commitments for enclave attestation...");
           await new Promise((r) => setTimeout(r, 500));
 
           setStatus("signing");
@@ -253,10 +254,11 @@ export function usePayrollSigner(): PayrollSignerResult {
 
           setTxSignatures([finalSignature]);
           const isSim = finalSignature.startsWith("sim_tee_");
+          const durationSec = ((Date.now() - batchStartTime) / 1000).toFixed(1);
           setProofProgress(
             isSim
-              ? `✓ Payroll complete (Devnet Enclave Simulation) — ${totalRecipients} recipients settled via MagicBlock TEE in <1.2s`
-              : `✓ Payroll complete — ${totalRecipients} recipients settled via MagicBlock TEE in <1.2s`
+              ? `✓ Payroll complete (Enclave Simulation) — ${totalRecipients} recipients attested in ${durationSec}s`
+              : `✓ Payroll complete — ${totalRecipients} recipients settled on-chain via MagicBlock TEE in ${durationSec}s`
           );
           setStatus("completed");
           return;

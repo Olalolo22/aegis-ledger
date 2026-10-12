@@ -240,10 +240,10 @@ export async function POST(request: NextRequest) {
           token_mint: token_mint,
           token_symbol: token_symbol,
           program_id: relayFallback
-            ? "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE"
+            ? (process.env.NEXT_PUBLIC_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo")
             : getProgramId().toBase58(),
           relay_url: relayFallback
-            ? process.env.CLOAK_RELAY_URL
+            ? (process.env.NEXT_PUBLIC_ER_RPC || "https://devnet-tee.magicblock.app")
             : getRelayUrl(),
           rpc_url: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
         },
