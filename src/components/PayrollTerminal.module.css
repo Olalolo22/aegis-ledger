@@ -103,7 +103,7 @@
   text-transform: uppercase;
 }
 
-.cloakPill {
+.enclavePill {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -116,7 +116,7 @@
   font-size: 9px;
 }
 
-.cloakPillDot {
+.enclavePillDot {
   width: 5px;
   height: 5px;
   border-radius: 50%;

@@ -213,14 +213,14 @@ export const swapConfirmSchema = z
     /** The swap ID returned from the initial POST /api/treasury/swap-quote */
     swap_id: z.string().uuid("swap_id must be a valid UUID"),
 
-    /** Transaction signature from client-side signing (base58) */
+    /** Transaction signature from client-side signing or TEE enclave reference */
     tx_signature: z
       .string()
-      .min(80, "Transaction signature too short")
-      .max(100, "Transaction signature too long")
-      .regex(
-        /^[1-9A-HJ-NP-Za-km-z]+$/,
-        "Transaction signature must be base58"
+      .min(10, "Transaction signature too short")
+      .max(128, "Transaction signature too long")
+      .refine(
+        (val) => /^[1-9A-HJ-NP-Za-km-z]+$/.test(val) || val.startsWith("sim_") || val.startsWith("aegis:"),
+        "Transaction signature must be valid base58 or TEE enclave reference"
       ),
 
     /** UTXO commitment hash from the swap change output */

@@ -233,7 +233,7 @@ export default function EmployeeScanner() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button
-                    onClick={() => setAuditTx(p.txSignature || p.commitmentHash)}
+                    onClick={() => setAuditTx(p.txSignature || p.batchCommitmentRoot || p.commitmentHash)}
                     className="ae-badge ae-badge-ghost hover:bg-blue-500/10 hover:text-blue-400 transition-colors cursor-pointer border border-transparent hover:border-blue-500/30"
                   >
                     PRIVACY AUDIT

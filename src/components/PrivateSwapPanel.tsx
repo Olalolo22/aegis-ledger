@@ -64,7 +64,7 @@ function ZKSwapModal({
       <div className={styles.modalBox}>
         <div className={styles.modalHeader}>
           <div>
-            <span className={styles.modalEyebrow}>Client-Side ZK Execution</span>
+            <span className={styles.modalEyebrow}>Shielded Enclave Top-Up</span>
             <div className={styles.modalTitle} style={{ fontFamily: "var(--serif)" }}>
               Funding Payroll Runway
             </div>
@@ -84,7 +84,7 @@ function ZKSwapModal({
         <div className={styles.ztBanner}>
           <IconLock size={13} style={{ color: "var(--amber)", flexShrink: 0 }} />
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
-            Converting funds into shielded USDC. Your spending key stays in this browser.
+            Routing funds into shielded USDC enclave. Spending key stays in this browser.
           </span>
         </div>
 
@@ -97,7 +97,7 @@ function ZKSwapModal({
 
         <div className={styles.modalFooter}>
           <div className={styles.progressHeader}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.25)" }}>Groth16 WASM Progress</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.25)" }}>MagicBlock TEE Enclave Progress</span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
               {done ? "100%" : isError ? "ERR" : `${pct}%`}
             </span>

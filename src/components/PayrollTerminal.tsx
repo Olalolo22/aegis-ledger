@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import styles from "./PayrollTerminal.module.css";
 import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSigner";
 import PrivateSwapPanel from "./PrivateSwapPanel";
-import ProvingVisualizer from "./ProvingVisualizer";
 import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
 import { useLiveFx } from "@/hooks/useLiveFx";
 import { 
@@ -97,7 +96,7 @@ const ZK_LOG_STEPS = [
   { msg: " ✓ Proof generated. Size: 192 bytes.", col: "var(--green)" },
   { msg: "› Serialising to Solana transaction format...", col: "var(--dim)" },
   { msg: " ✓ ZK proof verified on-chain.", col: "var(--green)" },
-  { msg: "› Submitting shielded batch to Cloak pool...", col: "var(--dim)" },
+  { msg: "› Submitting shielded batch to MagicBlock TEE enclave...", col: "var(--dim)" },
   { msg: " ✓ Transaction confirmed. Slot 312,847,201.", col: "var(--green)" },
   { msg: " ✓ On-chain view: [REDACTED]", col: "var(--blue)" },
 ];
@@ -109,6 +108,7 @@ function ExecutionModal({
   error,
   recipientProgress,
   rail = "tee",
+  txSignatures = [],
 }: {
   onClose: () => void;
   status: PayrollSignerStatus;
@@ -116,6 +116,7 @@ function ExecutionModal({
   error: string | null;
   recipientProgress: { current: number; total: number } | null;
   rail?: "tee" | "cloak";
+  txSignatures?: string[];
 }) {
   const activeSteps = rail === "tee" ? TEE_LOG_STEPS : ZK_LOG_STEPS;
   const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
@@ -213,7 +214,6 @@ function ExecutionModal({
               : "Your spending key never leaves this browser. All ZK proofs are generated locally via WASM."}
           </span>
         </div>
-        <ProvingVisualizer isActive={status === "proving" || status === "initializing_wasm"} />
         <div className={styles.termBody}>
           {displayLog.map((l, i) => (
             <div key={i} style={{ color: l.col, animation: "ae-row-in 0.2s ease both" }}>{l.msg}</div>
@@ -235,7 +235,11 @@ function ExecutionModal({
           </div>
           {(done || isError) && (
             <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
-              {done ? "✓ Batch confirmed on-chain — Close" : "✕ Close and inspect"}
+              {done
+                ? (txSignatures?.some(sig => sig.startsWith("sim_tee_") || sig.startsWith("sim_"))
+                  ? "✓ Batch attested via TEE Enclave (Demo Mode) — Close"
+                  : "✓ Batch confirmed on-chain — Close")
+                : "✕ Close and inspect"}
             </button>
           )}
         </div>
@@ -245,7 +249,7 @@ function ExecutionModal({
 }
 
 export default function PayrollTerminal() {
-  const { execute, status, proofProgress, error, signingParams, recipientProgress, activeRail, setActiveRail } = usePayrollSigner();
+  const { execute, status, proofProgress, error, signingParams, recipientProgress, activeRail, setActiveRail, txSignatures } = usePayrollSigner();
   const { rates: liveFx, isLive, lastUpdated } = useLiveFx();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
@@ -374,6 +378,7 @@ export default function PayrollTerminal() {
           error={error}
           recipientProgress={recipientProgress}
           rail={activeRail}
+          txSignatures={txSignatures}
         />
       )}
 
@@ -415,9 +420,9 @@ export default function PayrollTerminal() {
           <div className={styles.balanceGlow1} />
           <div className={styles.balanceGlow2} />
           <div className={styles.balanceHeader}>
-            <span className={styles.balanceLabel}>Shielded Treasury Enclave</span>
-            <div className={styles.cloakPill}>
-              <span className={styles.cloakPillDot} />
+            <span className={styles.balanceLabel}>Shielded Treasury Enclave · <span style={{ opacity: 0.65, fontWeight: 400 }}>Demo Runway</span></span>
+            <div className={styles.enclavePill}>
+              <span className={styles.enclavePillDot} />
               <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>
                 MAGICBLOCK PER · DEVNET-TEE
               </span>

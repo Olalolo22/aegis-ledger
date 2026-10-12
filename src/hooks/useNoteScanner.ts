@@ -181,8 +181,8 @@ export function useNoteScanner(): NoteScannerResult {
         });
 
         const relayUrl =
-          process.env.NEXT_PUBLIC_CLOAK_RELAY_URL ||
-          "https://api.cloak.ag";
+          process.env.NEXT_PUBLIC_ER_RPC ||
+          "https://devnet-tee.magicblock.app";
 
         try {
           const result = await scanNotes(
@@ -260,7 +260,7 @@ function generateDemoPayslips(keyFingerprint: string): DecryptedPayslip[] {
       tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       date: new Date("2026-05-01T10:00:00Z").toISOString(),
       memo: "Monthly base compensation (Engineering)",
-      txSignature: `5${keyFingerprint}Wn48qV7gLqR2kP8s9XyZ1v2w3e4r5t6y7u8i9o0p`,
+      txSignature: null,
       commitmentHash: `aegis:${c1.slice(0, 32)}`,
       leafIndex: 442,
       batchCommitmentRoot: `aegis:tee:batch:${batchRoot.slice(0, 32)}`,
@@ -274,7 +274,7 @@ function generateDemoPayslips(keyFingerprint: string): DecryptedPayslip[] {
       tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       date: new Date("2026-05-01T10:00:00Z").toISOString(),
       memo: "Q3 Core protocol sprint milestone",
-      txSignature: `9${keyFingerprint}Jk82mD4tN1vY7x6z5a4b3c2d1e0f9g8h7j6k5l4m`,
+      txSignature: null,
       commitmentHash: `aegis:${c2.slice(0, 32)}`,
       leafIndex: 510,
       batchCommitmentRoot: `aegis:tee:batch:${batchRoot.slice(0, 32)}`,
@@ -288,7 +288,7 @@ function generateDemoPayslips(keyFingerprint: string): DecryptedPayslip[] {
       tokenMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       date: new Date("2026-05-01T10:00:00Z").toISOString(),
       memo: "Security audit & penetration testing stipend",
-      txSignature: `6${keyFingerprint}Xp91mZ3vL8sK4t2u1v0w9x8y7z6a5b4c3d2e1f0g`,
+      txSignature: null,
       commitmentHash: `aegis:${c3.slice(0, 32)}`,
       leafIndex: 518,
       batchCommitmentRoot: `aegis:tee:batch:${batchRoot.slice(0, 32)}`,

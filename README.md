@@ -76,17 +76,19 @@ aegis-ledger/
 │   │   ├── api/
 │   │   │   ├── payroll/          # Batch coordinator & execution endpoints
 │   │   │   └── audit/            # Scoped viewing key generation & verification
-│   │   ├── audit/page.tsx        # Auditor Portal (Merkle decryption scanner)
-│   │   ├── verify/page.tsx       # Employee note decryption portal
-│   │   └── page.tsx              # Main Treasury Payroll Terminal
+│   │   ├── dashboard/page.tsx    # Main Treasury Payroll Terminal & Role Switcher
+│   │   ├── audit/page.tsx        # Auditor Portal (Selective disclosure graph)
+│   │   ├── verify/page.tsx       # Employee payslip verification portal
+│   │   └── page.tsx              # Institutional Landing Page
 │   ├── components/
 │   │   ├── PayrollTerminal.tsx   # Real-time execution stream & CSV pipeline
-│   │   ├── AuditGraph.tsx        # Interactive UTXO / note visualization
-│   │   └── EmployeeScanner.tsx   # Client-side Merkle note decryptor
+│   │   ├── AuditGraph.tsx        # Interactive selective disclosure visualization
+│   │   └── EmployeeScanner.tsx   # Client-side enclave note verifier
 │   ├── hooks/
 │   │   ├── usePayrollSigner.ts   # Live transaction signing & TEE pipeline
-│   │   └── useNoteScanner.ts     # In-browser Merkle tree leaf scanner
+│   │   └── useNoteScanner.ts     # In-browser commitment scanner
 │   └── lib/
+│       ├── magicblock.ts         # MagicBlock TEE Ephemeral Rollup client & batch attestation
 │       ├── denominate.ts         # Uniform denomination note splitter
 │       ├── crypto.ts             # AES-256-GCM, HKDF-SHA256 viewing key derivation
 │       └── redis.ts              # Upstash Redis TTL for ephemeral audit links
@@ -103,13 +105,13 @@ aegis-ledger/
 
 ### Installation
 ```bash
-git checkout feat/colosseum-usdc-payroll
+git checkout feature/zero-trust-refactor
 npm install
 cp .env.example .env.local
 npm run dev
 ```
 
-Visit `http://localhost:3000` to access the Payroll Terminal.
+Visit `http://localhost:3000` to access the Landing Page or `http://localhost:3000/dashboard` for the Treasury Terminal.
 
 ---
 

@@ -165,7 +165,7 @@ nav {
     opacity: 0.85;
 }
 
-.cloak-badge {
+.track-badge {
     font-family: var(--mono);
     font-size: 10px;
     color: var(--shield);
@@ -1074,7 +1074,7 @@ footer {
     nav {
         padding: 0 20px;
     }
-    .nav-links, .nav-cta .btn-ghost, .cloak-badge {
+    .nav-links, .nav-cta .btn-ghost, .track-badge {
         display: none;
     }
     .hero {

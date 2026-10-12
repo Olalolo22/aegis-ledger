@@ -38,7 +38,7 @@ export default function LandingPage() {
                     <li><a href="#compare">Compare</a></li>
                 </ul>
                 <div className="nav-cta">
-                    <span className="cloak-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span className="track-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <IconFlagNG width={13} height={9} /> Superteam Nigeria Track
                     </span>
                     <a href="https://github.com/Olalolo22/aegis-ledger" target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ textDecoration: 'none' }}>Docs</a>
@@ -189,7 +189,7 @@ export default function LandingPage() {
                 <div className="section-eyebrow reveal">The solution</div>
                 <h2 className="section-h2 serif reveal" style={{ transitionDelay: '0.1s' }}>Confidential on-chain. Accountable off-chain. Direct to local fiat.</h2>
                 <p className="section-sub reveal" style={{ transitionDelay: '0.2s' }}>
-                    Aegis Ledger runs treasury disbursements inside MagicBlock Private Ephemeral Rollups (TEE), partitions non-uniform salaries into standardized notes, and triggers automated fiat off-ramps.
+                    Aegis Ledger runs treasury disbursements inside MagicBlock Private Ephemeral Rollups (TEE), partitions non-uniform salaries into standardized notes, and routes direct emerging-market fiat settlement.
                 </p>
                 <div className="features-grid">
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.3s' }}>
@@ -216,7 +216,7 @@ export default function LandingPage() {
                             <IconFlagNG width={22} height={15} />
                         </span>
                         <div className="feat-title">Native dual-rail settlement (NGN / KES)</div>
-                        <div className="feat-desc">Direct automated off-ramp triggers into Nigerian banks (Providus/Kuda) and Kenyan Safaricom M-Pesa with live Spot FX and zero P2P bank-freeze risk.</div>
+                        <div className="feat-desc">Integrated fiat settlement architecture for Nigerian banks (Providus/Kuda) and Kenyan Safaricom M-Pesa with live Spot FX and zero P2P bank-freeze risk.</div>
                         <div className="feat-tag">Live Spot: ₦{liveFx.NGN.toLocaleString()} / KSh {liveFx.KES}</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.6s' }}>

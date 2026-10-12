@@ -37,15 +37,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Aegis Ledger | Private Payroll & Treasury Platform",
+  title: "Aegis Ledger | Confidential Payroll & Treasury Platform",
   description:
-    "Zero-knowledge payroll disbursements on Solana. Execute batch USDC payrolls with hidden amounts and addresses, powered by Cloak Protocol.",
+    "Confidential payroll disbursements and treasury coordination on Solana. Sub-second batch execution powered by MagicBlock Private Ephemeral Rollups (Intel TDX Enclave) with client-side verification and selective auditability.",
   keywords: [
     "Solana",
     "payroll",
-    "zero-knowledge",
+    "confidential",
     "privacy",
-    "Cloak",
+    "MagicBlock",
+    "TEE",
+    "Intel TDX",
+    "Ephemeral Rollup",
     "USDC",
     "treasury",
     "DAO",
