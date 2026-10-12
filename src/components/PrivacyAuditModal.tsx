@@ -11,8 +11,8 @@ export default function PrivacyAuditModal({ isOpen, onClose, txId }: { isOpen: b
         </div>
         
         <p className="text-sm text-gray-300 leading-relaxed mb-6">
-          This payslip was decrypted <span className="text-green-400 font-semibold">entirely in your browser</span>. 
-          The Cloak SDK used your local viewing key to reveal this data. Aegis Ledger servers never saw your private key, your identity, or the decrypted amount.
+          This payslip was verified <span className="text-green-400 font-semibold">entirely in your browser</span> via your Scoped Viewing Key. 
+          Aegis servers never saw your private key, your identity, or the confidential disbursement.
         </p>
         
         <div className="bg-black/40 p-4 rounded-lg border border-white/5 mb-6">
@@ -34,12 +34,12 @@ export default function PrivacyAuditModal({ isOpen, onClose, txId }: { isOpen: b
           </a>
           
           <a 
-            href="https://docs.cloak.dev" 
+            href="https://github.com/Olalolo22/aegis-ledger#architecture" 
             target="_blank" 
             rel="noreferrer"
             className="text-center text-[10px] text-gray-500 hover:text-gray-400 underline underline-offset-4"
           >
-            How does ZK-decryption work?
+            How does selective disclosure work?
           </a>
 
           <button 

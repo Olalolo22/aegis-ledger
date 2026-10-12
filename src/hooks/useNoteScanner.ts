@@ -127,7 +127,7 @@ export function useNoteScanner(): NoteScannerResult {
             current: 0,
             total: 100,
             decryptedSoFar: 0,
-            message: `Key validated (${validatedKey.length}-byte nk · fingerprint: ${keyFingerprint}). Scanning shielded pool...`,
+            message: `Key validated (${validatedKey.length}-byte nk · fingerprint: ${keyFingerprint}). Verifying confidential batch commitments...`,
           });
           await new Promise(r => setTimeout(r, 1200));
 
@@ -140,7 +140,7 @@ export function useNoteScanner(): NoteScannerResult {
               current: i + 1,
               total: mockTotal,
               decryptedSoFar: found,
-              message: `Scanning Merkle leaf ${i + 1}/${mockTotal}... ${found > 0 ? '✓ FOUND' : 'MISS'}`,
+              message: `Verifying enclave note commitment ${i + 1}/${mockTotal}... ${found > 0 ? '✓ MATCH' : 'MISS'}`,
             });
             await new Promise(r => setTimeout(r, 80));
           }

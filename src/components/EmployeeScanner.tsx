@@ -140,7 +140,7 @@ export default function EmployeeScanner() {
           </button>
         </div>
         <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)", display: "block", marginTop: 8 }}>
-          Key-based scanner — decryption runs entirely in your browser. Zero server contact.
+          Key-based verifier — verification runs entirely in your browser. Zero server contact.
         </span>
       </div>
 
@@ -151,7 +151,7 @@ export default function EmployeeScanner() {
             <span className={styles.termDot}
               style={{ background: done ? (payslips.length > 0 ? "var(--green)" : "var(--slate)") : status === "error" ? "var(--red)" : "var(--blue)", animation: (done || status === "error") ? "none" : "ae-blink 1s ease-in-out infinite" }} />
             <span className={styles.termLabel}>
-              {done ? (payslips.length > 0 ? "Scan complete" : "Scan complete (No notes found)") : status === "error" ? "Scan failed" : "Scanning Merkle tree (local)"}
+              {done ? (payslips.length > 0 ? "Verification complete" : "Verification complete (No notes found)") : status === "error" ? "Verification failed" : "Verifying TEE batch commitments (local)"}
             </span>
           </div>
           <div ref={logRef} className={styles.termBody}>
@@ -163,7 +163,7 @@ export default function EmployeeScanner() {
             {done && payslips.length === 0 && (
               <div style={{ marginTop: 12, padding: 12, border: '1px dashed var(--border-glass)', borderRadius: 8, animation: 'ae-fade-up 0.4s ease both' }}>
                 <p style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
-                  No live shielded notes found for this viewing key on the relay.
+                  No live confidential notes found for this viewing key on-chain.
                   This is expected if no transactions have been broadcast to this organization yet.
                 </p>
                 <button
@@ -228,7 +228,7 @@ export default function EmployeeScanner() {
                   { label: "Token", val: p.tokenSymbol },
                   { label: "Date", val: p.date ? p.date.split('T')[0] : "Unknown" },
                   { label: "Memo", val: p.memo || "Payroll disbursement" },
-                  { label: "Tx ref", val: `cloak:${p.commitmentHash.slice(0, 10)}...` },
+                  { label: "Tx ref", val: `aegis:${p.commitmentHash.slice(0, 10)}...` },
                 ].map(d => (
                   <div key={d.label}>
                     <span className={styles.payslipFieldLabel}>{d.label}</span>
