@@ -598,6 +598,83 @@
   opacity: 0.88;
 }
 
+/* ─── Enclave & Compliance Card (Right Panel) ─── */
+.enclaveCard {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 26px 28px;
+  border: 1px solid #e8ebee;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.enclaveHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.enclaveEyebrow {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: #8e98a6;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.enclaveTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #08090b;
+  letter-spacing: -0.3px;
+}
+
+.enclaveGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.enclaveMetric {
+  background: #fafbfc;
+  border: 1px solid #f0f1f4;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.enclaveMetricLabel {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: #8e98a6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.enclaveMetricVal {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #08090b;
+}
+
+.complianceBox {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 /* ─── Mobile Responsiveness ─── */
 @media (max-width: 860px) {
   .page {
