@@ -17,13 +17,14 @@ export const TOKEN_DECIMALS: Record<string, number> = {
 /** Known token mint addresses → symbols */
 export const MINT_TO_SYMBOL: Record<string, string> = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: "USDC", // Mainnet
-  "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf": "USDC", // Devnet
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU": "USDC", // Solana Devnet / MagicBlock TEE USDC
+  "61ro7AExqfk4dZYoCyRzTahahCC2TdUUZ4M5epMPunJf": "USDC", // Legacy Devnet
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: "USDT",
   So11111111111111111111111111111111111111112: "SOL",
 };
 
 export interface DecryptedPayslip {
-  /** Unique identifier — the UTXO commitment hash */
+  /** Unique identifier — the commitment hash */
   id: string;
 
   /** Human-readable amount (e.g., "1,250.00") */
@@ -47,11 +48,17 @@ export interface DecryptedPayslip {
   /** On-chain transaction signature */
   txSignature: string | null;
 
-  /** UTXO commitment hash for cross-referencing */
+  /** Note commitment hash for cross-referencing */
   commitmentHash: string;
 
-  /** Leaf index in the Merkle tree */
+  /** Leaf index in the batch Merkle root */
   leafIndex: number;
+
+  /** Aggregated TEE Batch Commitment Root */
+  batchCommitmentRoot?: string;
+
+  /** MagicBlock Intel TDX Enclave hardware attestation status */
+  enclaveAttestation?: string;
 }
 
 /** Status of a note decryption attempt */

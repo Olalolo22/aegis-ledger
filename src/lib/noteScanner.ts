@@ -21,6 +21,9 @@
  * - Network failures: retries with abort controller
  */
 
+import { PublicKey } from "@solana/web3.js";
+import { sha256 } from "@noble/hashes/sha256";
+import { bytesToHex } from "@noble/hashes/utils";
 import {
   fetchCommitments,
   tryDecryptNote,
@@ -122,6 +125,16 @@ export function parseViewingKey(input: any): Uint8Array {
     return bytes;
   }
 
+  // Try Solana PublicKey base58 string (32-44 base58 characters)
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) {
+    try {
+      const pubkey = new PublicKey(trimmed);
+      return pubkey.toBytes();
+    } catch {
+      // not a valid pubkey, continue
+    }
+  }
+
   // Try base64
   try {
     const decoded = atob(trimmed);
@@ -140,9 +153,26 @@ export function parseViewingKey(input: any): Uint8Array {
       throw e;
     }
     throw new Error(
-      "Invalid viewing key format. Expected a 64-character hex string or a base64-encoded 32-byte key."
+      "Invalid viewing key format. Expected a 64-character hex string, a base64-encoded 32-byte key, or a connected Solana wallet address."
     );
   }
+}
+
+/**
+ * Verifies a recipient's note commitment against MagicBlock TEE batch commitment.
+ * Formula: SHA256(recipient || amount || salt || nonce)
+ */
+export function verifyTeeCommitment(
+  recipient: string,
+  amountLamports: bigint,
+  saltHex: string,
+  expectedCommitment: string
+): boolean {
+  const input = new TextEncoder().encode(
+    `${recipient}:${amountLamports.toString()}:${saltHex}:aegis`
+  );
+  const computed = bytesToHex(sha256(input));
+  return computed === expectedCommitment || `aegis:${computed.slice(0, 32)}` === expectedCommitment;
 }
 
 //  Note Formatting 

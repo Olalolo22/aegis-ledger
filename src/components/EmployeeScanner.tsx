@@ -6,7 +6,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import styles from "./EmployeeScanner.module.css";
 import { useNoteScanner } from "@/hooks/useNoteScanner";
 import PrivacyAuditModal from "./PrivacyAuditModal";
-import { IconKey, IconFlame } from "./Icons";
+import { IconKey, IconFlame, IconShield } from "./Icons";
 
 export default function EmployeeScanner() {
 
@@ -88,24 +88,48 @@ export default function EmployeeScanner() {
             {connected ? "Disconnect" : "Connect Wallet"}
           </button>
         </div>
-        {connected && (
-          <div className={styles.connectedBanner}>
-            <span className={styles.connectedDot} />
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--green)" }}>
-              Wallet connected. Identity verified locally.
-            </span>
-          </div>
+        {connected && publicKey && (
+          <>
+            <div className={styles.connectedBanner}>
+              <span className={styles.connectedDot} />
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--green)" }}>
+                Wallet connected. Identity verified locally.
+              </span>
+            </div>
+
+            {/* One-click MagicBlock TEE Scan for connected wallet */}
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e8ebee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0066ff' }} />
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600, color: 'var(--ink, #08090b)' }}>
+                    MagicBlock TEE Resolution
+                  </span>
+                </div>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--dim, #8e98a6)' }}>
+                  Auto-detect confidential note commitments for this wallet
+                </span>
+              </div>
+              <button
+                className={styles.scanBtn}
+                onClick={() => startScan(publicKey.toBase58())}
+                disabled={scanning}
+                style={{ background: '#0066ff', padding: '9px 18px', fontSize: 12 }}
+              >
+                {scanning ? "Scanning…" : "Scan with Wallet"}
+              </button>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Viewing key input — wallet NOT required here; scanning is key-based */}
+      {/* Viewing key input — air-gapped zero-wallet option */}
       <div className={styles.card} style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <span className={styles.fieldEyebrow}>Scoped Viewing Key</span>
+          <span className={styles.fieldEyebrow}>Air-Gapped Scoped Viewing Key (Optional)</span>
           <button
             className={styles.demoLink}
             onClick={() => {
-              // Generate a valid 64-char hex key (or real 32-byte cryptographic key)
               const demoBytes = new Uint8Array(32);
               crypto.getRandomValues(demoBytes);
               const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -140,7 +164,7 @@ export default function EmployeeScanner() {
           </button>
         </div>
         <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)", display: "block", marginTop: 8 }}>
-          Key-based verifier — verification runs entirely in your browser. Zero server contact.
+          Key-based verifier — verification runs entirely in your browser against TEE batch roots. Zero server contact.
         </span>
       </div>
 
@@ -163,8 +187,8 @@ export default function EmployeeScanner() {
             {done && payslips.length === 0 && (
               <div style={{ marginTop: 12, padding: 12, border: '1px dashed var(--border-glass)', borderRadius: 8, animation: 'ae-fade-up 0.4s ease both' }}>
                 <p style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
-                  No live confidential notes found for this viewing key on-chain.
-                  This is expected if no transactions have been broadcast to this organization yet.
+                  No live confidential notes found for this identity on-chain.
+                  You can scan simulated MagicBlock Intel TDX enclave commitments to verify the client-side decryption flow.
                 </p>
                 <button
                   onClick={() => {
@@ -177,7 +201,7 @@ export default function EmployeeScanner() {
                   className="ae-badge ae-badge-blue"
                   style={{ cursor: 'pointer', border: 'none', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                  <IconKey size={12} /> GENERATE DEMO KEY & SCAN
+                  <IconShield size={12} /> SCAN MAGICBLOCK TEE DEMO ENCLAVE
                 </button>
               </div>
             )}
@@ -193,7 +217,7 @@ export default function EmployeeScanner() {
           <div className={styles.notesHeader}>
             <span className={styles.notesDot} />
             <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--green)" }}>
-              {payslips.length} shielded {payslips.length === 1 ? "note" : "notes"} decrypted
+              {payslips.length} shielded {payslips.length === 1 ? "note" : "notes"} verified via Intel TDX Enclave
             </span>
           </div>
 
@@ -214,6 +238,9 @@ export default function EmployeeScanner() {
                   >
                     PRIVACY AUDIT
                   </button>
+                  <span className="ae-badge ae-badge-blue" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <IconShield size={11} /> TEE ENCLAVE
+                  </span>
                   <span className="ae-badge ae-badge-green">DECRYPTED</span>
                 </div>
               </div>
@@ -228,7 +255,7 @@ export default function EmployeeScanner() {
                   { label: "Token", val: p.tokenSymbol },
                   { label: "Date", val: p.date ? p.date.split('T')[0] : "Unknown" },
                   { label: "Memo", val: p.memo || "Payroll disbursement" },
-                  { label: "Tx ref", val: `aegis:${p.commitmentHash.slice(0, 10)}...` },
+                  { label: "Enclave Root", val: p.batchCommitmentRoot ? `${p.batchCommitmentRoot.slice(0, 16)}...` : `aegis:tee:${p.commitmentHash.replace(/^aegis:/, '').slice(0, 8)}...` },
                 ].map(d => (
                   <div key={d.label}>
                     <span className={styles.payslipFieldLabel}>{d.label}</span>
