@@ -176,9 +176,9 @@ export default function LandingPage() {
                             <div className="stat-source">Source: Superteam Nigeria Community Research</div>
                         </div>
                         <div className="stat-cell reveal" style={{ transitionDelay: '0.5s' }}>
-                            <div className="stat-num serif">&lt; 50<span>ms</span></div>
-                            <div className="stat-desc">batch execution inside MagicBlock TEE hardware enclaves eliminates browser WASM timeouts and proves transactions in sub-seconds.</div>
-                            <div className="stat-source">Source: <a href="https://magicblock.gg" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>MagicBlock Benchmarks</a></div>
+                            <div className="stat-num serif">&gt; 30<span>s</span></div>
+                            <div className="stat-desc">browser freeze per recipient when using client-side WASM provers — making 20+ contributor payroll runs crash browser tabs.</div>
+                            <div className="stat-source">Source: Client-Side Groth16 Prover Benchmarks</div>
                         </div>
                     </div>
                 </div>
@@ -198,7 +198,7 @@ export default function LandingPage() {
                             <IconBolt size={20} />
                         </span>
                         <div className="feat-title">Sub-50ms TEE batch execution</div>
-                        <div className="feat-desc">Run payroll for 50+ contributors in a single hardware-enclave transaction. Sub-second execution with zero browser Groth16 WASM lag.</div>
+                        <div className="feat-desc">Executes 50+ contributor batches inside Intel TDX hardware enclaves with sub-50ms state transitions and zero client-side WASM lag.</div>
                         <div className="feat-tag">magicblock.perBatch()</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.4s' }}>
