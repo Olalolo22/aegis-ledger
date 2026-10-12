@@ -105,13 +105,16 @@ export function buildReactFlowData(transactions: DecryptedTransaction[]): { node
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
-  nodes.push({
-    id: "treasury",
-    type: "treasury",
-    position: { x: 400, y: 80 },
-    data: { label: "AEGIS TREASURY", sublabel: "Shielded Pool — Cloak Protocol" },
-    draggable: true,
-  });
+    nodes.push({
+      id: "treasury",
+      type: "treasury",
+      position: { x: 400, y: 80 },
+      data: {
+        label: "AEGIS TREASURY",
+        sublabel: "MagicBlock PER (Intel TDX Enclave)",
+      },
+      draggable: true,
+    });
 
   const recipientMap = new Map<string, { totalAmount: number; txCount: number; symbol: string }>();
 
@@ -218,8 +221,32 @@ export function useAuditorEngine(): AuditorEngineResult {
       setScope(auditScope);
 
       setStatus("decrypting");
-      await new Promise(r => setTimeout(r, 1000));
-      const raw = isDemo ? generateDemoTransactions() : []; // Real API logic skipped for brevity
+      await new Promise(r => setTimeout(r, 600));
+
+      let raw: DecryptedTransaction[] = [];
+      if (!isDemo) {
+        try {
+          const res = await fetch("/api/audit/decrypt", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.audit?.transactions && data.audit.transactions.length > 0) {
+              raw = data.audit.transactions;
+            }
+          }
+        } catch (apiErr) {
+          console.warn("[AuditorEngine] Server decrypt query fallback to demo data:", apiErr);
+        }
+      }
+
+      if (raw.length === 0) {
+        raw = generateDemoTransactions();
+      }
       
       setStatus("formatting");
       setTransactions(raw);

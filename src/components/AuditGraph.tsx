@@ -203,7 +203,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
         data: {
           ...n.data,
           label: decrypted ? "Company Treasury" : "0xc8d2···3f9a",
-          sublabel: decrypted ? "Aegis Ledger — Verified" : "Confidential Shielded Pool",
+          sublabel: decrypted ? "MagicBlock PER (Intel TDX Enclave) — Verified" : "Confidential TEE Enclave State",
         }
       };
     }

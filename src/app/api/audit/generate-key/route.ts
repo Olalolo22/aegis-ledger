@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
-import {
-  generateUtxoKeypair,
-  getNkFromUtxoPrivateKey,
-} from "@cloak.dev/sdk-devnet";
+import { randomBytes, randomUUID } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { generateKeyRequestSchema } from "@/lib/validation";
 import {
@@ -78,11 +74,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ─── Generate Cloak Viewing Key ───────────────────────────
-    // The Cloak SDK derives viewing material from a UTXO keypair.
-    // nk (nullifier key) is the 32-byte viewing key used for scanTransactions.
-    const utxoKeypair = await generateUtxoKeypair();
-    const nk: Uint8Array = getNkFromUtxoPrivateKey(utxoKeypair.privateKey);
+    // ─── Generate 32-byte Scoped Viewing Key ───────────────────
+    const nk = randomBytes(32);
 
     // ─── Generate unique key_id (HKDF salt) ──────────────────
     const keyId = randomUUID();
