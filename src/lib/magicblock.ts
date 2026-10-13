@@ -106,6 +106,7 @@ export interface TeeBatchRecipient {
   amountLamports: bigint;
   notes: number[];
   memo?: string;
+  token?: "USDC" | "USDT" | "SOL";
 }
 
 export interface TeeBatchResult {
@@ -174,7 +175,9 @@ export function buildTeeBatchPayload(
     const commitment = computeNoteCommitment(recipientPubkey, r.amountLamports);
     commitmentHashes.push(commitment);
 
-    if (isSplToken && tokenMint && senderAta) {
+    const isRecipientSol = r.token === "SOL" || !isSplToken;
+
+    if (!isRecipientSol && tokenMint && senderAta) {
       // Real SPL USDC transfer inside TEE Ephemeral Rollup
       const recipientAta = getAssociatedTokenAddressSync(
         tokenMint,

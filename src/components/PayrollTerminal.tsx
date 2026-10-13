@@ -348,14 +348,17 @@ export default function PayrollTerminal() {
     const hookRecipients = recipients.map(r => {
       const numeric = parseFloat(r.amount.replace(/,/g, ''));
       const lamports = r.token === "SOL" ? numeric * 1e9 : numeric * 1e6;
-      return { wallet: r.addr, amount: lamports.toString() };
+      return { wallet: r.addr, amount: Math.round(lamports).toString(), token: r.token };
     });
 
     setHasRunDenominations(true);
+    const isSolBatch = recipients.length > 0 && recipients.every(r => r.token === "SOL");
     await execute({
       org_id: DEMO_ORG_ID,
-      token_symbol: "USDC",
-      token_mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      token_symbol: isSolBatch ? "SOL" : "USDC",
+      token_mint: isSolBatch 
+        ? "So11111111111111111111111111111111111111112" 
+        : "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       initiated_by: "",
       recipients: hookRecipients,
       rail: activeRail,
@@ -788,7 +791,15 @@ export default function PayrollTerminal() {
               <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                 <input placeholder="Amount" value={newRow.amount}
                   onChange={e => setNewRow(p => ({ ...p, amount: e.target.value }))}
-                  style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "100%" }} />
+                  style={{ fontFamily: "var(--mono)", fontSize: 11, padding: "5px 6px", border: "1px solid #e8ebee", borderRadius: 6, width: "65px" }} />
+                <select
+                  value={newRow.token}
+                  onChange={e => setNewRow(p => ({ ...p, token: e.target.value as any }))}
+                  style={{ fontFamily: "var(--mono)", fontSize: 10.5, padding: "5px 4px", border: "1px solid #e8ebee", borderRadius: 6 }}
+                >
+                  <option value="USDC">USDC</option>
+                  <option value="SOL">SOL</option>
+                </select>
               </div>
 
               <div>
