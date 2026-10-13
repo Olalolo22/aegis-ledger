@@ -186,6 +186,10 @@ function ExecutionModal({
   }
   pct = maxPctRef.current;
 
+  const realSignature = txSignatures?.find(
+    (sig) => sig && !sig.startsWith("sim_") && !sig.startsWith("aegis:") && sig.length >= 44
+  );
+
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modalBox}>
@@ -234,13 +238,39 @@ function ExecutionModal({
               style={{ width: `${pct}%`, background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }} />
           </div>
           {(done || isError) && (
-            <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
-              {done
-                ? (txSignatures?.some(sig => sig.startsWith("sim_tee_") || sig.startsWith("sim_"))
-                  ? "✓ Batch attested via TEE Enclave (Demo Mode) — Close"
-                  : "✓ Batch confirmed on-chain — Close")
-                : "✕ Close and inspect"}
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+              {done && realSignature && (
+                <a
+                  href={`https://explorer.solana.com/tx/${realSignature}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    padding: "11px 16px",
+                    borderRadius: 10,
+                    background: "rgba(34, 224, 154, 0.12)",
+                    border: "1px solid rgba(34, 224, 154, 0.4)",
+                    color: "#22e09a",
+                    fontFamily: "var(--mono)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                  }}
+                >
+                  <span>View Confirmed Batch on Solana Explorer ↗</span>
+                </a>
+              )}
+              <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`} style={{ marginTop: 0 }}>
+                {done
+                  ? (!realSignature
+                    ? "✓ Batch attested via TEE Enclave (Demo Mode) — Close"
+                    : "✓ Batch confirmed on-chain — Close")
+                  : "✕ Close and inspect"}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -268,6 +298,10 @@ export default function PayrollTerminal() {
     destinationAccount: "",
   });
   const prevStatusRef = useRef(status);
+
+  const realBatchSignature = txSignatures?.find(
+    (sig) => sig && !sig.startsWith("sim_") && !sig.startsWith("aegis:") && sig.length >= 44
+  );
 
   useEffect(() => {
     if (prevStatusRef.current !== "completed" && status === "completed") {
@@ -822,23 +856,46 @@ export default function PayrollTerminal() {
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, fontFamily: "var(--mono)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, fontFamily: "var(--mono)", flexWrap: "wrap", gap: 10 }}>
               <span style={{ color: "rgba(255,255,255,0.6)", display: "inline-flex", alignItems: "center", gap: 5 }}>
                 <IconLock size={12} /> Public Solscan View: <strong>Sender, amounts & recipients hidden (Zero leakage)</strong>
               </span>
-              <a 
-                href="/audit"
-                style={{
-                  color: "#22e09a",
-                  textDecoration: "none",
-                  fontWeight: 600,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4
-                }}
-              >
-                Open Auditor Viewing Link →
-              </a>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {realBatchSignature ? (
+                  <a 
+                    href={`https://explorer.solana.com/tx/${realBatchSignature}?cluster=devnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: "#60a5fa",
+                      textDecoration: "none",
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4
+                    }}
+                  >
+                    View Batch on Solana Explorer ↗
+                  </a>
+                ) : (
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 10.5 }}>
+                    Anchored in TEE Batch Root (devnet-tee.magicblock.app)
+                  </span>
+                )}
+                <a 
+                  href="/audit"
+                  style={{
+                    color: "#22e09a",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4
+                  }}
+                >
+                  Open Auditor Viewing Link →
+                </a>
+              </div>
             </div>
           </div>
         )}

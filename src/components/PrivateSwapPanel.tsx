@@ -24,12 +24,14 @@ function ZKSwapModal({
   onClose,
   status,
   proofProgress,
-  error
+  error,
+  txSignature,
 }: { 
   onClose: () => void;
   status: PrivateSwapStatus;
   proofProgress: string | null;
   error: string | null;
+  txSignature?: string | null;
 }) {
   const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
   
@@ -58,6 +60,8 @@ function ZKSwapModal({
   }
 
   const pct = done ? 100 : Math.min(99, Math.round((log.length / ZK_SWAP_STEPS.length) * 100));
+
+  const isRealSig = txSignature && !txSignature.startsWith("sim_") && txSignature.length >= 44;
 
   return (
     <div className={styles.modalOverlay}>
@@ -107,9 +111,37 @@ function ZKSwapModal({
                  style={{ width: `${pct}%`, background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }} />
           </div>
           {(done || isError) && (
-            <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`}>
-              {done ? "✓ Payroll runway funded — Close" : "✕ Close and check errors"}
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+              {done && isRealSig && (
+                <a
+                  href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    padding: "11px 16px",
+                    borderRadius: 10,
+                    background: "rgba(34, 224, 154, 0.12)",
+                    border: "1px solid rgba(34, 224, 154, 0.4)",
+                    color: "#22e09a",
+                    fontFamily: "var(--mono)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                  }}
+                >
+                  <span>View on Solana Explorer ↗</span>
+                </a>
+              )}
+              <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`} style={{ marginTop: 0 }}>
+                {done
+                  ? (isRealSig ? "✓ Payroll runway funded on-chain — Close" : "✓ Payroll runway funded (Demo Mode) — Close")
+                  : "✕ Close and check errors"}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -124,7 +156,7 @@ export default function PrivateSwapPanel({
   orgId?: string;
   onClose?: () => void;
 }) {
-  const { execute, status, proofProgress, error, quote } = usePrivateSwap();
+  const { execute, status, proofProgress, error, quote, txSignature } = usePrivateSwap();
   const { getRate, isLive } = useTokenPrices();
   
   const TOKENS = ["SOL", "USDC", "USDT"] as const;
@@ -184,6 +216,7 @@ export default function PrivateSwapPanel({
           status={status}
           proofProgress={proofProgress}
           error={error}
+          txSignature={txSignature}
         />
       )}
 
