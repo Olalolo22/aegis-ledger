@@ -59,9 +59,9 @@ const MOCK_RECIPIENTS: Recipient[] = [
     destinationAccount: "Kuda Microfinance · 2049182390",
   },
   {
-    addr: "GxK6sHpqmF9qZVzRqFJc4Tbj9aWMGHakBjVkoXvRaTKT",
-    amount: "3,500",
-    token: "USDC",
+    addr: "542cSPaohJExS8mkeHMsgMTJg2gr4GcQWRGUPRpYKsfn",
+    amount: "0.05",
+    token: "SOL",
     memo: "ZK Research Fellow · Global",
     settlementRail: "onchain_shielded",
     destinationAccount: "Shielded Ephemeral UTXO",
@@ -348,11 +348,17 @@ export default function PayrollTerminal() {
     const hookRecipients = recipients.map(r => {
       const numeric = parseFloat(r.amount.replace(/,/g, ''));
       const lamports = r.token === "SOL" ? numeric * 1e9 : numeric * 1e6;
-      return { wallet: r.addr, amount: Math.round(lamports).toString(), token: r.token };
+      return { 
+        wallet: r.addr, 
+        amount: Math.round(lamports).toString(), 
+        token: r.token,
+        settlementRail: r.settlementRail,
+      };
     });
 
     setHasRunDenominations(true);
-    const isSolBatch = recipients.length > 0 && recipients.every(r => r.token === "SOL");
+    const onChainRecipients = recipients.filter(r => r.settlementRail === "onchain_shielded");
+    const isSolBatch = onChainRecipients.length > 0 && onChainRecipients.every(r => r.token === "SOL");
     await execute({
       org_id: DEMO_ORG_ID,
       token_symbol: isSolBatch ? "SOL" : "USDC",

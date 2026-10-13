@@ -32,7 +32,7 @@ export interface PayrollRequest {
   token_symbol: string;
   token_mint: string;
   initiated_by: string;
-  recipients: Array<{ wallet: string; amount: string; token?: "USDC" | "USDT" | "SOL" }>;
+  recipients: Array<{ wallet: string; amount: string; token?: "USDC" | "USDT" | "SOL"; settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa" }>;
   rail?: "tee" | "cloak";
 }
 
@@ -41,7 +41,7 @@ interface SigningParams {
   merkle_proofs: Array<any>;
   merkle_leaf_count: number;
   selected_utxos: Array<any>;
-  recipients: Array<{ wallet: string; amount: string; token?: "USDC" | "USDT" | "SOL" }>;
+  recipients: Array<{ wallet: string; amount: string; token?: "USDC" | "USDT" | "SOL"; settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa" }>;
   token_mint: string;
   token_symbol: string;
   program_id: string;
@@ -171,6 +171,7 @@ export function usePayrollSigner(): PayrollSignerResult {
               amountLamports: BigInt(r.amount),
               notes,
               token: r.token,
+              settlementRail: r.settlementRail,
             };
           });
 

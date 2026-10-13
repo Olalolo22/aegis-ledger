@@ -107,6 +107,7 @@ export interface TeeBatchRecipient {
   notes: number[];
   memo?: string;
   token?: "USDC" | "USDT" | "SOL";
+  settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
 }
 
 export interface TeeBatchResult {
@@ -174,6 +175,13 @@ export function buildTeeBatchPayload(
     // Compute cryptographic commitment hash for the recipient note
     const commitment = computeNoteCommitment(recipientPubkey, r.amountLamports);
     commitmentHashes.push(commitment);
+
+    // Off-ramp fiat rails (NGN bank, KES M-Pesa) settle off-chain via payment partner webhooks
+    // and are attested cryptographically via the batch root memo. They do not debit tokens on L1.
+    const isOffRamp = r.settlementRail === "ngn_bank" || r.settlementRail === "kes_mpesa";
+    if (isOffRamp) {
+      return;
+    }
 
     const isRecipientSol = r.token === "SOL" || !isSplToken;
 
