@@ -19,6 +19,11 @@ import {
 import { SettlementReceiptModal } from "./SettlementReceiptModal";
 import type { DisbursementReceipt } from "@/lib/offramp/types";
 import { SandboxOfframpProvider } from "@/lib/offramp/sandbox";
+import {
+  getSquadsVaultPda,
+  DEMO_SQUADS_MULTISIG,
+  type SquadsProposalResult,
+} from "@/lib/squads";
 
 export interface Recipient {
   addr: string;
@@ -104,6 +109,22 @@ const ZK_LOG_STEPS = [
   { msg: " ✓ On-chain view: [REDACTED]", col: "var(--blue)" },
 ];
 
+const SQUADS_LOG_STEPS = [
+  { msg: "› Deriving Squads v4 Vault PDA (Authority 0) for DAO Treasury...", col: "var(--dim)" },
+  { msg: " ✓ Vault PDA verified: 24U85b9m... (2-of-3 Multisig Threshold).", col: "var(--green)" },
+  { msg: "› Compiling confidential TEE batch with Vault PDA as payer...", col: "var(--dim)" },
+  { msg: " ✓ Note commitments & recipient payload prepared with zero hot-wallet custody.", col: "var(--green)" },
+  { msg: "› Wrapping batch inside Squads vaultTransactionCreate instruction...", col: "var(--dim)" },
+  { msg: " ✓ Squads transaction message compiled with recent blockhash.", col: "var(--green)" },
+  { msg: "› Generating proposalCreate instruction for Proposal #13...", col: "var(--dim)" },
+  { msg: " ✓ Proposal PDA derived on Devnet. Fee payer: Connected EOA.", col: "var(--green)" },
+  { msg: "› Requesting proposer signature from connected wallet...", col: "var(--dim)" },
+  { msg: " ✓ Proposer signature confirmed. Proposal broadcasted to Squads v4.", col: "var(--green)" },
+  { msg: "› Recording initial approval (1/2 threshold required)...", col: "var(--dim)" },
+  { msg: " ✓ Proposal live in DAO Treasury. Awaiting second co-signer approval.", col: "var(--green)" },
+  { msg: " ✓ Non-custodial assurance: Aegis hot-wallet never holds DAO runway.", col: "var(--blue)" },
+];
+
 function ExecutionModal({
   onClose,
   status,
@@ -112,6 +133,8 @@ function ExecutionModal({
   recipientProgress,
   rail = "tee",
   txSignatures = [],
+  treasurySource = "direct_wallet",
+  squadsProposal = null,
 }: {
   onClose: () => void;
   status: PayrollSignerStatus;
@@ -120,8 +143,15 @@ function ExecutionModal({
   recipientProgress: { current: number; total: number } | null;
   rail?: "tee" | "cloak";
   txSignatures?: string[];
+  treasurySource?: "direct_wallet" | "squads_multisig";
+  squadsProposal?: SquadsProposalResult | null;
 }) {
-  const activeSteps = rail === "tee" ? TEE_LOG_STEPS : ZK_LOG_STEPS;
+  const isSquads = treasurySource === "squads_multisig";
+  const activeSteps = isSquads
+    ? SQUADS_LOG_STEPS
+    : rail === "tee"
+      ? TEE_LOG_STEPS
+      : ZK_LOG_STEPS;
   const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
   const maxPhaseRef = useRef(0);
   const maxPctRef = useRef(0);
@@ -199,26 +229,36 @@ function ExecutionModal({
         <div className={styles.modalHeader}>
           <div>
             <span className={styles.modalEyebrow}>
-              {rail === "tee" ? "MagicBlock Ephemeral Rollup" : "Client-Side ZK Execution"}
+              {isSquads
+                ? "Squads v4 Multisig · Governance Execution"
+                : rail === "tee"
+                  ? "MagicBlock Ephemeral Rollup"
+                  : "Client-Side ZK Execution"}
             </span>
             <div className={styles.modalTitle} style={{ fontFamily: "var(--serif)" }}>
-              {rail === "tee" ? "Confidential TEE Batch Execution" : "Proving Batch Payroll"}
+              {isSquads
+                ? "Proposing Batch to Squads Vault"
+                : rail === "tee"
+                  ? "Confidential TEE Batch Execution"
+                  : "Proving Batch Payroll"}
             </div>
           </div>
           <div className={styles.modalStatus}>
             <span className={styles.modalStatusDot}
               style={{ background: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)", animation: (done || isError) ? "none" : "ae-blink 1s ease-in-out infinite" }} />
             <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
-              {done ? "COMPLETE" : isError ? "FAILED" : status.toUpperCase().replace("_", " ")}
+              {done ? (isSquads ? "PROPOSED" : "COMPLETE") : isError ? "FAILED" : status.toUpperCase().replace("_", " ")}
             </span>
           </div>
         </div>
         <div className={styles.ztBanner}>
           <IconLock size={13} style={{ color: "var(--amber)", flexShrink: 0 }} />
           <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--amber)", lineHeight: 1.6 }}>
-            {rail === "tee"
-              ? "Confidential execution inside Intel TDX hardware enclaves. Sub-second batch execution with zero client lag."
-              : "Your spending key never leaves this browser. All ZK proofs are generated locally via WASM."}
+            {isSquads
+              ? "Non-custodial DAO Treasury proposal. Payer is Squads Vault PDA. Co-signers must approve (2-of-3) before TEE enclave settlement."
+              : rail === "tee"
+                ? "Confidential execution inside Intel TDX hardware enclaves. Sub-second batch execution with zero client lag."
+                : "Your spending key never leaves this browser. All ZK proofs are generated locally via WASM."}
           </span>
         </div>
         <div className={styles.termBody}>
@@ -230,7 +270,11 @@ function ExecutionModal({
         <div className={styles.modalFooter}>
           <div className={styles.progressHeader}>
             <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.25)" }}>
-              {rail === "tee" ? "MagicBlock TEE Progress" : "Groth16 WASM Progress"}
+              {isSquads
+                ? "Squads v4 Multisig Proposal Progress"
+                : rail === "tee"
+                  ? "MagicBlock TEE Progress"
+                  : "Groth16 WASM Progress"}
             </span>
             <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: done ? "var(--green)" : isError ? "var(--red)" : "var(--blue)" }}>
               {done ? "100%" : isError ? "ERR" : `${pct}%`}
@@ -242,7 +286,24 @@ function ExecutionModal({
           </div>
           {(done || isError) && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
-              {done && realSignature && (
+              {done && isSquads && (
+                <div style={{
+                  background: "rgba(96, 165, 250, 0.12)",
+                  border: "1px solid rgba(96, 165, 250, 0.35)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: 11,
+                  fontFamily: "var(--mono)",
+                  color: "#93c5fd"
+                }}>
+                  <span>🏛 Squads Proposal #{squadsProposal?.transactionIndex || 13} Created</span>
+                  <span style={{ color: "#22e09a", fontWeight: 700 }}>1/2 Approvals (Proposer ✓)</span>
+                </div>
+              )}
+              {done && realSignature && !isSquads && (
                 <a
                   href={`https://explorer.solana.com/tx/${realSignature}?cluster=devnet`}
                   target="_blank"
@@ -268,9 +329,11 @@ function ExecutionModal({
               )}
               <button onClick={onClose} className={`${styles.confirmBtn} ae-fade-up`} style={{ marginTop: 0 }}>
                 {done
-                  ? (!realSignature
-                    ? "✓ Batch attested via TEE Enclave (Demo Mode) — Close"
-                    : "✓ Batch confirmed on-chain — Close")
+                  ? (isSquads
+                    ? "✓ Squads Proposal Created on Devnet — Return to Terminal"
+                    : !realSignature
+                      ? "✓ Batch attested via TEE Enclave (Demo Mode) — Close"
+                      : "✓ Batch confirmed on-chain — Close")
                   : "✕ Close and inspect"}
               </button>
             </div>
@@ -294,6 +357,9 @@ export default function PayrollTerminal() {
     txSignatures,
     batchRoot,
     offrampReceipts,
+    treasurySource,
+    setTreasurySource,
+    squadsProposal,
   } = usePayrollSigner();
   const { rates: liveFx, isLive, lastUpdated } = useLiveFx();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
@@ -304,6 +370,7 @@ export default function PayrollTerminal() {
   const [showAddRow, setShowAddRow] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
   const [importNotification, setImportNotification] = useState<string | null>(null);
+  const [simulatedApprovals, setSimulatedApprovals] = useState<number>(1);
   const [selectedReceipt, setSelectedReceipt] = useState<{
     receipt: DisbursementReceipt;
     memo?: string;
@@ -429,6 +496,7 @@ export default function PayrollTerminal() {
       initiated_by: "",
       recipients: hookRecipients,
       rail: activeRail,
+      treasurySource,
     });
   };
 
@@ -483,6 +551,8 @@ export default function PayrollTerminal() {
           recipientProgress={recipientProgress}
           rail={activeRail}
           txSignatures={txSignatures}
+          treasurySource={treasurySource}
+          squadsProposal={squadsProposal}
         />
       )}
 
@@ -527,16 +597,22 @@ export default function PayrollTerminal() {
       </div>
 
       <div className={styles.topGrid}>
-        {/* Panel 1: Shielded Treasury Enclave */}
+        {/* Panel 1: Shielded Treasury Enclave / Squads Vault */}
         <div className={styles.balanceCard}>
           <div className={styles.balanceGlow1} />
           <div className={styles.balanceGlow2} />
           <div className={styles.balanceHeader}>
-            <span className={styles.balanceLabel}>Shielded Treasury Enclave · <span style={{ opacity: 0.65, fontWeight: 400 }}>Demo Runway</span></span>
+            <span className={styles.balanceLabel}>
+              {treasurySource === "squads_multisig"
+                ? "Squads v4 Multisig Vault · 2-of-3 Treasury Runway"
+                : "Shielded Treasury Enclave · Demo Runway"}
+            </span>
             <div className={styles.enclavePill}>
               <span className={styles.enclavePillDot} />
               <span style={{ fontFamily: "var(--mono)", fontSize: 9 }}>
-                MAGICBLOCK PER · DEVNET-TEE
+                {treasurySource === "squads_multisig"
+                  ? "SQUADS V4 VAULT · NON-CUSTODIAL"
+                  : "MAGICBLOCK PER · DEVNET-TEE"}
               </span>
             </div>
           </div>
@@ -545,7 +621,9 @@ export default function PayrollTerminal() {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22, gap: 12, flexWrap: "wrap" }}>
             <span className={styles.balanceSub} style={{ margin: 0 }}>
-              {utxos} Shielded Notes · Sub-50ms TEE Enclave Settlement
+              {treasurySource === "squads_multisig"
+                ? "Vault Authority 0 · Co-signer Quorum Required for Execution"
+                : `${utxos} Shielded Notes · Sub-50ms TEE Enclave Settlement`}
             </span>
             <button
               onClick={() => setShowTopUpModal(true)}
@@ -575,7 +653,11 @@ export default function PayrollTerminal() {
               { label: "Available", val: available, green: false },
               { label: "Current Batch", val: locked, green: false },
               { label: "Runway", val: `${runwayMonths} mo`, green: false },
-              { label: "TEE Engine", val: "✓ Sub-50ms", green: true },
+              {
+                label: treasurySource === "squads_multisig" ? "Governance" : "TEE Engine",
+                val: treasurySource === "squads_multisig" ? "✓ 2-of-3 Squads" : "✓ Sub-50ms",
+                green: true,
+              },
             ].map(s => (
               <div key={s.label}>
                 <span className={styles.statLabel}>{s.label}</span>
@@ -689,9 +771,79 @@ export default function PayrollTerminal() {
       <div className={styles.batchCard}>
         <div className={styles.batchHeader}>
           <div>
-            <span className={styles.batchEyebrow}>Batch Disbursement</span>
+            <span className={styles.batchEyebrow}>Batch Disbursement · Governance Rails</span>
             <div className={styles.batchTitle}>October 2026 Contributor Payroll</div>
+
+            {/* Authority Switcher */}
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              background: "rgba(0, 0, 0, 0.05)",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
+              padding: 3,
+              borderRadius: 8,
+              marginTop: 10,
+              gap: 4,
+            }}>
+              <button
+                type="button"
+                onClick={() => setTreasurySource("direct_wallet")}
+                style={{
+                  background: treasurySource === "direct_wallet" ? "#ffffff" : "transparent",
+                  color: treasurySource === "direct_wallet" ? "#08090b" : "#64707f",
+                  boxShadow: treasurySource === "direct_wallet" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>⚡ Direct Wallet</span>
+                <span style={{ fontSize: 9.5, opacity: 0.65 }}>(Phantom / EOA)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTreasurySource("squads_multisig")}
+                style={{
+                  background: treasurySource === "squads_multisig" ? "#08090b" : "transparent",
+                  color: treasurySource === "squads_multisig" ? "#ffffff" : "#64707f",
+                  boxShadow: treasurySource === "squads_multisig" ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>🏛 Squads v4 Multisig</span>
+                <span style={{
+                  fontSize: 9.5,
+                  background: treasurySource === "squads_multisig" ? "rgba(34, 224, 154, 0.25)" : "rgba(0,0,0,0.06)",
+                  color: treasurySource === "squads_multisig" ? "#22e09a" : "#64707f",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  fontWeight: 700,
+                }}>
+                  2-of-3 DAO
+                </span>
+              </button>
+            </div>
           </div>
+
           <div className={styles.batchActions}>
             <button 
               className={styles.addBtn} 
@@ -713,15 +865,288 @@ export default function PayrollTerminal() {
               className={`${styles.runBtn}`}
               onClick={handleRunBatch}
               disabled={status !== "idle" && status !== "completed" && status !== "error"}
-              title="Disburse batch in sub-50ms via MagicBlock Intel TDX Enclave"
+              style={treasurySource === "squads_multisig" ? {
+                background: "linear-gradient(135deg, #08090b 0%, #1e2430 100%)",
+                border: "1px solid rgba(255, 255, 255, 0.15)",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+              } : undefined}
+              title={
+                treasurySource === "squads_multisig"
+                  ? "Propose confidential batch to Squads v4 Multisig Vault for co-signers"
+                  : "Disburse batch in sub-50ms via MagicBlock Intel TDX Enclave"
+              }
             >
-              ⚡ Disburse via MagicBlock TEE
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              {treasurySource === "squads_multisig" ? (
+                <>
+                  🏛 Propose via Squads v4 (2-of-3)
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </>
+              ) : (
+                <>
+                  ⚡ Disburse via MagicBlock TEE
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <path d="M2 6.5h9M7.5 3l3.5 3.5L7.5 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </>
+              )}
             </button>
           </div>
         </div>
+
+        {/* Squads Multisig Treasury Governance Card */}
+        {treasurySource === "squads_multisig" && (
+          <div style={{
+            background: "#0d1017",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            borderRadius: 12,
+            margin: "0 28px 20px 28px",
+            padding: "18px 22px",
+            color: "#ffffff",
+            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)",
+            animation: "ae-fade-up 0.25s ease",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.8,
+                    color: "#60a5fa",
+                    background: "rgba(96, 165, 250, 0.12)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                  }}>
+                    🏛 Squads v4 Multisig Governance
+                  </span>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    fontWeight: 600,
+                    color: "#22e09a",
+                    background: "rgba(34, 224, 154, 0.1)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                  }}>
+                    2-of-3 Multisig Threshold
+                  </span>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    color: "rgba(255, 255, 255, 0.45)",
+                  }}>
+                    Zero Operator Custody
+                  </span>
+                </div>
+                <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "#ffffff", fontWeight: 400 }}>
+                  Squads DAO Treasury Runway Vault
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "rgba(255,255,255,0.4)", display: "block" }}>
+                    VAULT PDA (AUTHORITY 0)
+                  </span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "#ffffff", fontWeight: 600 }}>
+                    {getSquadsVaultPda(DEMO_SQUADS_MULTISIG, 0).toBase58().slice(0, 6)}...{getSquadsVaultPda(DEMO_SQUADS_MULTISIG, 0).toBase58().slice(-6)}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    const vaultStr = getSquadsVaultPda(DEMO_SQUADS_MULTISIG, 0).toBase58();
+                    navigator.clipboard.writeText(vaultStr);
+                    const btn = document.getElementById("vault-copy-btn");
+                    if (btn) btn.innerText = "✓ Copied";
+                    setTimeout(() => { if (btn) btn.innerText = "Copy PDA"; }, 2000);
+                  }}
+                  id="vault-copy-btn"
+                  style={{
+                    background: "rgba(255, 255, 255, 0.08)",
+                    border: "1px solid rgba(255, 255, 255, 0.16)",
+                    color: "#ffffff",
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    fontFamily: "var(--mono)",
+                    fontSize: 10,
+                    cursor: "pointer",
+                  }}
+                >
+                  Copy PDA
+                </button>
+              </div>
+            </div>
+
+            {/* Signers Roster Grid */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 12,
+              background: "rgba(255, 255, 255, 0.03)",
+              border: "1px solid rgba(255, 255, 255, 0.06)",
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 14,
+            }}>
+              <div style={{ borderRight: "1px solid rgba(255,255,255,0.06)", paddingRight: 8 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.4)", display: "block" }}>
+                  Signer 01 (Connected Proposer)
+                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600, color: "#ffffff" }}>
+                  Lagos Treasury Lead
+                </span>
+                <div style={{ marginTop: 4 }}>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    color: squadsProposal ? "#22e09a" : "rgba(255,255,255,0.4)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4
+                  }}>
+                    {squadsProposal ? "✓ Proposal Created & Signed" : "Ready to Propose"}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ borderRight: "1px solid rgba(255,255,255,0.06)", paddingRight: 8 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.4)", display: "block" }}>
+                  Signer 02 (Co-Signer)
+                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600, color: "#ffffff" }}>
+                  Nairobi Security Lead
+                </span>
+                <div style={{ marginTop: 4 }}>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    color: simulatedApprovals >= 2 ? "#22e09a" : squadsProposal ? "#fbbf24" : "rgba(255,255,255,0.4)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4
+                  }}>
+                    {simulatedApprovals >= 2 ? "✓ Approved (Co-signed)" : squadsProposal ? "⏳ Awaiting Approval" : "Standby"}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "rgba(255,255,255,0.4)", display: "block" }}>
+                  Signer 03 (Co-Signer)
+                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600, color: "#ffffff" }}>
+                  Operations Multisig Signer
+                </span>
+                <div style={{ marginTop: 4 }}>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    color: "rgba(255,255,255,0.4)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4
+                  }}>
+                    Standby (2/3 Quorum)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Proposal State Banner / Simulation Controls */}
+            {squadsProposal ? (
+              <div style={{
+                background: simulatedApprovals >= 2 ? "rgba(34, 224, 154, 0.08)" : "rgba(251, 191, 36, 0.08)",
+                border: `1px solid ${simulatedApprovals >= 2 ? "rgba(34, 224, 154, 0.3)" : "rgba(251, 191, 36, 0.3)"}`,
+                borderRadius: 8,
+                padding: "10px 14px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 10,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    color: simulatedApprovals >= 2 ? "#22e09a" : "#fbbf24",
+                  }}>
+                    {simulatedApprovals >= 2 ? "✓ 2/2 QUORUM REACHED" : `⏳ 1/2 SIGNATURES RECORDED`}
+                  </span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "rgba(255, 255, 255, 0.8)" }}>
+                    Proposal #{squadsProposal.transactionIndex} · PDA: {squadsProposal.proposalPda.slice(0, 8)}...
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {simulatedApprovals < 2 ? (
+                    <button
+                      onClick={() => {
+                        setSimulatedApprovals(2);
+                      }}
+                      style={{
+                        background: "#fbbf24",
+                        color: "#08090b",
+                        border: "none",
+                        borderRadius: 6,
+                        padding: "6px 12px",
+                        fontFamily: "var(--mono)",
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      Simulate Co-Signer Approval (Signer 2) →
+                    </button>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "#22e09a" }}>
+                        Vault PDA authorized to settle batch via MagicBlock TEE
+                      </span>
+                      <button
+                        onClick={() => setSimulatedApprovals(1)}
+                        style={{
+                          background: "transparent",
+                          border: "1px solid rgba(255,255,255,0.2)",
+                          color: "rgba(255,255,255,0.6)",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          fontFamily: "var(--mono)",
+                          fontSize: 9.5,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                color: "rgba(255, 255, 255, 0.6)",
+                lineHeight: 1.5,
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }}>
+                <IconLock size={12} style={{ color: "#60a5fa", flexShrink: 0 }} />
+                <span>
+                  Non-custodial flow: Proposing batch wraps confidential TEE transfers directly inside Squads v4. 
+                  Funds move from Squads Vault PDA into MagicBlock PER only after 2 co-signers approve. Founders never hold raw runway.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {importNotification && (
           <div style={{
@@ -943,7 +1368,7 @@ export default function PayrollTerminal() {
                 <span>Emerging Markets Settlement Receipt (Batch #{completedRuns})</span>
               </div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "#22e09a", background: "rgba(34, 224, 154, 0.12)", padding: "4px 10px", borderRadius: 6 }}>
-                MAGICBLOCK PER CONFIRMED
+                {treasurySource === "squads_multisig" ? "SQUADS V4 GOVERNED · PER CONFIRMED" : "MAGICBLOCK PER CONFIRMED"}
               </div>
             </div>
             

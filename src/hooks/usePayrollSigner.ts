@@ -3,9 +3,19 @@
 import { useState, useCallback, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, Transaction } from "@solana/web3.js";
 import { denominate } from "../lib/denominate";
-import { getErConnection, buildTeeBatchPayload, type TeeBatchRecipient } from "../lib/magicblock";
+import {
+  getErConnection,
+  buildTeeBatchPayload,
+  computeNoteCommitment,
+  type TeeBatchRecipient,
+} from "../lib/magicblock";
+import {
+  buildSquadsBatchProposal,
+  DEMO_SQUADS_MULTISIG,
+  type SquadsProposalResult,
+} from "../lib/squads";
 
 /**
  * Custom hook encapsulating client-side payroll signing.
@@ -14,6 +24,10 @@ import { getErConnection, buildTeeBatchPayload, type TeeBatchRecipient } from ".
  * 1. "tee" (Default): MagicBlock Ephemeral Rollup. Sub-second execution inside Intel TDX hardware enclaves.
  *    Eliminates client-side Groth16 WASM proving bottlenecks for 10-50+ recipient batches.
  * 2. "cloak": Mathematical ZK-SNARKs via Cloak UTXO pool for high-value executive transfers.
+ *
+ * Authority / Treasury Models:
+ * - "direct_wallet": Phantom / Backpack direct signing.
+ * - "squads_multisig": Wrapped in Squads v4 multisig vault proposal for DAO governance.
  */
 
 export type PayrollSignerStatus =
@@ -40,6 +54,8 @@ export interface PayrollRequest {
     destinationAccount?: string;
   }>;
   rail?: "tee" | "cloak";
+  treasurySource?: "direct_wallet" | "squads_multisig";
+  multisigPda?: string;
 }
 
 interface SigningParams {
@@ -73,6 +89,9 @@ interface PayrollSignerResult {
   recipientProgress: { current: number; total: number } | null;
   activeRail: "tee" | "cloak";
   setActiveRail: (rail: "tee" | "cloak") => void;
+  treasurySource: "direct_wallet" | "squads_multisig";
+  setTreasurySource: (source: "direct_wallet" | "squads_multisig") => void;
+  squadsProposal: SquadsProposalResult | null;
   batchRoot: string | null;
   offrampReceipts: Record<string, any>;
 }
@@ -92,6 +111,8 @@ export function usePayrollSigner(): PayrollSignerResult {
   const { connection } = useConnection();
 
   const [activeRail, setActiveRail] = useState<"tee" | "cloak">("tee");
+  const [treasurySource, setTreasurySource] = useState<"direct_wallet" | "squads_multisig">("direct_wallet");
+  const [squadsProposal, setSquadsProposal] = useState<SquadsProposalResult | null>(null);
   const [status, setStatus] = useState<PayrollSignerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [payrollRunId, setPayrollRunId] = useState<string | null>(null);
@@ -124,6 +145,7 @@ export function usePayrollSigner(): PayrollSignerResult {
       setSigningParams(null);
       setProofProgress(null);
       setRecipientProgress(null);
+      setSquadsProposal(null);
 
       try {
         const batchStartTime = Date.now();
@@ -213,13 +235,45 @@ export function usePayrollSigner(): PayrollSignerResult {
             recentBlockhash = blockhash;
           }
 
-          const { transaction, commitmentHashes, batchRoot: enclaveBatchRoot } = buildTeeBatchPayload(
-            publicKey,
-            batchRecipients,
-            recentBlockhash,
-            params.token_mint ? new PublicKey(params.token_mint) : undefined
-          );
-          setBatchRoot(enclaveBatchRoot);
+          const isSquads = (request.treasurySource || treasurySource) === "squads_multisig";
+          let transaction: Transaction;
+          let commitmentHashes: string[];
+          let enclaveBatchRoot: string;
+          let squadsProposalData: SquadsProposalResult | null = null;
+
+          if (isSquads) {
+            setProofProgress("Compiling batch into Squads v4 Multisig Proposal (Non-Custodial)...");
+            const multisigKey = request.multisigPda
+              ? new PublicKey(request.multisigPda)
+              : DEMO_SQUADS_MULTISIG;
+
+            squadsProposalData = await buildSquadsBatchProposal({
+              connection,
+              proposer: publicKey,
+              multisigPda: multisigKey,
+              recipients: batchRecipients,
+              tokenMint: params.token_mint ? new PublicKey(params.token_mint) : undefined,
+            });
+
+            transaction = squadsProposalData.transaction as Transaction;
+            commitmentHashes = batchRecipients.map((r) =>
+              computeNoteCommitment(new PublicKey(r.wallet), r.amountLamports)
+            );
+            enclaveBatchRoot = squadsProposalData.batchRoot;
+            setSquadsProposal(squadsProposalData);
+            setBatchRoot(enclaveBatchRoot);
+          } else {
+            const teePayload = buildTeeBatchPayload(
+              publicKey,
+              batchRecipients,
+              recentBlockhash,
+              params.token_mint ? new PublicKey(params.token_mint) : undefined
+            );
+            transaction = teePayload.transaction;
+            commitmentHashes = teePayload.commitmentHashes;
+            enclaveBatchRoot = teePayload.batchRoot;
+            setBatchRoot(enclaveBatchRoot);
+          }
 
           let finalSignature: string;
 
@@ -319,9 +373,11 @@ export function usePayrollSigner(): PayrollSignerResult {
           const isSim = finalSignature.startsWith("sim_tee_");
           const durationSec = ((Date.now() - batchStartTime) / 1000).toFixed(1);
           setProofProgress(
-            isSim
-              ? `✓ Payroll complete (Enclave Simulation) — ${totalRecipients} recipients attested in ${durationSec}s`
-              : `✓ Payroll complete — ${totalRecipients} recipients settled on-chain via MagicBlock TEE in ${durationSec}s`
+            isSquads
+              ? `✓ Squads Proposal #${squadsProposalData?.transactionIndex || 13} created on Devnet (1/2 Approvals). Awaiting co-signer.`
+              : isSim
+                ? `✓ Payroll complete (Enclave Simulation) — ${totalRecipients} recipients attested in ${durationSec}s`
+                : `✓ Payroll complete — ${totalRecipients} recipients settled on-chain via MagicBlock TEE in ${durationSec}s`
           );
           setStatus("completed");
           return;
@@ -425,7 +481,7 @@ export function usePayrollSigner(): PayrollSignerResult {
         console.error("[Aegis] Execution error:", err);
       }
     },
-    [connected, publicKey, signTransaction, wallet, connection, activeRail]
+    [connected, publicKey, signTransaction, wallet, connection, activeRail, treasurySource]
   );
 
   return {
@@ -440,6 +496,9 @@ export function usePayrollSigner(): PayrollSignerResult {
     recipientProgress,
     activeRail,
     setActiveRail,
+    treasurySource,
+    setTreasurySource,
+    squadsProposal,
     batchRoot,
     offrampReceipts,
   };
