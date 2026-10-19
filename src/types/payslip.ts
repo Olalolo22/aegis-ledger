@@ -59,6 +59,24 @@ export interface DecryptedPayslip {
 
   /** MagicBlock Intel TDX Enclave hardware attestation status */
   enclaveAttestation?: string;
+
+  /** Emerging-market settlement rail */
+  settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+
+  /** Masked destination account or phone */
+  destinationAccount?: string;
+
+  /** Disbursed fiat amount in local currency */
+  fiatAmount?: number;
+
+  /** Disbursed fiat currency (NGN, KES) */
+  fiatCurrency?: "NGN" | "KES";
+
+  /** External banking / M-Pesa clearance reference */
+  railReference?: string;
+
+  /** Effective spot exchange rate applied */
+  exchangeRate?: number;
 }
 
 /** Status of a note decryption attempt */

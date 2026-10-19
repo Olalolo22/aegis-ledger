@@ -32,7 +32,13 @@ export interface PayrollRequest {
   token_symbol: string;
   token_mint: string;
   initiated_by: string;
-  recipients: Array<{ wallet: string; amount: string; token?: "USDC" | "USDT" | "SOL"; settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa" }>;
+  recipients: Array<{
+    wallet: string;
+    amount: string;
+    token?: "USDC" | "USDT" | "SOL";
+    settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+    destinationAccount?: string;
+  }>;
   rail?: "tee" | "cloak";
 }
 
@@ -41,7 +47,13 @@ interface SigningParams {
   merkle_proofs: Array<any>;
   merkle_leaf_count: number;
   selected_utxos: Array<any>;
-  recipients: Array<{ wallet: string; amount: string; token?: "USDC" | "USDT" | "SOL"; settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa" }>;
+  recipients: Array<{
+    wallet: string;
+    amount: string;
+    token?: "USDC" | "USDT" | "SOL";
+    settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+    destinationAccount?: string;
+  }>;
   token_mint: string;
   token_symbol: string;
   program_id: string;
@@ -61,6 +73,8 @@ interface PayrollSignerResult {
   recipientProgress: { current: number; total: number } | null;
   activeRail: "tee" | "cloak";
   setActiveRail: (rail: "tee" | "cloak") => void;
+  batchRoot: string | null;
+  offrampReceipts: Record<string, any>;
 }
 
 async function loadCloakSDK() {
@@ -84,6 +98,8 @@ export function usePayrollSigner(): PayrollSignerResult {
   const [txSignatures, setTxSignatures] = useState<string[]>([]);
   const [signingParams, setSigningParams] = useState<SigningParams | null>(null);
   const [proofProgress, setProofProgress] = useState<string | null>(null);
+  const [batchRoot, setBatchRoot] = useState<string | null>(null);
+  const [offrampReceipts, setOfframpReceipts] = useState<Record<string, any>>({});
   const [recipientProgress, setRecipientProgress] = useState<{
     current: number;
     total: number;
@@ -197,12 +213,13 @@ export function usePayrollSigner(): PayrollSignerResult {
             recentBlockhash = blockhash;
           }
 
-          const { transaction, commitmentHashes } = buildTeeBatchPayload(
+          const { transaction, commitmentHashes, batchRoot: enclaveBatchRoot } = buildTeeBatchPayload(
             publicKey,
             batchRecipients,
             recentBlockhash,
             params.token_mint ? new PublicKey(params.token_mint) : undefined
           );
+          setBatchRoot(enclaveBatchRoot);
 
           let finalSignature: string;
 
@@ -253,6 +270,49 @@ export function usePayrollSigner(): PayrollSignerResult {
           if (!confirmRes.ok) {
             const errData = await confirmRes.json().catch(() => ({}));
             console.warn("[Aegis] Payroll confirm warning:", errData);
+          }
+
+          // Dispatch off-ramp fiat settlements (NGN / KES) for non-chain recipients
+          const offrampPayload = params.recipients
+            .filter((r) => r.settlementRail === "ngn_bank" || r.settlementRail === "kes_mpesa")
+            .map((r, idx) => {
+              const isSol = r.token === "SOL";
+              const amountWhole = Number(r.amount) / (isSol ? 1e9 : 1e6);
+              return {
+                recipientId: r.wallet,
+                wallet: r.wallet,
+                amountUsd: amountWhole,
+                amountLocal: r.settlementRail === "kes_mpesa" ? Math.round(amountWhole * 130) : Math.round(amountWhole * 1331),
+                currency: r.settlementRail === "kes_mpesa" ? "KES" : "NGN",
+                rail: r.settlementRail,
+                destinationAccount: r.destinationAccount || "Bank Account",
+                noteCommitment: commitmentHashes[idx] || enclaveBatchRoot,
+              };
+            });
+
+          if (offrampPayload.length > 0) {
+            try {
+              const dispatchRes = await fetch("/api/payroll/dispatch-offramp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  batch_root: enclaveBatchRoot,
+                  recipients: offrampPayload,
+                }),
+              });
+              if (dispatchRes.ok) {
+                const dispatchData = await dispatchRes.json();
+                if (dispatchData.receipts) {
+                  const receiptMap: Record<string, any> = {};
+                  dispatchData.receipts.forEach((rcpt: any) => {
+                    receiptMap[rcpt.recipientWallet] = rcpt;
+                  });
+                  setOfframpReceipts(receiptMap);
+                }
+              }
+            } catch (err) {
+              console.warn("[Aegis] Offramp dispatch warning:", err);
+            }
           }
 
           setTxSignatures([finalSignature]);
@@ -380,5 +440,7 @@ export function usePayrollSigner(): PayrollSignerResult {
     recipientProgress,
     activeRail,
     setActiveRail,
+    batchRoot,
+    offrampReceipts,
   };
 }

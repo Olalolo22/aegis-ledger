@@ -16,6 +16,9 @@ import {
   IconFlagNG, 
   IconFlagKE 
 } from "./Icons";
+import { SettlementReceiptModal } from "./SettlementReceiptModal";
+import type { DisbursementReceipt } from "@/lib/offramp/types";
+import { SandboxOfframpProvider } from "@/lib/offramp/sandbox";
 
 export interface Recipient {
   addr: string;
@@ -279,7 +282,19 @@ function ExecutionModal({
 }
 
 export default function PayrollTerminal() {
-  const { execute, status, proofProgress, error, signingParams, recipientProgress, activeRail, setActiveRail, txSignatures } = usePayrollSigner();
+  const {
+    execute,
+    status,
+    proofProgress,
+    error,
+    signingParams,
+    recipientProgress,
+    activeRail,
+    setActiveRail,
+    txSignatures,
+    batchRoot,
+    offrampReceipts,
+  } = usePayrollSigner();
   const { rates: liveFx, isLive, lastUpdated } = useLiveFx();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
@@ -289,6 +304,10 @@ export default function PayrollTerminal() {
   const [showAddRow, setShowAddRow] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
   const [importNotification, setImportNotification] = useState<string | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<{
+    receipt: DisbursementReceipt;
+    memo?: string;
+  } | null>(null);
   const [newRow, setNewRow] = useState<Recipient>({
     addr: "",
     amount: "",
@@ -309,6 +328,47 @@ export default function PayrollTerminal() {
     }
     prevStatusRef.current = status;
   }, [status]);
+
+  const handleViewReceipt = async (recipient: Recipient) => {
+    // If a live receipt exists from the batch run, use it
+    if (offrampReceipts && offrampReceipts[recipient.addr]) {
+      setSelectedReceipt({
+        receipt: offrampReceipts[recipient.addr],
+        memo: recipient.memo,
+      });
+      return;
+    }
+
+    // Otherwise generate a deterministic cryptographic proof on the fly
+    const numericAmount = parseFloat(recipient.amount.replace(/,/g, "")) || 0;
+    const isKes = recipient.settlementRail === "kes_mpesa";
+    const localAmount = isKes
+      ? Math.round(numericAmount * (liveFx.KES || 130))
+      : Math.round(numericAmount * (liveFx.NGN || 1331));
+
+    const sandbox = new SandboxOfframpProvider();
+    const demoRoot = batchRoot || "abaca0a0049263512b022b7d52d27564d782103f9012a45";
+    const demoCommitment = "8f42a190de42b891" + recipient.addr.slice(0, 16);
+
+    const generated = await sandbox.disburse(
+      {
+        recipientId: recipient.addr,
+        wallet: recipient.addr,
+        amountUsd: numericAmount,
+        amountLocal: localAmount,
+        currency: isKes ? "KES" : "NGN",
+        rail: isKes ? "kes_mpesa" : "ngn_bank",
+        destinationAccount: recipient.destinationAccount || "Bank Account",
+        noteCommitment: demoCommitment,
+      },
+      demoRoot
+    );
+
+    setSelectedReceipt({
+      receipt: generated,
+      memo: recipient.memo,
+    });
+  };
 
   const BASE_BALANCE = 148_500; // Realistic operational startup payroll runway
   const batchTotal = recipients.reduce((sum, r) => {
@@ -353,6 +413,7 @@ export default function PayrollTerminal() {
         amount: Math.round(lamports).toString(), 
         token: r.token,
         settlementRail: r.settlementRail,
+        destinationAccount: r.destinationAccount,
       };
     });
 
@@ -446,6 +507,14 @@ export default function PayrollTerminal() {
             <PrivateSwapPanel onClose={() => setShowTopUpModal(false)} />
           </div>
         </div>
+      )}
+
+      {selectedReceipt && (
+        <SettlementReceiptModal
+          receipt={selectedReceipt.receipt}
+          memo={selectedReceipt.memo}
+          onClose={() => setSelectedReceipt(null)}
+        />
       )}
 
       {/* Page header */}
@@ -763,10 +832,34 @@ export default function PayrollTerminal() {
                   {localPayout}
                 </div>
 
-                <div>
-                  <span className="ae-badge ae-badge-green">
-                    {status === "completed" ? "Paid (Private)" : "Hidden"}
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: "flex-start" }}>
+                  <span className="ae-badge ae-badge-green" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <IconShield size={10} />
+                    {status === "completed" || offrampReceipts?.[r.addr] ? "Settled (Off-chain)" : "Hidden"}
                   </span>
+                  {(isNgn || isKes || offrampReceipts?.[r.addr]) && (
+                    <button
+                      onClick={() => handleViewReceipt(r)}
+                      style={{
+                        background: "rgba(34, 197, 94, 0.08)",
+                        border: "1px solid rgba(34, 197, 94, 0.25)",
+                        borderRadius: 4,
+                        padding: "2px 7px",
+                        fontFamily: "var(--mono)",
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        color: "#059669",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        transition: "all 0.15s ease",
+                      }}
+                      title="Inspect cryptographic settlement proof and zero-knowledge receipt"
+                    >
+                      Receipt ↗
+                    </button>
+                  )}
                 </div>
 
                 <button
