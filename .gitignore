@@ -38,3 +38,8 @@ treasury-keypair.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Documentation & Internal Strategy
+ARCHITECTURE_WALKTHROUGH.md
+MASTER_STRATEGY_DOSSIER.md
+ROADMAP_SPEC.md
