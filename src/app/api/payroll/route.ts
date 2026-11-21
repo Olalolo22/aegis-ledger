@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("payroll_runs")
       .select(
-        "id, token_symbol, merkle_root, anchor_tx_signature, anchor_slot, e2ee_envelope, settlement_verified, created_at, completed_at"
+        "id, token_symbol, merkle_root, anchor_tx_signature, anchor_slot, e2ee_envelope, anchor_verified, created_at, completed_at"
       )
       .eq("org_id", orgId)
       .eq("status", "completed")
@@ -71,7 +71,10 @@ export async function GET(request: NextRequest) {
         merkle_root: r.merkle_root,
         anchor_tx_signature: r.anchor_tx_signature,
         anchor_slot: r.anchor_slot,
-        settlement_verified: r.settlement_verified,
+        anchor_verified: Boolean(r.anchor_verified),
+        auditor_verifiable: Boolean(
+          r.anchor_tx_signature && r.merkle_root && r.e2ee_envelope
+        ),
         org_wrapped_dek: r.e2ee_envelope?.orgWrappedDek ?? null,
         org_wrapped_deks: r.e2ee_envelope?.orgWrappedDeks ?? null,
         org_public_key_fingerprint:

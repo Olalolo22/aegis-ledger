@@ -18,26 +18,30 @@ import { L1_DEVNET_RPC, getErConnection } from "@/lib/magicblock";
 import {
   enumerateTreasuryAnchorsOnL1,
   reconcileAuditedBatchesAgainstL1,
+  verifyAnchorTransactionOnChain,
   verifyMagicBlockTransferOnChain,
   type EnumeratedL1Anchor,
 } from "@/lib/onchainVerify";
 
 /**
- * useAuditorEngine — Client-Side Zero-Knowledge Auditor Verification Engine.
+ * useAuditorEngine — Zero-Trust Client-Side Auditor Verification Engine.
  *
- * Security Invariants verified directly inside the auditor's browser:
- * 1. Decrypts client-encrypted `e2ee_envelope` blobs using ONLY the auditor's
- *    private key (never sent to any server).
- * 2. Reconstructs every batch's full Binary SHA-256 Merkle Sum Tree and proves
- *    intra-batch completeness against the Solana L1-anchored root.
- * 3. Decodes every settled `onchain_shielded` MagicBlock Private SPL transfer
- *    directly from MagicBlock ER RPC (`SPLxh1LVZz...` discriminant `0x10`),
- *    requiring the full 64-hex leaf memo and proving that actual settled bytes
- *    match the committed leaf (catching 300-vs-3,800 underpayment without
- *    Aegis servers ever seeing a salary or salt).
- * 4. Cross-batch completeness ("Proof Nothing Was Withheld"): enumerates ALL
- *    `aegis:merkle:v1` memos signed by the treasury on Solana L1 during the
- *    audit window and flags any anchored-but-undisclosed batch as a finding.
+ * Trust Boundary Invariant (ZERO trust in Aegis servers):
+ * 1. `/api/audit/decrypt` is treated STRICTLY as an untrusted ciphertext &
+ *    pointer courier (`anchor_tx_signature`, `e2ee_envelope`, `auditor_wrapped_dek`).
+ *    Any server-advisory flags are IGNORED.
+ * 2. For EVERY batch, THIS browser connects directly to the auditor's chosen
+ *    Solana L1 RPC (`customL1RpcUrl || L1_DEVNET_RPC`), pulls `anchor_tx_signature`
+ *    directly off Solana L1, verifies tx success + signer + `aegis:merkle:v1:<root>:<count>`,
+ *    and treats ONLY that browser-fetched L1 root as authoritative.
+ * 3. Decrypts each `e2ee_envelope` locally with the auditor's private key, binding
+ *    GCM AAD to the browser-fetched L1 root.
+ * 4. Rebuilds the full Binary SHA-256 Merkle Sum Tree against the browser-fetched
+ *    L1 root AND decodes every `onchain_shielded` MagicBlock `SPLxh1LVZz...` (`0x10`)
+ *    transfer directly from MagicBlock ER RPC (strict 64-hex leaf memo required).
+ * 5. Enumerates ALL `aegis:merkle:v1` memos signed by the treasury directly via
+ *    the auditor's Solana L1 RPC (NEVER falls back silently to Aegis server reports)
+ *    and flags any anchored-but-undisclosed batch as a finding.
  */
 
 export type AuditorEngineStatus =
@@ -70,7 +74,8 @@ export interface DecryptedTransaction {
 }
 
 export interface AuditorReconciliationReport {
-  verifiedBy: "auditor_browser_l1_rpc" | "server_l1_rpc" | "demo";
+  verifiedBy: "auditor_browser_l1_rpc" | "demo";
+  l1RpcEndpoint: string;
   treasuryPubkeysChecked: string[];
   totalL1AnchorsInWindow: number;
   deliveredMatchedCount: number;
@@ -103,27 +108,19 @@ export interface AuditScope {
 
 export interface AuditedBatchEnvelope {
   payroll_run_id: string;
-  initiated_by?: string;
+  initiated_by: string;
   token_symbol: string;
+  anchor_tx_signature: string | null;
+  anchor_slot?: number | null;
   merkle_root: string;
   leaf_count: number;
   total_amount_base_units: string;
   tx_signatures: string[];
   settled_at: string;
-  settlement_verified: boolean;
-  chain_anchor: {
-    verified: boolean;
-    signature: string | null;
-    slot?: number | null;
-    block_time?: number | null;
-    on_chain_root?: string | null;
-    on_chain_leaf_count?: number | null;
-    signer_verified?: boolean;
-    error?: string | null;
-  };
+  anchor_verified: boolean;
+  auditor_verifiable: boolean;
   e2ee_envelope: EncryptedAuditEnvelope | null;
   auditor_wrapped_dek: string | null;
-  aad_matches_chain_root: boolean;
 }
 
 interface DecryptedBatchManifest {
@@ -152,7 +149,11 @@ interface DecryptedBatchManifest {
 }
 
 export interface AuditorEngineResult {
-  execute: (accessToken: string, auditorPrivateKeyPkcs8?: string) => Promise<void>;
+  execute: (
+    accessToken: string,
+    auditorPrivateKeyPkcs8?: string,
+    customL1RpcUrl?: string
+  ) => Promise<void>;
   status: AuditorEngineStatus;
   isLoadingData: boolean;
   isDecrypting: boolean;
@@ -216,7 +217,7 @@ export function buildReactFlowData(transactions: DecryptedTransaction[]): {
     position: { x: 400, y: 80 },
     data: {
       label: "AEGIS TREASURY",
-      sublabel: "MagicBlock PER (L1-Anchored · Client-Side E2EE)",
+      sublabel: "MagicBlock PER (Direct Auditor L1 Verified · E2EE)",
     },
     draggable: true,
   });
@@ -317,13 +318,18 @@ export function useAuditorEngine(): AuditorEngineResult {
   const executingRef = useRef(false);
 
   const execute = useCallback(
-    async (accessToken: string, auditorPrivateKeyPkcs8?: string) => {
+    async (
+      accessToken: string,
+      auditorPrivateKeyPkcs8?: string,
+      customL1RpcUrl?: string
+    ) => {
       if (executingRef.current) return;
       executingRef.current = true;
       setStatus("loading_data");
       setError(null);
       setReconciliation(null);
       const isDemo = accessToken === "demo-token";
+      const l1RpcEndpoint = (customL1RpcUrl || "").trim() || L1_DEVNET_RPC;
 
       try {
         let auditScope: AuditScope;
@@ -363,6 +369,7 @@ export function useAuditorEngine(): AuditorEngineResult {
           erTransfersVerifiedCount = raw.length;
           reconReport = {
             verifiedBy: "demo",
+            l1RpcEndpoint,
             treasuryPubkeysChecked: ["DemoTreasury1111111111111111111111111111111"],
             totalL1AnchorsInWindow: 1,
             deliveredMatchedCount: 1,
@@ -378,9 +385,8 @@ export function useAuditorEngine(): AuditorEngineResult {
             );
           }
 
-          setProgress(
-            "Fetching L1-verified encrypted audit envelopes from /api/audit/decrypt..."
-          );
+          // Treat /api/audit/decrypt strictly as an UNTRUSTED ciphertext & pointer courier
+          setProgress("Fetching encrypted audit envelopes from /api/audit/decrypt...");
           const res = await fetch("/api/audit/decrypt", {
             method: "POST",
             headers: {
@@ -401,13 +407,22 @@ export function useAuditorEngine(): AuditorEngineResult {
             : [];
           totalBatches = batches.length;
 
+          // Auditor browser connects DIRECTLY to Solana L1 RPC & MagicBlock ER RPC
+          const l1Connection = new Connection(l1RpcEndpoint, "confirmed");
           const erConnection = getErConnection();
+          const browserVerifiedBatchesForRecon: Array<{
+            payroll_run_id: string;
+            anchor_tx_signature: string | null;
+            merkle_root: string;
+            anchor_verified: boolean;
+          }> = [];
+
           let cumulativeOutflow = 0;
 
           for (const batch of batches) {
-            if (!batch.chain_anchor?.verified || !batch.chain_anchor.on_chain_root) {
+            if (!batch.anchor_tx_signature) {
               throw new Error(
-                `Batch ${batch.payroll_run_id} failed Solana L1 root anchor verification: ${batch.chain_anchor?.error || "Unanchored root"}`
+                `Batch ${batch.payroll_run_id} is missing anchor_tx_signature; cannot pull root from Solana L1.`
               );
             }
             if (!batch.e2ee_envelope || !batch.auditor_wrapped_dek) {
@@ -416,20 +431,52 @@ export function useAuditorEngine(): AuditorEngineResult {
               );
             }
 
+            // 1. AUDITOR BROWSER pulls & verifies the L1 anchor DIRECTLY off Solana L1 RPC
+            //    (NEVER trusts any server-returned root or `verified: true` flag!)
+            setProgress(
+              `Pulling anchor tx ${batch.anchor_tx_signature.slice(0, 12)}... directly from Solana L1 RPC (${l1RpcEndpoint})...`
+            );
+            const browserAnchorCheck = await verifyAnchorTransactionOnChain(
+              l1Connection,
+              batch.anchor_tx_signature,
+              batch.initiated_by,
+              batch.merkle_root,
+              batch.leaf_count
+            );
+
+            if (
+              !browserAnchorCheck.verified ||
+              !browserAnchorCheck.onChainRoot ||
+              !browserAnchorCheck.onChainLeafCount
+            ) {
+              throw new Error(
+                `Auditor L1 RPC rejected batch ${batch.payroll_run_id} anchor (${batch.anchor_tx_signature}): ${browserAnchorCheck.error || "Invalid L1 anchor"}`
+              );
+            }
+
+            const authoritativeL1Root = browserAnchorCheck.onChainRoot;
+            const authoritativeL1LeafCount = browserAnchorCheck.onChainLeafCount;
             verifiedChainAnchors += 1;
-            const onChainRoot = batch.chain_anchor.on_chain_root;
+
+            browserVerifiedBatchesForRecon.push({
+              payroll_run_id: batch.payroll_run_id,
+              anchor_tx_signature: batch.anchor_tx_signature,
+              merkle_root: authoritativeL1Root,
+              anchor_verified: true,
+            });
+
+            // 2. Decrypt strictly client-side binding GCM AAD to the BROWSER-FETCHED L1 root
             const expectedAad = buildEnvelopeAad({
               orgId: auditScope.org_id,
               payrollRunId: batch.payroll_run_id,
-              merkleRoot: onChainRoot,
+              merkleRoot: authoritativeL1Root,
               tokenSymbol: batch.token_symbol,
             });
 
             setProgress(
-              `Decrypting batch ${batch.payroll_run_id.slice(0, 8)}... locally in browser & verifying Merkle Sum Tree...`
+              `Decrypting batch ${batch.payroll_run_id.slice(0, 8)}... locally & rebuilding Binary Merkle Sum Tree against L1 root...`
             );
 
-            // 1. Decrypt strictly client-side with auditor's private key
             const plaintextJson = await decryptManifestClientSide(
               batch.e2ee_envelope,
               auditorPrivateKeyPkcs8.trim(),
@@ -440,12 +487,12 @@ export function useAuditorEngine(): AuditorEngineResult {
             );
             const manifest = JSON.parse(plaintextJson) as DecryptedBatchManifest;
 
-            // 2. Verify FULL Binary Merkle Sum Tree completeness against the SOLANA L1 ROOT
+            // 3. Verify FULL Binary Merkle Sum Tree completeness against BROWSER-FETCHED L1 ROOT & COUNT
             const completeness = verifyBatchCompleteness(
               manifest.entries,
-              onChainRoot,
+              authoritativeL1Root,
               BigInt(batch.total_amount_base_units),
-              batch.leaf_count
+              authoritativeL1LeafCount
             );
 
             if (!completeness.valid) {
@@ -459,7 +506,7 @@ export function useAuditorEngine(): AuditorEngineResult {
 
             for (const entry of manifest.entries) {
               const proofOk =
-                verifyMerkleInclusionProof(entry.merkleProof, onChainRoot) &&
+                verifyMerkleInclusionProof(entry.merkleProof, authoritativeL1Root) &&
                 entry.merkleProof.leafHash === entry.commitmentHash;
 
               if (!proofOk) {
@@ -468,8 +515,7 @@ export function useAuditorEngine(): AuditorEngineResult {
                 );
               }
 
-              // 3. Client-side MagicBlock ER Wire Decoding for every on-chain shielded transfer
-              //    (proves settled bytes match claimed salary + full 64-hex leaf memo without server ever seeing salaries)
+              // 4. Client-side MagicBlock ER Wire Decoding for every on-chain shielded transfer
               let erTransferVerified = false;
               if (
                 entry.settlementRail === "onchain_shielded" &&
@@ -489,7 +535,7 @@ export function useAuditorEngine(): AuditorEngineResult {
                     saltHex: entry.saltHex,
                     runNonce: entry.runNonce,
                     merkleProof: entry.merkleProof,
-                    anchoredMerkleRoot: onChainRoot,
+                    anchoredMerkleRoot: authoritativeL1Root,
                   }
                 );
                 if (!transferCheck.verified) {
@@ -515,88 +561,81 @@ export function useAuditorEngine(): AuditorEngineResult {
                 symbol: entry.tokenSymbol,
                 decimals: KNOWN_DECIMALS[entry.tokenSymbol] ?? 6,
                 commitment: entry.commitmentHash,
-                merkleRoot: onChainRoot,
-                anchorTxSignature: batch.chain_anchor.signature || undefined,
+                merkleRoot: authoritativeL1Root,
+                anchorTxSignature: batch.anchor_tx_signature,
                 chainAnchorVerified: true,
                 completenessVerified: completeness.valid && proofOk,
                 erTransferVerified,
                 settlementRail: entry.settlementRail,
-                signature: entry.settlementTxSignature || batch.chain_anchor.signature || batch.tx_signatures?.[0],
+                signature:
+                  entry.settlementTxSignature ||
+                  batch.anchor_tx_signature ||
+                  batch.tx_signatures?.[0],
               });
             }
           }
 
-          // 4. Independent Browser-Side L1 Cross-Batch Completeness Check ("Proof Nothing Was Withheld")
+          // 5. Mandatory Direct Browser-Side Solana L1 Enumeration ("Proof Nothing Was Withheld")
+          //    NEVER falls back silently to Aegis server reports — fails loud if L1 RPC fails.
           const treasuryPubkeys: string[] = Array.isArray(data.audit?.treasury_pubkeys)
             ? data.audit.treasury_pubkeys
             : [];
-          const serverRecon = data.audit?.reconciliation;
+
+          if (treasuryPubkeys.length === 0) {
+            throw new Error(
+              "No treasury public keys available to enumerate Solana L1 anchors for cross-batch completeness."
+            );
+          }
 
           setProgress(
-            "Enumerating Solana L1 treasury anchors to verify zero withheld batches..."
+            `Enumerating all Solana L1 treasury anchors directly via ${l1RpcEndpoint} to verify zero withheld batches...`
           );
 
+          const browserL1Anchors: EnumeratedL1Anchor[] = [];
+          let scanned = 0;
+
           try {
-            if (treasuryPubkeys.length > 0) {
-              const l1Connection = new Connection(L1_DEVNET_RPC, "confirmed");
-              const browserL1Anchors: EnumeratedL1Anchor[] = [];
-              let scanned = 0;
-
-              for (const pubkey of treasuryPubkeys) {
-                const resEnum = await enumerateTreasuryAnchorsOnL1(
-                  l1Connection,
-                  pubkey,
-                  {
-                    validFromIso: auditScope.valid_from,
-                    validUntilIso: auditScope.valid_until,
-                    maxSignatures: 200,
-                  }
-                );
-                scanned += resEnum.scannedSignatureCount;
-                browserL1Anchors.push(...resEnum.anchors);
-              }
-
-              const browserRecon = reconcileAuditedBatchesAgainstL1(
-                browserL1Anchors,
-                batches.map((b) => ({
-                  payroll_run_id: b.payroll_run_id,
-                  anchor_tx_signature: b.chain_anchor.signature,
-                  merkle_root: b.chain_anchor.on_chain_root || b.merkle_root,
-                  anchor_verified: b.chain_anchor.verified,
-                })),
+            for (const pubkey of treasuryPubkeys) {
+              const resEnum = await enumerateTreasuryAnchorsOnL1(
+                l1Connection,
+                pubkey,
                 {
-                  treasuryPubkeysChecked: treasuryPubkeys,
-                  scannedSignatureCount: scanned,
+                  validFromIso: auditScope.valid_from,
+                  validUntilIso: auditScope.valid_until,
+                  maxSignatures: 200,
                 }
               );
-
-              reconReport = {
-                verifiedBy: "auditor_browser_l1_rpc",
-                treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
-                totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,
-                deliveredMatchedCount: browserRecon.deliveredMatchedCount,
-                undisclosedAnchors: browserRecon.undisclosedAnchors,
-                unanchoredDeliveredRunIds: browserRecon.unanchoredDeliveredRunIds,
-                completeZeroOmissions: browserRecon.completeZeroOmissions,
-                erTransfersVerifiedCount,
-              };
+              scanned += resEnum.scannedSignatureCount;
+              browserL1Anchors.push(...resEnum.anchors);
             }
-          } catch {
-            // Fall back to server L1 enumeration report if browser L1 RPC is rate-limited
-            if (serverRecon) {
-              reconReport = {
-                verifiedBy: "server_l1_rpc",
-                treasuryPubkeysChecked: serverRecon.treasury_pubkeys_checked || [],
-                totalL1AnchorsInWindow: serverRecon.total_l1_anchors_in_window || 0,
-                deliveredMatchedCount: serverRecon.delivered_matched_count || 0,
-                undisclosedAnchors: serverRecon.undisclosed_anchors || [],
-                unanchoredDeliveredRunIds:
-                  serverRecon.unanchored_delivered_run_ids || [],
-                completeZeroOmissions: Boolean(serverRecon.complete_zero_omissions),
-                erTransfersVerifiedCount,
-              };
-            }
+          } catch (rpcErr) {
+            const detail =
+              rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
+            throw new Error(
+              `Direct auditor Solana L1 RPC enumeration failed (${l1RpcEndpoint}): ${detail}. Supply an unthrottled Solana L1 RPC endpoint to complete zero-trust reconciliation.`
+            );
           }
+
+          const browserRecon = reconcileAuditedBatchesAgainstL1(
+            browserL1Anchors,
+            browserVerifiedBatchesForRecon,
+            {
+              treasuryPubkeysChecked: treasuryPubkeys,
+              scannedSignatureCount: scanned,
+            }
+          );
+
+          reconReport = {
+            verifiedBy: "auditor_browser_l1_rpc",
+            l1RpcEndpoint,
+            treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
+            totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,
+            deliveredMatchedCount: browserRecon.deliveredMatchedCount,
+            undisclosedAnchors: browserRecon.undisclosedAnchors,
+            unanchoredDeliveredRunIds: browserRecon.unanchoredDeliveredRunIds,
+            completeZeroOmissions: browserRecon.completeZeroOmissions,
+            erTransfersVerifiedCount,
+          };
         }
 
         setStatus("formatting");

@@ -85,10 +85,11 @@ const nodeTypes = {
 function AuditorLogin({
   onAuth,
 }: {
-  onAuth: (jwt: string, auditorPrivateKey?: string) => void;
+  onAuth: (jwt: string, auditorPrivateKey?: string, customL1RpcUrl?: string) => void;
 }) {
   const [key, setKey] = useState("");
   const [privateKey, setPrivateKey] = useState("");
+  const [l1RpcUrl, setL1RpcUrl] = useState("https://api.devnet.solana.com");
   const [ttl, setTtl] = useState("--:--");
 
   useEffect(() => {
@@ -101,10 +102,10 @@ function AuditorLogin({
     <div className={styles.loginWrap}>
       <div className={styles.loginBox}>
         <div className={styles.loginMark} style={{ fontFamily: "var(--serif)" }}>Æ</div>
-        <span className={styles.eyebrow}>Zero-Knowledge Compliance Access</span>
+        <span className={styles.eyebrow}>Zero-Trust Client-Side Verification</span>
         <h1 className={styles.loginTitle} style={{ fontFamily: "var(--serif)" }}>Auditor Login</h1>
         <p className={styles.loginSub}>
-          Authenticate with your scoped magic-link JWT and decrypt L1-anchored batch envelopes locally in your browser using your RSA-OAEP private key.
+          Authenticate with your scoped session JWT, decrypt E2EE batch envelopes locally, and pull every anchor directly off your own Solana L1 RPC.
         </p>
 
         <div className={styles.loginCard}>
@@ -128,6 +129,16 @@ function AuditorLogin({
                 onChange={e => setPrivateKey(e.target.value)}
                 placeholder="Paste your local RSA-OAEP-256 private key..."
               />
+
+              <label className={styles.fieldLabel} style={{ marginTop: 10, display: "block" }}>
+                Auditor Solana L1 RPC Endpoint (direct browser verification)
+              </label>
+              <input
+                className={styles.keyInput}
+                value={l1RpcUrl}
+                onChange={e => setL1RpcUrl(e.target.value)}
+                placeholder="https://api.devnet.solana.com"
+              />
             </>
           )}
 
@@ -135,7 +146,7 @@ function AuditorLogin({
             {[
               { label: "Decryption", val: "100% browser-local E2EE", col: "var(--ink)" },
               { label: "TTL", val: ttl, col: "var(--amber)" },
-              { label: "Root check", val: "Verified against Solana L1", col: "var(--dim)" },
+              { label: "Trust boundary", val: "Direct browser -> Solana L1 RPC", col: "var(--dim)" },
             ].map(r => (
               <div key={r.label} className={styles.keyMetaRow}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{r.label}</span>
@@ -146,10 +157,10 @@ function AuditorLogin({
 
           <button
             className={styles.authBtn}
-            onClick={() => { if (key) onAuth(key, privateKey || undefined); }}
+            onClick={() => { if (key) onAuth(key, privateKey || undefined, l1RpcUrl || undefined); }}
             disabled={!key || (key !== "demo-token" && !privateKey)}
           >
-            Authenticate &amp; Decrypt Locally →
+            Authenticate &amp; Verify on Solana L1 →
           </button>
           <button className={styles.demoKeyBtn} onClick={() => setKey("demo-token")}>
             Use demo key
@@ -163,6 +174,7 @@ function AuditorLogin({
 export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const [localToken, setLocalToken] = useState<string>(accessToken || "");
   const [localPrivKey, setLocalPrivKey] = useState<string | undefined>(undefined);
+  const [localL1RpcUrl, setLocalL1RpcUrl] = useState<string | undefined>(undefined);
   const [authed, setAuthed] = useState(!!accessToken);
   const [decrypted, setDecrypted] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -172,13 +184,14 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
 
   useEffect(() => {
     if (authed && localToken && status === "idle") {
-      execute(localToken, localPrivKey);
+      execute(localToken, localPrivKey, localL1RpcUrl);
     }
-  }, [authed, localToken, localPrivKey, status, execute]);
+  }, [authed, localToken, localPrivKey, localL1RpcUrl, status, execute]);
 
-  const handleAuth = (key: string, privKey?: string) => {
+  const handleAuth = (key: string, privKey?: string, customL1Rpc?: string) => {
     setLocalToken(key);
     setLocalPrivKey(privKey);
+    setLocalL1RpcUrl(customL1Rpc);
     setAuthed(true);
   };
 
@@ -320,7 +333,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                 : `⚠ AUDIT FINDING: ${reconciliation.undisclosedAnchors.length} SOLANA L1 ANCHORED BATCH(ES) WITHHELD FROM DISCLOSURE`}
             </span>
             <span style={{ fontSize: 10, color: "var(--dim)" }}>
-              Source: {reconciliation.verifiedBy === "auditor_browser_l1_rpc" ? "Direct Auditor L1 RPC" : reconciliation.verifiedBy === "demo" ? "Demo Ledger" : "Server L1 RPC"} · ER Wire Verified: {reconciliation.erTransfersVerifiedCount}
+              Source: {reconciliation.verifiedBy === "demo" ? "Demo Ledger" : `Direct Auditor L1 RPC (${reconciliation.l1RpcEndpoint})`} · ER Wire Verified: {reconciliation.erTransfersVerifiedCount}
             </span>
           </div>
           {reconciliation.undisclosedAnchors.length > 0 && (

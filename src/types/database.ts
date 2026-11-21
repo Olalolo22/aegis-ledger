@@ -55,6 +55,7 @@ export interface PayrollRun {
   merkle_root: string | null;
   encrypted_manifest: string | null;
   e2ee_envelope: EncryptedAuditEnvelope | null;
+  anchor_verified: boolean;
   settlement_verified: boolean;
   error_message: string | null;
   initiated_by: string;
@@ -171,6 +172,7 @@ export interface Database {
           merkle_root?: string | null;
           encrypted_manifest?: string | null;
           e2ee_envelope?: EncryptedAuditEnvelope | null;
+          anchor_verified?: boolean;
           settlement_verified?: boolean;
           error_message?: string | null;
           initiated_by: string;
@@ -182,8 +184,8 @@ export interface Database {
           org_id?: string;
           status?: PayrollRunStatus;
           execution_rail?: string;
-          token_mint: string;
-          token_symbol: string;
+          token_mint?: string;
+          token_symbol?: string;
           total_amount_lamports?: number;
           recipient_count?: number;
           tx_signatures?: string[] | null;
@@ -192,6 +194,7 @@ export interface Database {
           merkle_root?: string | null;
           encrypted_manifest?: string | null;
           e2ee_envelope?: EncryptedAuditEnvelope | null;
+          anchor_verified?: boolean;
           settlement_verified?: boolean;
           error_message?: string | null;
           initiated_by?: string;

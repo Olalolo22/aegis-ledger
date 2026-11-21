@@ -40,5 +40,10 @@ CREATE POLICY "service_role_full_access_org_key_vaults"
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
+ALTER TABLE payroll_runs
+  ADD COLUMN IF NOT EXISTS anchor_verified boolean NOT NULL DEFAULT false;
+
 COMMENT ON TABLE org_key_vaults IS 'Passphrase-encrypted RSA-OAEP-256 admin key vaults (PBKDF2-SHA256 600k + AES-256-GCM). Aegis servers never receive passphrases or plaintext private keys.';
+COMMENT ON COLUMN payroll_runs.anchor_verified IS 'True once /api/payroll/confirm independently verified the Solana L1 anchor memo tx (aegis:merkle:v1:<root>:<count>). Does NOT assert server-side completeness or ER byte verification.';
+COMMENT ON COLUMN payroll_runs.settlement_verified IS 'Legacy column; ALWAYS false for blind-server runs because Aegis servers cannot inspect salaries, salts, or ER transfer bytes. Only the auditor browser asserts full settlement/completeness verification.';
 COMMENT ON COLUMN payroll_recipients.merkle_proof IS 'DEPRECATED / NULL for blind-server E2EE runs: per-leaf amounts and Merkle sum sibling proofs live exclusively inside payroll_runs.e2ee_envelope.';

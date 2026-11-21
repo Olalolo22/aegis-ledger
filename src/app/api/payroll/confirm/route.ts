@@ -167,7 +167,10 @@ export async function POST(request: NextRequest) {
       anchor_slot: anchorCheck.slot ?? null,
       merkle_root: anchoredRoot,
       e2ee_envelope,
-      settlement_verified: true,
+      anchor_verified: true,
+      // Blind server CANNOT verify individual settlement bytes or Merkle completeness;
+      // only the auditor's browser proves completeness & settled ER bytes against L1.
+      settlement_verified: false,
       completed_at: new Date().toISOString(),
     })
     .eq("id", payroll_run_id);
@@ -217,7 +220,10 @@ export async function POST(request: NextRequest) {
       e2ee_scheme: e2ee_envelope.scheme,
       org_public_key_fingerprint: e2ee_envelope.orgPublicKeyFingerprint,
       wrapped_admin_count: wrappedAdminCount,
-      settlement_verified: true,
+      anchor_verified: true,
+      aad_verified: true,
+      auditor_verifiable: true,
+      verification_boundary: "anchor_only_blind_server",
     },
   });
 
@@ -232,7 +238,12 @@ export async function POST(request: NextRequest) {
       merkle_root: anchoredRoot,
       recipient_count: payrollRun.recipient_count,
       wrapped_admin_count: wrappedAdminCount,
-      settlement_verified: true,
+      anchor_verified: true,
+      aad_verified: true,
+      auditor_verifiable: true,
+      server_verified_completeness: false,
+      server_verified_settlement_bytes: false,
+      verification_boundary: "anchor_only_blind_server",
     },
     { status: 200 }
   );

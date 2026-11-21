@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
     const { data: runs, error: runsError } = await supabase
       .from("payroll_runs")
       .select(
-        "id, total_amount_lamports, recipient_count, token_symbol, token_mint, tx_signatures, anchor_tx_signature, anchor_slot, merkle_root, e2ee_envelope, settlement_verified, initiated_by, created_at, completed_at"
+        "id, total_amount_lamports, recipient_count, token_symbol, token_mint, tx_signatures, anchor_tx_signature, anchor_slot, merkle_root, e2ee_envelope, anchor_verified, initiated_by, created_at, completed_at"
       )
       .eq("org_id", vk.org_id)
       .eq("status", "completed")
@@ -203,13 +203,17 @@ export async function POST(request: NextRequest) {
             payroll_run_id: run.id,
             initiated_by: run.initiated_by,
             token_symbol: run.token_symbol,
+            anchor_tx_signature: run.anchor_tx_signature || null,
+            anchor_slot: run.anchor_slot ?? null,
             merkle_root: run.merkle_root || "",
             leaf_count: run.recipient_count,
             total_amount_base_units: String(run.total_amount_lamports),
             tx_signatures: run.tx_signatures || [],
             settled_at: settledAtIso,
-            settlement_verified: Boolean(run.settlement_verified),
-            chain_anchor: {
+            anchor_verified: false,
+            auditor_verifiable: false,
+            server_advisory_chain_check: {
+              authoritative: false,
               verified: false,
               signature: run.anchor_tx_signature || null,
               error:
@@ -217,11 +221,10 @@ export async function POST(request: NextRequest) {
             },
             e2ee_envelope: run.e2ee_envelope || null,
             auditor_wrapped_dek: auditorWrappedDek,
-            aad_matches_chain_root: false,
           };
         }
 
-        // Pull root independently from Solana L1 RPC & compare against DB merkle_root
+        // Non-authoritative advisory L1 check; auditor browser MUST independently re-fetch from L1 RPC
         const anchorCheck = await verifyAnchorTransactionOnChain(
           l1Connection,
           run.anchor_tx_signature,
@@ -250,13 +253,21 @@ export async function POST(request: NextRequest) {
           payroll_run_id: run.id,
           initiated_by: run.initiated_by,
           token_symbol: run.token_symbol,
+          anchor_tx_signature: run.anchor_tx_signature,
+          anchor_slot: anchorCheck.slot ?? run.anchor_slot ?? null,
           merkle_root: run.merkle_root,
           leaf_count: run.recipient_count,
           total_amount_base_units: String(run.total_amount_lamports),
           tx_signatures: run.tx_signatures || [],
           settled_at: settledAtIso,
-          settlement_verified: Boolean(run.settlement_verified),
-          chain_anchor: {
+          anchor_verified: Boolean(run.anchor_verified && anchorCheck.verified),
+          auditor_verifiable: Boolean(
+            run.anchor_tx_signature &&
+              run.e2ee_envelope &&
+              auditorWrappedDek
+          ),
+          server_advisory_chain_check: {
+            authoritative: false,
             verified: anchorCheck.verified,
             signature: run.anchor_tx_signature,
             slot: anchorCheck.slot ?? run.anchor_slot ?? null,
@@ -264,16 +275,16 @@ export async function POST(request: NextRequest) {
             on_chain_root: anchorCheck.onChainRoot ?? null,
             on_chain_leaf_count: anchorCheck.onChainLeafCount ?? null,
             signer_verified: anchorCheck.signerVerified ?? false,
+            aad_matches_chain_root: aadMatchesChainRoot,
             error: anchorCheck.error ?? null,
           },
           e2ee_envelope: run.e2ee_envelope || null,
           auditor_wrapped_dek: auditorWrappedDek,
-          aad_matches_chain_root: aadMatchesChainRoot,
         };
       })
     );
 
-    // Cross-Batch L1 Completeness Reconciliation ("Proof Nothing Was Withheld")
+    // Collect treasury pubkeys for auditor browser's independent Solana L1 enumeration
     const treasuryPubkeysSet = new Set<string>();
     if (org?.treasury_pubkey && SOLANA_PUBKEY_RE.test(org.treasury_pubkey)) {
       treasuryPubkeysSet.add(org.treasury_pubkey);
@@ -314,9 +325,9 @@ export async function POST(request: NextRequest) {
       allL1Anchors,
       auditedBatches.map((b) => ({
         payroll_run_id: b.payroll_run_id,
-        anchor_tx_signature: b.chain_anchor.signature,
-        merkle_root: b.chain_anchor.on_chain_root || b.merkle_root,
-        anchor_verified: b.chain_anchor.verified,
+        anchor_tx_signature: b.anchor_tx_signature,
+        merkle_root: b.server_advisory_chain_check.on_chain_root || b.merkle_root,
+        anchor_verified: b.server_advisory_chain_check.verified,
       })),
       {
         treasuryPubkeysChecked: treasuryPubkeys,
@@ -324,16 +335,13 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    const verifiedAnchorCount = auditedBatches.filter(
-      (b) => b.chain_anchor.verified && b.aad_matches_chain_root
-    ).length;
-
     return NextResponse.json(
       {
         audit: {
           org_id: vk.org_id,
           viewing_key_id: vk.id,
           decryption_mode: "client_side_e2ee",
+          verification_boundary: "auditor_browser_verifies_l1_and_er_directly",
           treasury_pubkeys: treasuryPubkeys,
           auditor_public_key_fingerprint: vk.auditor_public_key
             ? getPublicKeyFingerprint(vk.auditor_public_key)
@@ -343,16 +351,8 @@ export async function POST(request: NextRequest) {
             valid_until: vk.valid_until,
             allowed_tokens: vk.allowed_tokens,
           },
-          integrity: {
-            all_chain_anchors_verified:
-              auditedBatches.length > 0 &&
-              verifiedAnchorCount === auditedBatches.length,
-            verified_chain_anchor_count: verifiedAnchorCount,
-            total_batch_count: auditedBatches.length,
-            complete_zero_omissions:
-              enumerationError === null && reconciliation.completeZeroOmissions,
-          },
-          reconciliation: {
+          server_advisory_reconciliation: {
+            authoritative: false,
             treasury_pubkeys_checked: reconciliation.treasuryPubkeysChecked,
             scanned_signature_count: reconciliation.scannedSignatureCount,
             total_l1_anchors_in_window: reconciliation.totalL1AnchorsInWindow,
