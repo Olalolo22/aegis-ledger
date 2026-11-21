@@ -82,8 +82,13 @@ const nodeTypes = {
   decrypted: CustomDecryptedNode,
 };
 
-function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
+function AuditorLogin({
+  onAuth,
+}: {
+  onAuth: (jwt: string, auditorPrivateKey?: string) => void;
+}) {
   const [key, setKey] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
   const [ttl, setTtl] = useState("--:--");
 
   useEffect(() => {
@@ -96,26 +101,41 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
     <div className={styles.loginWrap}>
       <div className={styles.loginBox}>
         <div className={styles.loginMark} style={{ fontFamily: "var(--serif)" }}>Æ</div>
-        <span className={styles.eyebrow}>Compliance Access</span>
+        <span className={styles.eyebrow}>Zero-Knowledge Compliance Access</span>
         <h1 className={styles.loginTitle} style={{ fontFamily: "var(--serif)" }}>Auditor Login</h1>
         <p className={styles.loginSub}>
-          Authenticate with your time-limited cryptographic viewing key to access the shielded treasury ledger.
+          Authenticate with your scoped magic-link JWT and decrypt L1-anchored batch envelopes locally in your browser using your RSA-OAEP private key.
         </p>
 
         <div className={styles.loginCard}>
-          <label className={styles.fieldLabel}>Viewing key (magic-link JWT)</label>
+          <label className={styles.fieldLabel}>Scoped session JWT (from /api/audit/verify)</label>
           <input
             className={styles.keyInput}
             value={key}
             onChange={e => setKey(e.target.value)}
-            placeholder="vk_audit_q1_2026_bc4e···f8a2"
+            placeholder="eyJhbGciOiJIUzI1NiIs... (or demo-token)"
           />
+
+          {key !== "demo-token" && (
+            <>
+              <label className={styles.fieldLabel} style={{ marginTop: 10, display: "block" }}>
+                Auditor Private Key (Base64 PKCS#8 · Browser-only, never sent to server)
+              </label>
+              <input
+                className={styles.keyInput}
+                type="password"
+                value={privateKey}
+                onChange={e => setPrivateKey(e.target.value)}
+                placeholder="Paste your local RSA-OAEP-256 private key..."
+              />
+            </>
+          )}
 
           <div className={styles.keyMeta}>
             {[
-              { label: "Scope", val: "FY 2026 · read-only", col: "var(--ink)" },
+              { label: "Decryption", val: "100% browser-local E2EE", col: "var(--ink)" },
               { label: "TTL", val: ttl, col: "var(--amber)" },
-              { label: "Session", val: "time-limited · auto-expires", col: "var(--dim)" },
+              { label: "Root check", val: "Verified against Solana L1", col: "var(--dim)" },
             ].map(r => (
               <div key={r.label} className={styles.keyMetaRow}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{r.label}</span>
@@ -126,10 +146,10 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
 
           <button
             className={styles.authBtn}
-            onClick={() => { if (key) onAuth(key); }}
-            disabled={!key}
+            onClick={() => { if (key) onAuth(key, privateKey || undefined); }}
+            disabled={!key || (key !== "demo-token" && !privateKey)}
           >
-            Authenticate →
+            Authenticate &amp; Decrypt Locally →
           </button>
           <button className={styles.demoKeyBtn} onClick={() => setKey("demo-token")}>
             Use demo key
@@ -142,6 +162,7 @@ function AuditorLogin({ onAuth }: { onAuth: (key: string) => void }) {
 
 export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const [localToken, setLocalToken] = useState<string>(accessToken || "");
+  const [localPrivKey, setLocalPrivKey] = useState<string | undefined>(undefined);
   const [authed, setAuthed] = useState(!!accessToken);
   const [decrypted, setDecrypted] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -151,11 +172,15 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
 
   useEffect(() => {
     if (authed && localToken && status === "idle") {
-      execute(localToken);
+      execute(localToken, localPrivKey);
     }
-  }, [authed, localToken, status, execute]);
+  }, [authed, localToken, localPrivKey, status, execute]);
 
-  const handleAuth = (key: string) => { setLocalToken(key); setAuthed(true); };
+  const handleAuth = (key: string, privKey?: string) => {
+    setLocalToken(key);
+    setLocalPrivKey(privKey);
+    setAuthed(true);
+  };
 
   const handleDecryptToggle = () => {
     if (decrypted) { setDecrypted(false); return; }

@@ -17,6 +17,14 @@ export interface DisbursementRecipient {
   rail: SupportedRail;
   destinationAccount: string;
   noteCommitment: string;
+  /** Server-quoted FX rate stamped at dispatch time */
+  exchangeRate?: number;
+  /** Live FX quote provider attribution */
+  fxProvider?: string;
+  /** ISO-8601 timestamp when the FX quote was locked server-side */
+  fxQuotedAt?: string;
+  /** Unique quote identifier for accounting & reconciliation */
+  fxQuoteId?: string;
 }
 
 export interface PrivacyProofDetails {
@@ -36,6 +44,12 @@ export interface DisbursementReceipt {
   fiatCurrency: "NGN" | "KES";
   usdAmount: number;
   exchangeRate: number;
+  /** Attribution for the live FX quote provider */
+  fxProvider?: string;
+  /** ISO-8601 timestamp when the FX rate was quoted at dispatch */
+  fxQuotedAt?: string;
+  /** Server-generated FX quote ID for audit trail */
+  fxQuoteId?: string;
   railReference: string;
   settledAt: string;
   status: "PENDING" | "SETTLED" | "FAILED";

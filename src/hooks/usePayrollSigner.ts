@@ -9,26 +9,32 @@ import {
   buildMagicBlockSplDeposit,
   buildMagicBlockSplTransfer,
   deserializeMagicBlockTx,
-  getErConnection,
   planPrivatePayrollBatch,
   queryMagicBlockSplBalance,
   type TeeBatchRecipient,
 } from "../lib/magicblock";
+import {
+  encryptManifestClientSide,
+  getOrCreateLocalOrgAuditKeyPair,
+} from "../lib/e2ee";
 
 /**
- * Custom hook encapsulating client-side non-custodial payroll execution over
- * MagicBlock Private Ephemeral Rollups (PER / Intel TDX TEE).
+ * Non-custodial, zero-knowledge batch payroll signer over MagicBlock Private SPL.
  *
- * Security invariants:
- * - Zero plaintext L1 SPL/SOL salary transfers from treasury to recipients.
- * - Every on-chain shielded transfer routes strictly through
- *   `buildMagicBlockSplTransfer` (`visibility: "private"`,
- *   `fromBalance: "ephemeral"`, randomized `split` and timing delays) and is
- *   broadcast strictly to the MagicBlock TEE RPC (`sendRpcEndpoint`).
- * - Never silently falls back to public L1 RPC or fabricates `sim_` signatures.
- * - Commits every batch to a domain-separated Binary SHA-256 Merkle Sum Tree
- *   and submits the manifest to `/api/payroll/confirm` for completeness
- *   verification and HKDF/AES-256-GCM encryption at rest.
+ * Security & Settlement Invariants:
+ * 1. On-chain shielded payouts route strictly through MagicBlock Private SPL
+ *    (`visibility: "private"`, `fromBalance: "ephemeral"`, randomized split + delays)
+ *    and broadcast strictly to MagicBlock's TEE RPC (`sendRpcEndpoint`).
+ * 2. EVERY payroll batch — regardless of rail mix — anchors its Binary SHA-256
+ *    Merkle Sum Tree root (`aegis:merkle:v1:<root>:<leafCount>`) permanently on
+ *    Solana L1 so auditors independently verify completeness against the chain.
+ * 3. Batch manifests are encrypted CLIENT-SIDE via RSA-OAEP-256 + AES-256-GCM
+ *    (`src/lib/e2ee.ts`) to the organization's public key before hitting the server.
+ *    Aegis servers NEVER see plaintext batch manifests or private decryption keys.
+ * 4. `/api/payroll/confirm` independently fetches the L1 anchor tx AND decodes
+ *    every MagicBlock Private SPL transfer on-chain before sealing the batch.
+ * 5. Off-ramp fiat payouts are quoted strictly server-side at dispatch time in
+ *    `/api/payroll/dispatch-offramp` — zero hardcoded FX rates in React.
  */
 
 export type PayrollSignerStatus =
@@ -80,6 +86,7 @@ interface PayrollSignerResult {
   error: string | null;
   payrollRunId: string | null;
   txSignatures: string[];
+  anchorTxSignature: string | null;
   signingParams: SigningParams | null;
   recipientProgress: { current: number; total: number } | null;
   activeRail: "tee";
@@ -97,6 +104,7 @@ export function usePayrollSigner(): PayrollSignerResult {
   const [error, setError] = useState<string | null>(null);
   const [payrollRunId, setPayrollRunId] = useState<string | null>(null);
   const [txSignatures, setTxSignatures] = useState<string[]>([]);
+  const [anchorTxSignature, setAnchorTxSignature] = useState<string | null>(null);
   const [signingParams, setSigningParams] = useState<SigningParams | null>(null);
   const [proofProgress, setProofProgress] = useState<string | null>(null);
   const [batchRoot, setBatchRoot] = useState<string | null>(null);
@@ -119,6 +127,7 @@ export function usePayrollSigner(): PayrollSignerResult {
       setError(null);
       setPayrollRunId(null);
       setTxSignatures([]);
+      setAnchorTxSignature(null);
       setSigningParams(null);
       setProofProgress(null);
       setBatchRoot(null);
@@ -130,7 +139,7 @@ export function usePayrollSigner(): PayrollSignerResult {
         setStatus("preparing");
         setProofProgress("Coordinating batch payroll with MagicBlock PER...");
 
-        // 1. Server coordination (fail loud — never swallow non-2xx or mock params)
+        // 1. Server coordination (fail loud — zero silent fallback)
         const prepareRes = await fetch("/api/payroll", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -177,6 +186,11 @@ export function usePayrollSigner(): PayrollSignerResult {
         setBatchRoot(plan.merkleTree.root);
 
         const collectedSignatures: string[] = [];
+        const onChainSettlements: Array<{
+          leafIndex: number;
+          signature: string;
+          saltHex: string;
+        }> = [];
 
         // 3. Ensure treasury funds are delegated inside MagicBlock's ephemeral balance
         const mintsToFund = Object.entries(plan.totalsByMint).filter(
@@ -256,7 +270,6 @@ export function usePayrollSigner(): PayrollSignerResult {
               split: transfer.splitPlan.split,
               minDelayMs: transfer.splitPlan.minDelayMs,
               maxDelayMs: transfer.splitPlan.maxDelayMs,
-              // Blinded commitment prefix only — zero salary/role metadata
               memo: `aegis:leaf:${transfer.commitmentHash.slice(0, 16)}`,
               cluster,
             });
@@ -279,37 +292,76 @@ export function usePayrollSigner(): PayrollSignerResult {
               connection
             );
             collectedSignatures.push(sig);
+            onChainSettlements.push({
+              leafIndex: transfer.recipientIndex,
+              signature: sig,
+              saltHex: plan.manifestEntries[transfer.recipientIndex].saltHex,
+            });
           }
-        } else {
-          // 100% off-ramp fiat batch: anchor ONLY the Binary Merkle Sum Tree root
-          // (no recipient wallets, no individual salaries) on MagicBlock ER
-          setStatus("signing");
-          setProofProgress(
-            "Requesting wallet signature to anchor batch Merkle Sum Tree root on MagicBlock TEE..."
-          );
-          const erConn = getErConnection(params.relay_url);
-          const { blockhash } = await erConn.getLatestBlockhash("confirmed");
-          const anchorTx = buildBatchRootAttestationTx(
-            publicKey,
-            plan.merkleTree.root,
-            plan.merkleTree.leafCount,
-            blockhash
-          );
-          const signedAnchor = await signTransaction(anchorTx);
-
-          setStatus("broadcasting");
-          setProofProgress("Broadcasting Merkle Sum Tree root attestation to MagicBlock TEE...");
-          const anchorSig = await erConn.sendRawTransaction(signedAnchor.serialize(), {
-            skipPreflight: false,
-            maxRetries: 3,
-          });
-          collectedSignatures.push(anchorSig);
         }
 
-        // 5. Confirm payroll run & persist HKDF/AES-256-GCM encrypted audit manifest
+        // 5. UNCONDITIONAL Solana L1 Merkle Sum Tree Root Anchor (EVERY batch, all rail mixes)
+        // Leaks zero salaries, zero wallets, and zero burn rate — only a 64-char SHA-256 root + leaf count.
+        setStatus("signing");
+        setProofProgress(
+          "Requesting wallet signature to anchor batch Merkle Sum Tree root on Solana L1..."
+        );
+        const { blockhash, lastValidBlockHeight } =
+          await connection.getLatestBlockhash("confirmed");
+        const anchorTx = buildBatchRootAttestationTx(
+          publicKey,
+          plan.merkleTree.root,
+          plan.merkleTree.leafCount,
+          blockhash
+        );
+        const signedAnchor = await signTransaction(anchorTx);
+
+        setStatus("broadcasting");
+        setProofProgress("Anchoring Merkle Sum Tree root permanently on Solana L1...");
+        const anchorSig = await connection.sendRawTransaction(
+          signedAnchor.serialize(),
+          { skipPreflight: false, maxRetries: 3 }
+        );
+        await connection.confirmTransaction(
+          { signature: anchorSig, blockhash, lastValidBlockHeight },
+          "confirmed"
+        );
+        setAnchorTxSignature(anchorSig);
+        collectedSignatures.push(anchorSig);
+
+        // 6. Client-Side Zero-Knowledge Audit Envelope Encryption (server NEVER sees plaintext manifest)
         setStatus("confirming");
         setProofProgress(
-          "Verifying Binary Merkle Sum Tree completeness & sealing encrypted audit manifest..."
+          "Encrypting batch audit manifest client-side (RSA-OAEP-256 + AES-256-GCM)..."
+        );
+
+        const orgKeyPair = await getOrCreateLocalOrgAuditKeyPair(request.org_id);
+        const manifestPayload = JSON.stringify({
+          version: 2,
+          payrollRunId: runId,
+          orgId: request.org_id,
+          tokenSymbol: params.token_symbol,
+          merkleRoot: plan.merkleTree.root,
+          anchorTxSignature: anchorSig,
+          totalAmountBaseUnits: plan.merkleTree.totalSum.toString(),
+          leafCount: plan.merkleTree.leafCount,
+          entries: plan.manifestEntries.map(({ splitPlan: _ignored, ...entry }) => entry),
+        });
+
+        const { envelope: e2eeEnvelope } = await encryptManifestClientSide(
+          manifestPayload,
+          orgKeyPair.publicKeySpkiBase64,
+          {
+            orgId: request.org_id,
+            payrollRunId: runId,
+            merkleRoot: plan.merkleTree.root,
+            tokenSymbol: params.token_symbol,
+          }
+        );
+
+        // 7. Confirm payroll run: server independently verifies L1 anchor + decoded ER transfers + E2EE AAD
+        setProofProgress(
+          "Verifying L1 root anchor & decoding settled MagicBlock transfers on-chain..."
         );
 
         const confirmRes = await fetch("/api/payroll/confirm", {
@@ -317,23 +369,30 @@ export function usePayrollSigner(): PayrollSignerResult {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             payroll_run_id: runId,
+            anchor_tx_signature: anchorSig,
             tx_signatures: collectedSignatures,
             commitment_hashes: plan.merkleTree.leaves,
             merkle_root: plan.merkleTree.root,
-            manifest: plan.manifestEntries.map(({ splitPlan: _ignored, ...entry }) => entry),
+            leaf_proofs: plan.merkleTree.proofs,
+            onchain_settlements: onChainSettlements,
+            e2ee_envelope: e2eeEnvelope,
           }),
         });
 
         const confirmData = await confirmRes.json().catch(() => ({}));
         if (!confirmRes.ok) {
           throw new Error(
-            confirmData.error ||
+            confirmData.detail ||
+              confirmData.error ||
               `Payroll confirmation failed (HTTP ${confirmRes.status})`
           );
         }
 
-        // 6. Dispatch fiat off-ramp settlements (NGN Bank / KES M-Pesa) anchored to Merkle root
+        // 8. Dispatch fiat off-ramp settlements (live FX quoted strictly server-side — zero hardcoded rates)
         if (plan.offRampRecipients.length > 0) {
+          setProofProgress(
+            "Quoting live server-side FX & dispatching off-ramp fiat settlements..."
+          );
           const offrampPayload = plan.offRampRecipients.map((r) => {
             const decimals = r.tokenSymbol === "SOL" ? 9 : 6;
             const amountWhole = Number(r.amountBaseUnits) / 10 ** decimals;
@@ -341,11 +400,6 @@ export function usePayrollSigner(): PayrollSignerResult {
               recipientId: r.recipient,
               wallet: r.recipient,
               amountUsd: amountWhole,
-              amountLocal:
-                r.settlementRail === "kes_mpesa"
-                  ? Math.round(amountWhole * 130)
-                  : Math.round(amountWhole * 1331),
-              currency: r.settlementRail === "kes_mpesa" ? "KES" : "NGN",
               rail: r.settlementRail,
               destinationAccount: r.destinationAccount || "Bank Account",
               noteCommitment: r.commitmentHash,
@@ -364,7 +418,8 @@ export function usePayrollSigner(): PayrollSignerResult {
           if (!dispatchRes.ok) {
             const dispatchErr = await dispatchRes.json().catch(() => ({}));
             throw new Error(
-              dispatchErr.error ||
+              dispatchErr.detail ||
+                dispatchErr.error ||
                 `Off-ramp dispatch failed (HTTP ${dispatchRes.status})`
             );
           }
@@ -382,7 +437,7 @@ export function usePayrollSigner(): PayrollSignerResult {
         setTxSignatures(collectedSignatures);
         const durationSec = ((Date.now() - batchStartTime) / 1000).toFixed(1);
         setProofProgress(
-          `✓ Payroll complete — ${totalRecipients} recipients settled via MagicBlock PER in ${durationSec}s (Merkle root ${plan.merkleTree.root.slice(0, 12)}...)`
+          `✓ Payroll settled & L1-anchored — ${totalRecipients} recipients verified in ${durationSec}s (root ${plan.merkleTree.root.slice(0, 12)}...)`
         );
         setStatus("completed");
       } catch (err) {
@@ -404,6 +459,7 @@ export function usePayrollSigner(): PayrollSignerResult {
     error,
     payrollRunId,
     txSignatures,
+    anchorTxSignature,
     signingParams,
     recipientProgress,
     activeRail,

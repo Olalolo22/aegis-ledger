@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { acquireMutex, releaseMutex } from "@/lib/redis";
 import {
   MAGICBLOCK_API_URL,
@@ -11,6 +12,74 @@ import {
 } from "@/lib/magicblock";
 import { createServiceClient } from "@/lib/supabase/server";
 import { ALLOWED_TOKEN_MINTS, payrollRequestSchema } from "@/lib/validation";
+
+/**
+ * GET /api/payroll?org_id=<uuid>&valid_from=<iso>&valid_until=<iso>&tokens=USDC,SOL
+ *
+ * Returns completed payroll run metadata + `orgWrappedDek` (RSA-OAEP-256
+ * ciphertext — never plaintext) for an organization within a date/token window
+ * so the org admin's browser can unwrap and re-wrap ONLY in-scope batch DEKs
+ * to an auditor's public key client-side.
+ */
+export async function GET(request: NextRequest) {
+  const orgId = request.nextUrl.searchParams.get("org_id");
+  const validFrom = request.nextUrl.searchParams.get("valid_from");
+  const validUntil = request.nextUrl.searchParams.get("valid_until");
+  const tokensParam = request.nextUrl.searchParams.get("tokens");
+
+  if (!orgId || !z.string().uuid().safeParse(orgId).success) {
+    return NextResponse.json({ error: "Valid org_id query parameter is required" }, { status: 400 });
+  }
+
+  try {
+    const supabase = createServiceClient();
+    let query = supabase
+      .from("payroll_runs")
+      .select(
+        "id, token_symbol, merkle_root, anchor_tx_signature, anchor_slot, e2ee_envelope, settlement_verified, created_at, completed_at"
+      )
+      .eq("org_id", orgId)
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(250);
+
+    if (validFrom) query = query.gte("created_at", validFrom);
+    if (validUntil) query = query.lte("created_at", validUntil);
+    if (tokensParam) {
+      const tokens = tokensParam.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tokens.length > 0) {
+        query = query.in("token_symbol", tokens);
+      }
+    }
+
+    const { data: runs, error } = await query;
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return NextResponse.json({
+      org_id: orgId,
+      runs: (runs || []).map((r) => ({
+        id: r.id,
+        token_symbol: r.token_symbol,
+        merkle_root: r.merkle_root,
+        anchor_tx_signature: r.anchor_tx_signature,
+        anchor_slot: r.anchor_slot,
+        settlement_verified: r.settlement_verified,
+        org_wrapped_dek: r.e2ee_envelope?.orgWrappedDek ?? null,
+        org_public_key_fingerprint: r.e2ee_envelope?.orgPublicKeyFingerprint ?? null,
+        created_at: r.created_at,
+        completed_at: r.completed_at,
+      })),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: "Failed to query organization payroll envelopes", detail },
+      { status: 503 }
+    );
+  }
+}
 
 /**
  * POST /api/payroll

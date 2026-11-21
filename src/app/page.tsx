@@ -123,11 +123,11 @@ export default function LandingPage() {
                             <div className="recipients">
                                 <div className="recip-row">
                                     <span className="recip-addr">Lead Anchor Dev · Lagos</span>
-                                    <span><span className="recip-amount">$4,850</span><span className="recip-token">USDC (₦{((4850 * liveFx.NGN) / 1e6).toFixed(1)}M)</span></span>
+                                    <span><span className="recip-amount">$4,850</span><span className="recip-token">USDC ({liveFx.NGN > 0 ? `₦${((4850 * liveFx.NGN) / 1e6).toFixed(1)}M` : "NGN Bank"})</span></span>
                                 </div>
                                 <div className="recip-row">
                                     <span className="recip-addr">Frontend Lead · Nairobi</span>
-                                    <span><span className="recip-amount">$3,200</span><span className="recip-token">USDC (KSh {Math.round((3200 * liveFx.KES) / 1000)}K)</span></span>
+                                    <span><span className="recip-amount">$3,200</span><span className="recip-token">USDC ({liveFx.KES > 0 ? `KSh ${Math.round((3200 * liveFx.KES) / 1000)}K` : "KES M-Pesa"})</span></span>
                                 </div>
                                 <div className="recip-row">
                                     <span className="recip-addr">ZK Research Fellow · Global</span>
@@ -189,7 +189,7 @@ export default function LandingPage() {
                 <div className="section-eyebrow reveal">The solution</div>
                 <h2 className="section-h2 serif reveal" style={{ transitionDelay: '0.1s' }}>Confidential on-chain. Accountable off-chain. Direct to local fiat.</h2>
                 <p className="section-sub reveal" style={{ transitionDelay: '0.2s' }}>
-                    Aegis Ledger runs treasury disbursements through MagicBlock Private SPL delegated ephemeral accounts (Intel TDX TEE), commits every batch to a Binary SHA-256 Merkle Sum Tree, and routes direct emerging-market fiat settlement.
+                    Aegis Ledger runs treasury disbursements through MagicBlock Private SPL delegated ephemeral accounts (Intel TDX TEE), anchors every batch&apos;s Binary SHA-256 Merkle Sum Tree root on Solana L1, and routes direct emerging-market fiat settlement.
                 </p>
                 <div className="features-grid">
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.3s' }}>
@@ -206,27 +206,27 @@ export default function LandingPage() {
                         <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <IconShield size={20} />
                         </span>
-                        <div className="feat-title">Merkle Sum Tree completeness</div>
-                        <div className="feat-desc">Every batch builds a domain-separated Binary SHA-256 Merkle Sum Tree so employees get O(log N) inclusion proofs and auditors can mathematically prove zero omitted payouts.</div>
-                        <div className="feat-tag">merkle.ts</div>
+                        <div className="feat-title">L1-anchored Merkle Sum Tree</div>
+                        <div className="feat-desc">Every batch anchors its Binary SHA-256 Merkle Sum Tree root on Solana L1 and decodes settled transfers on-chain before sealing — proving settlement, not just intent.</div>
+                        <div className="feat-tag">merkle.ts + onchainVerify.ts</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.5s' }}>
                         <div className="feat-num">03</div>
                         <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <IconFlagNG width={22} height={15} />
                         </span>
-                        <div className="feat-title">Native dual-rail settlement (NGN / KES)</div>
-                        <div className="feat-desc">Integrated fiat settlement architecture for Nigerian banks (Providus/Kuda) and Kenyan Safaricom M-Pesa with live Spot FX and zero P2P bank-freeze risk.</div>
-                        <div className="feat-tag">Live Spot: ₦{liveFx.NGN.toLocaleString()} / KSh {liveFx.KES}</div>
+                        <div className="feat-title">Live-quoted dual-rail settlement (NGN / KES)</div>
+                        <div className="feat-desc">Server-quoted live FX at dispatch time stamped with provider, quote ID, and timestamp on every Nigerian bank and Kenyan M-Pesa receipt.</div>
+                        <div className="feat-tag">{liveFx.NGN > 0 ? `Live Spot: ₦${liveFx.NGN.toLocaleString()} / KSh ${liveFx.KES}` : "Server-Quoted Live Spot FX"}</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.6s' }}>
                         <div className="feat-num">04</div>
                         <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <IconKey size={20} />
                         </span>
-                        <div className="feat-title">Encrypted audit manifests</div>
-                        <div className="feat-desc">Batch manifests are AES-256-GCM encrypted at rest under HKDF org audit keys and unwrapped only via time- and token-scoped single-use magic links.</div>
-                        <div className="feat-tag">AES-256-GCM + HKDF + AAD</div>
+                        <div className="feat-title">Zero-knowledge E2EE audit manifests</div>
+                        <div className="feat-desc">Batch manifests are encrypted client-side (RSA-OAEP-256 + AES-256-GCM) to org &amp; auditor public keys. Aegis servers cannot read customer payroll.</div>
+                        <div className="feat-tag">e2ee.ts · Browser-Local Decrypt</div>
                     </div>
                 </div>
             </section>

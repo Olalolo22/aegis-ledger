@@ -1,45 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Connection } from "@solana/web3.js";
 import { createServiceClient } from "@/lib/supabase/server";
 import { payrollConfirmSchema } from "@/lib/validation";
+import { verifyMerkleInclusionProof } from "@/lib/merkle";
+import { buildEnvelopeAad } from "@/lib/e2ee";
+import { L1_DEVNET_RPC, getErConnection } from "@/lib/magicblock";
 import {
-  verifyBatchCompleteness,
-  verifyMerkleInclusionProof,
-} from "@/lib/merkle";
-import {
-  buildManifestAad,
-  deriveOrgAuditKey,
-  encryptBatchManifest,
-} from "@/lib/crypto";
+  verifyAnchorTransactionOnChain,
+  verifyMagicBlockTransferOnChain,
+} from "@/lib/onchainVerify";
 
 /**
  * POST /api/payroll/confirm
  *
- * Non-custodial confirmation endpoint invoked by the client after real
- * MagicBlock PER / Solana signing and broadcast.
+ * Zero-knowledge settlement verification & sealing endpoint.
  *
- * Security & Completeness Guarantees:
- * 1. Verifies the payroll run exists and is in 'pending' state.
- * 2. Recomputes the full Binary SHA-256 Merkle Sum Tree from the submitted
- *    manifest and verifies:
- *      - recomputed root === merkle_root
- *      - total sum === payroll_runs.total_amount_lamports
- *      - leaf count === payroll_runs.recipient_count
- *      - every individual per-recipient Merkle inclusion proof verifies
- * 3. Encrypts the batch manifest with AES-256-GCM under a per-run subkey
- *    derived from the org's HKDF audit viewing key (with AAD binding
- *    org_id | payroll_run_id | merkle_root | token_symbol).
- * 4. Persists ONLY the encrypted manifest ciphertext, public Merkle root,
- *    public leaf commitment hashes, and per-leaf Merkle inclusion proofs.
+ * Before marking a batch `completed`, this endpoint proves SETTLEMENT (not just intent):
+ * 1. Pulls `anchor_tx_signature` directly from Solana L1 RPC and verifies:
+ *      - tx succeeded (`meta.err === null`)
+ *      - signer matches `payroll_runs.initiated_by`
+ *      - L1 Memo parses to `aegis:merkle:v1:<merkle_root>:<recipient_count>`
+ * 2. Verifies EVERY leaf's O(log N) Binary Merkle Sum Tree inclusion proof
+ *    against the L1-anchored root, and verifies total sum === `total_amount_lamports`.
+ * 3. Fetches EVERY on-chain MagicBlock Private SPL transfer signature in
+ *    `onchain_settlements` from MagicBlock ER RPC, decodes the `SPLxh1LVZz...`
+ *    (discriminant 0x10) wire instruction, and proves that the ACTUAL on-chain
+ *    `(sender, recipient, mint, amountBaseUnits)` hashes to the committed Merkle leaf.
+ * 4. Verifies `e2ee_envelope.aad` binds the exact org, run, L1-anchored root,
+ *    and token symbol. Aegis NEVER sees the plaintext manifest or private key.
  */
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON body" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   const parsed = payrollConfirmSchema.safeParse(body);
@@ -58,26 +53,28 @@ export async function POST(request: NextRequest) {
 
   const {
     payroll_run_id,
+    anchor_tx_signature,
     tx_signatures,
     commitment_hashes,
     merkle_root,
-    manifest,
+    leaf_proofs,
+    onchain_settlements,
+    e2ee_envelope,
   } = parsed.data;
 
   const supabase = createServiceClient();
 
   const { data: payrollRun, error: fetchError } = await supabase
     .from("payroll_runs")
-    .select("id, org_id, status, recipient_count, total_amount_lamports, token_symbol")
+    .select(
+      "id, org_id, status, recipient_count, total_amount_lamports, token_symbol, initiated_by"
+    )
     .eq("id", payroll_run_id)
     .single();
 
   if (fetchError || !payrollRun) {
     return NextResponse.json(
-      {
-        error: "Payroll run not found",
-        code: "PAYROLL_RUN_NOT_FOUND",
-      },
+      { error: "Payroll run not found", code: "PAYROLL_RUN_NOT_FOUND" },
       { status: 404 }
     );
   }
@@ -92,111 +89,154 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Validate commitment count & manifest entry count match the initiated batch
   if (
     commitment_hashes.length !== payrollRun.recipient_count ||
-    manifest.length !== payrollRun.recipient_count
+    leaf_proofs.length !== payrollRun.recipient_count
   ) {
     return NextResponse.json(
       {
-        error: `Expected ${payrollRun.recipient_count} commitments/manifest entries, received ${commitment_hashes.length} commitments and ${manifest.length} manifest entries`,
+        error: `Expected ${payrollRun.recipient_count} commitments and leaf proofs, received ${commitment_hashes.length} / ${leaf_proofs.length}`,
         code: "HASH_COUNT_MISMATCH",
       },
       { status: 400 }
     );
   }
 
-  // Verify commitment_hashes array matches manifest entries in exact order
-  for (let i = 0; i < manifest.length; i++) {
-    if (manifest[i].index !== i || manifest[i].commitmentHash !== commitment_hashes[i]) {
-      return NextResponse.json(
-        {
-          error: `Manifest entry ${i} index or commitmentHash does not match commitment_hashes[${i}]`,
-          code: "MERKLE_VERIFICATION_FAILED",
-        },
-        { status: 400 }
-      );
-    }
-  }
-
-  // Verify full Binary Merkle Sum Tree completeness against initiated total & count
-  const completeness = verifyBatchCompleteness(
-    manifest,
+  // 1. Independently fetch & verify the Solana L1 root anchor transaction
+  const l1RpcUrl = process.env.SOLANA_RPC_URL || L1_DEVNET_RPC;
+  const l1Connection = new Connection(l1RpcUrl, "confirmed");
+  const anchorCheck = await verifyAnchorTransactionOnChain(
+    l1Connection,
+    anchor_tx_signature,
+    payrollRun.initiated_by,
     merkle_root,
-    BigInt(payrollRun.total_amount_lamports),
     payrollRun.recipient_count
   );
 
-  if (!completeness.valid) {
+  if (!anchorCheck.verified || !anchorCheck.onChainRoot) {
     return NextResponse.json(
       {
-        error: "Batch Merkle Sum Tree completeness verification failed",
-        code: "MERKLE_VERIFICATION_FAILED",
-        details: completeness.errors,
+        error: "On-chain Solana L1 Merkle root anchor verification failed",
+        code: "ANCHOR_VERIFICATION_FAILED",
+        detail: anchorCheck.error,
       },
       { status: 400 }
     );
   }
 
-  // Verify every individual O(log N) inclusion proof
-  for (let i = 0; i < manifest.length; i++) {
-    const proofValid = verifyMerkleInclusionProof(manifest[i].merkleProof, merkle_root);
-    if (!proofValid || manifest[i].merkleProof.leafHash !== manifest[i].commitmentHash) {
+  const anchoredRoot = anchorCheck.onChainRoot;
+
+  // 2. Verify every leaf's O(log N) Merkle Sum Tree inclusion proof & total conservation
+  let summedBaseUnits = 0n;
+  for (let i = 0; i < leaf_proofs.length; i++) {
+    const proof = leaf_proofs[i];
+    if (
+      proof.leafIndex !== i ||
+      proof.leafHash !== commitment_hashes[i] ||
+      proof.leafCount !== payrollRun.recipient_count ||
+      proof.totalSum !== String(payrollRun.total_amount_lamports) ||
+      !verifyMerkleInclusionProof(proof, anchoredRoot)
+    ) {
       return NextResponse.json(
         {
-          error: `Merkle inclusion proof verification failed for leaf index ${i}`,
+          error: `Leaf ${i} failed Binary Merkle Sum Tree inclusion verification against L1-anchored root`,
           code: "MERKLE_PROOF_INVALID",
+        },
+        { status: 400 }
+      );
+    }
+    summedBaseUnits += BigInt(proof.amountBaseUnits);
+  }
+
+  if (summedBaseUnits !== BigInt(payrollRun.total_amount_lamports)) {
+    return NextResponse.json(
+      {
+        error: `Sum of leaf proofs (${summedBaseUnits.toString()}) does not match initiated total (${payrollRun.total_amount_lamports})`,
+        code: "MERKLE_SUM_MISMATCH",
+      },
+      { status: 400 }
+    );
+  }
+
+  // 3. Fetch & decode EVERY on-chain MagicBlock Private SPL transfer against its Merkle leaf
+  const erConnection = getErConnection();
+  const seenLeafIndexes = new Set<number>();
+
+  for (const settlement of onchain_settlements) {
+    if (
+      settlement.leafIndex < 0 ||
+      settlement.leafIndex >= leaf_proofs.length ||
+      seenLeafIndexes.has(settlement.leafIndex)
+    ) {
+      return NextResponse.json(
+        {
+          error: `Invalid or duplicate on-chain settlement leafIndex: ${settlement.leafIndex}`,
+          code: "SETTLEMENT_VERIFICATION_FAILED",
+        },
+        { status: 400 }
+      );
+    }
+    seenLeafIndexes.add(settlement.leafIndex);
+
+    const proof = leaf_proofs[settlement.leafIndex];
+    const transferCheck = await verifyMagicBlockTransferOnChain(erConnection, {
+      signature: settlement.signature,
+      leafIndex: settlement.leafIndex,
+      expectedSender: payrollRun.initiated_by,
+      expectedCommitmentHash: commitment_hashes[settlement.leafIndex],
+      saltHex: settlement.saltHex,
+      runNonce: payroll_run_id,
+      merkleProof: proof,
+      anchoredMerkleRoot: anchoredRoot,
+    });
+
+    if (!transferCheck.verified) {
+      return NextResponse.json(
+        {
+          error: `On-chain MagicBlock transfer verification failed for leaf ${settlement.leafIndex}`,
+          code: "SETTLEMENT_VERIFICATION_FAILED",
+          detail: transferCheck.error,
+          signature: settlement.signature,
         },
         { status: 400 }
       );
     }
   }
 
-  // Encrypt the verified manifest under the organization's HKDF audit viewing key
-  let encryptedManifest: string;
-  try {
-    const orgAuditKey = deriveOrgAuditKey(payrollRun.org_id);
-    const manifestAad = buildManifestAad({
-      orgId: payrollRun.org_id,
-      payrollRunId: payroll_run_id,
-      merkleRoot: merkle_root,
-      tokenSymbol: payrollRun.token_symbol,
-    });
-    const manifestPayload = JSON.stringify({
-      version: 1,
-      payrollRunId: payroll_run_id,
-      orgId: payrollRun.org_id,
-      tokenSymbol: payrollRun.token_symbol,
-      merkleRoot: merkle_root,
-      totalAmountBaseUnits: completeness.totalSum,
-      leafCount: completeness.leafCount,
-      entries: manifest,
-    });
-    encryptedManifest = encryptBatchManifest(
-      manifestPayload,
-      orgAuditKey,
-      payroll_run_id,
-      manifestAad
-    );
-  } catch (cryptoErr) {
-    console.error("[Aegis Confirm] Failed to encrypt audit manifest:", cryptoErr);
+  // 4. Verify E2EE envelope AAD binds exact org, run, L1-anchored root, and token symbol
+  const expectedAad = buildEnvelopeAad({
+    orgId: payrollRun.org_id,
+    payrollRunId: payroll_run_id,
+    merkleRoot: anchoredRoot,
+    tokenSymbol: payrollRun.token_symbol,
+  });
+
+  if (e2ee_envelope.aad !== expectedAad) {
     return NextResponse.json(
       {
-        error: "Server cryptography configuration error while encrypting audit manifest",
-        code: "MANIFEST_ENCRYPTION_FAILED",
+        error: "E2EE envelope AAD does not match L1-anchored batch metadata",
+        code: "E2EE_AAD_MISMATCH",
       },
-      { status: 500 }
+      { status: 400 }
     );
   }
 
-  // Update Payroll Run → completed
+  // Ensure anchor_tx_signature is present in tx_signatures list
+  const allSignatures = tx_signatures.includes(anchor_tx_signature)
+    ? tx_signatures
+    : [...tx_signatures, anchor_tx_signature];
+
+  // 5. Seal run as completed — storing ONLY client-encrypted e2ee_envelope (undecryptable by server)
   const { error: updateError } = await supabase
     .from("payroll_runs")
     .update({
       status: "completed" as const,
-      tx_signatures,
-      merkle_root,
-      encrypted_manifest: encryptedManifest,
+      tx_signatures: allSignatures,
+      anchor_tx_signature,
+      anchor_slot: anchorCheck.slot ?? null,
+      merkle_root: anchoredRoot,
+      e2ee_envelope,
+      settlement_verified: true,
       completed_at: new Date().toISOString(),
     })
     .eq("id", payroll_run_id);
@@ -209,12 +249,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Insert per-recipient commitment hashes and O(log N) Merkle inclusion proofs
-  const recipientRecords = manifest.map((entry) => ({
+  const recipientRecords = leaf_proofs.map((proof) => ({
     payroll_run_id,
-    recipient_index: entry.index,
-    commitment_hash: entry.commitmentHash,
-    merkle_proof: entry.merkleProof as unknown as Record<string, unknown>,
+    recipient_index: proof.leafIndex,
+    commitment_hash: proof.leafHash,
+    merkle_proof: proof as unknown as Record<string, unknown>,
   }));
 
   const { error: insertError } = await supabase
@@ -225,7 +264,6 @@ export async function POST(request: NextRequest) {
     console.error("Failed to insert recipient Merkle proof records:", insertError);
   }
 
-  // Audit Log (no plaintext recipient data)
   await supabase.from("audit_log").insert({
     event_type: "payroll_completed",
     org_id: payrollRun.org_id,
@@ -233,10 +271,13 @@ export async function POST(request: NextRequest) {
       payroll_run_id,
       execution_rail: "magicblock_per",
       recipient_count: payrollRun.recipient_count,
-      tx_count: tx_signatures.length,
-      merkle_root,
-      manifest_encrypted: true,
-      signing_method: "client_wallet",
+      onchain_transfers_verified: onchain_settlements.length,
+      anchor_tx_signature,
+      anchor_slot: anchorCheck.slot,
+      merkle_root: anchoredRoot,
+      e2ee_scheme: e2ee_envelope.scheme,
+      org_public_key_fingerprint: e2ee_envelope.orgPublicKeyFingerprint,
+      settlement_verified: true,
     },
   });
 
@@ -244,10 +285,13 @@ export async function POST(request: NextRequest) {
     {
       payroll_run_id,
       status: "completed",
-      tx_signatures,
-      merkle_root,
+      anchor_tx_signature,
+      anchor_slot: anchorCheck.slot,
+      tx_signatures: allSignatures,
+      merkle_root: anchoredRoot,
       recipient_count: payrollRun.recipient_count,
-      completeness_verified: true,
+      onchain_transfers_verified: onchain_settlements.length,
+      settlement_verified: true,
     },
     { status: 200 }
   );

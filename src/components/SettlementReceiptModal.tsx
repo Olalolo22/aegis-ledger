@@ -126,9 +126,14 @@ export function SettlementReceiptModal({
               {receipt.fiatCurrency === "NGN" ? "₦" : "KSh "}
               {receipt.fiatAmount.toLocaleString()}
             </div>
-            <span style={{ fontSize: 10.5, color: "#9ca3af", fontFamily: "var(--mono)" }}>
+            <span style={{ fontSize: 10.5, color: "#9ca3af", fontFamily: "var(--mono)", display: "block" }}>
               ≈ ${receipt.usdAmount.toLocaleString()} USDC (@ {receipt.exchangeRate} {receipt.fiatCurrency})
             </span>
+            {(receipt.fxProvider || receipt.fxQuotedAt) && (
+              <span style={{ fontSize: 9.5, color: "#6b7280", fontFamily: "var(--mono)", display: "block", marginTop: 2 }}>
+                FX: {receipt.fxProvider || "Live Spot"}{receipt.fxQuotedAt ? ` · ${new Date(receipt.fxQuotedAt).toISOString()}` : ""}
+              </span>
+            )}
           </div>
 
           <div>

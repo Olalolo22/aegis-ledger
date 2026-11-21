@@ -25,11 +25,11 @@ export async function GET(
 
   const supabase = createServiceClient();
 
-  // Fetch the payroll run — explicit public columns only (never return encrypted_manifest here)
+  // Fetch the payroll run — explicit public columns only (never return encrypted manifests)
   const { data: payrollRun, error: runError } = await supabase
     .from("payroll_runs")
     .select(
-      "id, org_id, status, execution_rail, token_symbol, token_mint, total_amount_lamports, recipient_count, tx_signatures, merkle_root, error_message, initiated_by, created_at, completed_at"
+      "id, org_id, status, execution_rail, token_symbol, token_mint, total_amount_lamports, recipient_count, tx_signatures, anchor_tx_signature, anchor_slot, merkle_root, settlement_verified, error_message, initiated_by, created_at, completed_at"
     )
     .eq("id", params.id)
     .single();

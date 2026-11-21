@@ -1,15 +1,9 @@
 /**
  * TypeScript types mirroring the PostgreSQL schema.
- * Used to type-check Supabase client queries.
- *
- * These types are manually maintained to match
- * supabase/migrations/001_foundation.sql exactly.
- *
- * Compatible with @supabase/postgrest-js v2.104+ which requires
- * the Relationships key in each table definition.
+ * Maintained to match supabase/migrations/001..004_*.sql exactly.
  */
 
-// ─── Row Types ──────────────────────────────────────
+import type { EncryptedAuditEnvelope } from "@/lib/e2ee";
 
 export interface Organization {
   id: string;
@@ -19,7 +13,12 @@ export interface Organization {
   updated_at: string;
 }
 
-export type PayrollRunStatus = "pending" | "pending_signature" | "processing" | "completed" | "failed";
+export type PayrollRunStatus =
+  | "pending"
+  | "pending_signature"
+  | "processing"
+  | "completed"
+  | "failed";
 
 export interface PayrollRun {
   id: string;
@@ -31,8 +30,12 @@ export interface PayrollRun {
   total_amount_lamports: number;
   recipient_count: number;
   tx_signatures: string[] | null;
+  anchor_tx_signature: string | null;
+  anchor_slot: number | null;
   merkle_root: string | null;
   encrypted_manifest: string | null;
+  e2ee_envelope: EncryptedAuditEnvelope | null;
+  settlement_verified: boolean;
   error_message: string | null;
   initiated_by: string;
   created_at: string;
@@ -53,6 +56,8 @@ export interface ViewingKey {
   org_id: string;
   key_id: string;
   encrypted_viewing_key: string;
+  auditor_public_key: string | null;
+  wrapped_batch_keys: Record<string, string>;
   valid_from: string;
   valid_until: string;
   allowed_tokens: string[];
@@ -69,10 +74,6 @@ export interface AuditLogEntry {
   metadata: Record<string, unknown>;
   created_at: string;
 }
-
-// ─── Supabase Database Type ─────────────────────────────────────
-// Compatible with @supabase/postgrest-js >=2.104
-// Each table requires Row, Insert, Update, and Relationships.
 
 export interface Database {
   public: {
@@ -107,8 +108,12 @@ export interface Database {
           total_amount_lamports: number;
           recipient_count: number;
           tx_signatures?: string[] | null;
+          anchor_tx_signature?: string | null;
+          anchor_slot?: number | null;
           merkle_root?: string | null;
           encrypted_manifest?: string | null;
+          e2ee_envelope?: EncryptedAuditEnvelope | null;
+          settlement_verified?: boolean;
           error_message?: string | null;
           initiated_by: string;
           created_at?: string;
@@ -124,8 +129,12 @@ export interface Database {
           total_amount_lamports?: number;
           recipient_count?: number;
           tx_signatures?: string[] | null;
+          anchor_tx_signature?: string | null;
+          anchor_slot?: number | null;
           merkle_root?: string | null;
           encrypted_manifest?: string | null;
+          e2ee_envelope?: EncryptedAuditEnvelope | null;
+          settlement_verified?: boolean;
           error_message?: string | null;
           initiated_by?: string;
           created_at?: string;
@@ -176,6 +185,8 @@ export interface Database {
           org_id: string;
           key_id: string;
           encrypted_viewing_key: string;
+          auditor_public_key?: string | null;
+          wrapped_batch_keys?: Record<string, string>;
           valid_from: string;
           valid_until: string;
           allowed_tokens?: string[];
@@ -189,6 +200,8 @@ export interface Database {
           org_id?: string;
           key_id?: string;
           encrypted_viewing_key?: string;
+          auditor_public_key?: string | null;
+          wrapped_batch_keys?: Record<string, string>;
           valid_from?: string;
           valid_until?: string;
           allowed_tokens?: string[];

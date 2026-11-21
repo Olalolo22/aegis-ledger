@@ -29,11 +29,6 @@ export interface Recipient {
   destinationAccount?: string;
 }
 
-export const FX_RATES = {
-  NGN: 1331, // ₦1,331 / USDC (Nigeria interbank spot)
-  KES: 130,  // KSh 130 / USDC (Kenya Safaricom M-Pesa spot)
-};
-
 const DEMO_ORG_ID = "b91a045c-27eb-44c1-8409-f62506b328a6";
 
 const MOCK_RECIPIENTS: Recipient[] = [
@@ -323,15 +318,28 @@ export default function PayrollTerminal() {
       return;
     }
 
-    // Otherwise generate a deterministic cryptographic proof on the fly
+    // Fetch live FX quote from /api/fx for preview receipts (zero hardcoded rates)
     const numericAmount = parseFloat(recipient.amount.replace(/,/g, "")) || 0;
     const isKes = recipient.settlementRail === "kes_mpesa";
-    const localAmount = isKes
-      ? Math.round(numericAmount * (liveFx.KES || 130))
-      : Math.round(numericAmount * (liveFx.NGN || 1331));
+    let quotedRate = isKes ? liveFx.KES : liveFx.NGN;
+    let fxProvider = "ExchangeRate-API (open.er-api.com)";
+    let fxQuotedAt = new Date().toISOString();
+    let fxQuoteId = `fx_preview_${Date.now()}`;
+
+    if (!quotedRate || quotedRate <= 0) {
+      const fxRes = await fetch("/api/fx");
+      if (!fxRes.ok) return;
+      const fxData = await fxRes.json();
+      quotedRate = isKes ? Number(fxData.rates?.KES) : Number(fxData.rates?.NGN);
+      fxProvider = fxData.provider || fxProvider;
+      fxQuotedAt = fxData.quotedAt || fxQuotedAt;
+      fxQuoteId = fxData.quoteId || fxQuoteId;
+    }
+
+    const localAmount = Math.round(numericAmount * quotedRate * 100) / 100;
 
     const sandbox = new SandboxOfframpProvider();
-    const demoRoot = batchRoot || "abaca0a0049263512b022b7d52d27564d782103f9012a45";
+    const demoRoot = batchRoot || "abaca0a0049263512b022b7d52d27564d782103f9012a4500000000000000000";
     const demoCommitment = "8f42a190de42b891" + recipient.addr.slice(0, 16);
 
     const generated = await sandbox.disburse(
@@ -344,6 +352,10 @@ export default function PayrollTerminal() {
         rail: isKes ? "kes_mpesa" : "ngn_bank",
         destinationAccount: recipient.destinationAccount || "Bank Account",
         noteCommitment: demoCommitment,
+        exchangeRate: quotedRate,
+        fxProvider,
+        fxQuotedAt,
+        fxQuoteId,
       },
       demoRoot
     );
@@ -414,31 +426,78 @@ export default function PayrollTerminal() {
   };
 
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [generatedAuditorPrivKey, setGeneratedAuditorPrivKey] = useState<string | null>(null);
   const [auditKeyError, setAuditKeyError] = useState<string | null>(null);
 
   const handleGenerateAuditorKey = async () => {
     try {
       setGeneratedKey(null);
+      setGeneratedAuditorPrivKey(null);
       setAuditKeyError(null);
 
+      const {
+        generateAuditKeyPair,
+        getOrCreateLocalOrgAuditKeyPair,
+        reWrapDekForAuditor,
+      } = await import("@/lib/e2ee");
+
       const auditorIdentity = "Internal Compliance";
+      const validFrom = new Date(Date.now() - 365 * 86400000).toISOString();
+      const validUntil = new Date(Date.now() + 86400000).toISOString();
+      const allowedTokens: Array<"USDC" | "SOL"> = ["USDC", "SOL"];
+
+      // 1. Load org's browser-local E2EE keypair & generate a fresh keypair for this auditor
+      const orgKeyPair = await getOrCreateLocalOrgAuditKeyPair(DEMO_ORG_ID);
+      const auditorKeyPair = await generateAuditKeyPair();
+
+      // 2. Fetch in-scope completed batch orgWrappedDeks and re-wrap strictly in-browser
+      const wrappedBatchKeys: Record<string, string> = {};
+      const runsUrl = new URL("/api/payroll", window.location.origin);
+      runsUrl.searchParams.set("org_id", DEMO_ORG_ID);
+      runsUrl.searchParams.set("valid_from", validFrom);
+      runsUrl.searchParams.set("valid_until", validUntil);
+      runsUrl.searchParams.set("tokens", allowedTokens.join(","));
+
+      const runsRes = await fetch(runsUrl.toString());
+      if (runsRes.ok) {
+        const runsData = await runsRes.json();
+        for (const run of runsData.runs || []) {
+          if (
+            run.org_wrapped_dek &&
+            run.org_public_key_fingerprint === orgKeyPair.fingerprint
+          ) {
+            wrappedBatchKeys[run.id] = await reWrapDekForAuditor(
+              run.org_wrapped_dek,
+              orgKeyPair.privateKeyPkcs8Base64,
+              auditorKeyPair.publicKeySpkiBase64
+            );
+          }
+        }
+      }
+
+      // 3. Register auditor's PUBLIC key + client-wrapped batch DEKs (server never sees private keys)
       const keyRes = await fetch("/api/audit/generate-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           org_id: DEMO_ORG_ID,
           auditor_identity: auditorIdentity,
-          valid_from: new Date().toISOString(),
-          valid_until: new Date(Date.now() + 86400000).toISOString(),
-          allowed_tokens: ["USDC", "SOL"],
+          auditor_public_key: auditorKeyPair.publicKeySpkiBase64,
+          wrapped_batch_keys: wrappedBatchKeys,
+          valid_from: validFrom,
+          valid_until: validUntil,
+          allowed_tokens: allowedTokens,
         }),
       });
       const keyData = await keyRes.json().catch(() => ({}));
       if (!keyRes.ok || !keyData.viewing_key?.id) {
-        setAuditKeyError(keyData.error || `Failed to create viewing key (HTTP ${keyRes.status})`);
+        setAuditKeyError(
+          keyData.error || `Failed to register auditor key (HTTP ${keyRes.status})`
+        );
         return;
       }
 
+      // 4. Issue single-use magic link
       const linkRes = await fetch("/api/audit/magic-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -449,11 +508,15 @@ export default function PayrollTerminal() {
       });
       const linkData = await linkRes.json().catch(() => ({}));
       if (!linkRes.ok || !linkData.magic_link) {
-        setAuditKeyError(linkData.error || `Viewing key created (${keyData.viewing_key.id}), but magic-link issuance failed.`);
+        setAuditKeyError(
+          linkData.error ||
+            `Auditor key created (${keyData.viewing_key.id}), but magic-link issuance failed.`
+        );
         return;
       }
 
       setGeneratedKey(linkData.magic_link);
+      setGeneratedAuditorPrivKey(auditorKeyPair.privateKeyPkcs8Base64);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to issue auditor magic link";
       console.error("Failed to generate key:", e);
@@ -674,6 +737,30 @@ export default function PayrollTerminal() {
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#08090b", wordBreak: "break-all" }}>
                   {generatedKey}
                 </div>
+                {generatedAuditorPrivKey && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #d1fae5" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "#059669", fontWeight: 700 }}>
+                        E2EE AUDITOR PRIVATE KEY (SEND OUT-OF-BAND · NEVER STORED ON SERVER)
+                      </span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedAuditorPrivKey);
+                          const btn = document.getElementById("panel-copy-priv-btn");
+                          if (btn) btn.innerText = "✓ Copied";
+                          setTimeout(() => { if (btn) btn.innerText = "Copy Key"; }, 2000);
+                        }}
+                        id="panel-copy-priv-btn"
+                        style={{ background: "none", border: "none", color: "#059669", fontSize: 10, cursor: "pointer", fontFamily: "var(--mono)", fontWeight: 600 }}
+                      >
+                        Copy Key
+                      </button>
+                    </div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "#64748b", wordBreak: "break-all" }}>
+                      {generatedAuditorPrivKey.slice(0, 48)}... (RSA-OAEP-256 PKCS#8)
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -754,10 +841,10 @@ export default function PayrollTerminal() {
           <div className={styles.fxRates}>
             <span style={{ color: "#8e98a6", fontSize: 10, textTransform: "uppercase" }}>Spot Off-Ramp Rails:</span>
             <span className={styles.fxPill}>
-              <IconFlagNG width={14} height={10} /> NGN <strong>₦{liveFx.NGN.toLocaleString()}</strong> / USDC
+              <IconFlagNG width={14} height={10} /> NGN <strong>{liveFx.NGN > 0 ? `₦${liveFx.NGN.toLocaleString()}` : "Syncing..."}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
-              <IconFlagKE width={14} height={10} /> KES <strong>KSh {liveFx.KES}</strong> / USDC
+              <IconFlagKE width={14} height={10} /> KES <strong>{liveFx.KES > 0 ? `KSh ${liveFx.KES}` : "Syncing..."}</strong> / USDC
             </span>
             <span className={styles.fxPill}>
               <IconShield size={12} style={{ color: "#0066ff" }} /> Solscan Visibility <strong>Hidden</strong>
@@ -781,10 +868,10 @@ export default function PayrollTerminal() {
             const isNgn = r.settlementRail === "ngn_bank";
             const isKes = r.settlementRail === "kes_mpesa";
             const localPayout = isNgn
-              ? `₦${(numericAmount * liveFx.NGN).toLocaleString()}`
+              ? (liveFx.NGN > 0 ? `₦${Math.round(numericAmount * liveFx.NGN).toLocaleString()}` : "Quoted at dispatch")
               : isKes
-                ? `KSh ${(numericAmount * liveFx.KES).toLocaleString()}`
-                : `${r.amount} USDC`;
+                ? (liveFx.KES > 0 ? `KSh ${Math.round(numericAmount * liveFx.KES).toLocaleString()}` : "Quoted at dispatch")
+                : `${r.amount} ${r.token}`;
 
             return (
               <div className={styles.tableRow} key={i}

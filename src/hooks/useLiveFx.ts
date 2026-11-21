@@ -9,20 +9,27 @@ export interface LiveFxState {
     NGN_OFFICIAL?: number;
   };
   isLive: boolean;
+  provider: string | null;
   lastUpdated: string | null;
   loading: boolean;
 }
 
-const DEFAULT_RATES = {
-  NGN: 1331,
-  KES: 130,
-  NGN_OFFICIAL: 1331,
+const PREVIEW_PLACEHOLDER_RATES = {
+  NGN: 0,
+  KES: 0,
+  NGN_OFFICIAL: 0,
 };
 
+/**
+ * UI display preview hook for live spot FX rates.
+ * Note: Actual payout conversion rates are NEVER read from this React hook —
+ * `/api/payroll/dispatch-offramp` quotes live FX server-side at disbursement time.
+ */
 export function useLiveFx(): LiveFxState {
   const [state, setState] = useState<LiveFxState>({
-    rates: DEFAULT_RATES,
+    rates: PREVIEW_PLACEHOLDER_RATES,
     isLive: false,
+    provider: null,
     lastUpdated: null,
     loading: true,
   });
@@ -33,24 +40,28 @@ export function useLiveFx(): LiveFxState {
     async function fetchRates() {
       try {
         const res = await fetch("/api/fx");
-        if (!res.ok) throw new Error("Failed to fetch rates");
+        if (!res.ok) throw new Error(`FX feed returned ${res.status}`);
         const data = await res.json();
-        if (isMounted && data?.rates) {
+        if (isMounted && data?.rates?.NGN && data?.rates?.KES) {
           setState({
             rates: {
-              NGN: Number(data.rates.NGN) || DEFAULT_RATES.NGN,
-              KES: Number(data.rates.KES) || DEFAULT_RATES.KES,
-              NGN_OFFICIAL: Number(data.rates.NGN_OFFICIAL) || DEFAULT_RATES.NGN_OFFICIAL,
+              NGN: Number(data.rates.NGN),
+              KES: Number(data.rates.KES),
+              NGN_OFFICIAL: Number(data.rates.NGN_OFFICIAL || data.rates.NGN),
             },
             isLive: true,
-            lastUpdated: data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : "Live",
+            provider: data.provider || "ExchangeRate-API",
+            lastUpdated: data.updatedAt
+              ? new Date(data.updatedAt).toLocaleTimeString()
+              : "Live",
             loading: false,
           });
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
-          setState(prev => ({
+          setState((prev) => ({
             ...prev,
+            isLive: false,
             loading: false,
           }));
         }
@@ -58,7 +69,7 @@ export function useLiveFx(): LiveFxState {
     }
 
     fetchRates();
-    const interval = setInterval(fetchRates, 60000); // Poll every 60s
+    const interval = setInterval(fetchRates, 60000);
 
     return () => {
       isMounted = false;

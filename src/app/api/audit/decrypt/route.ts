@@ -1,36 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Connection } from "@solana/web3.js";
 import { jwtVerify } from "jose";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
-  buildManifestAad,
   buildViewingKeyScopeAad,
-  decryptBatchManifest,
   decryptViewingKey,
   deriveJwtSigningKey,
 } from "@/lib/crypto";
+import { buildEnvelopeAad, getPublicKeyFingerprint } from "@/lib/e2ee";
+import { L1_DEVNET_RPC } from "@/lib/magicblock";
+import { verifyAnchorTransactionOnChain } from "@/lib/onchainVerify";
 import { decryptRequestSchema } from "@/lib/validation";
-import {
-  verifyBatchCompleteness,
-  verifyMerkleInclusionProof,
-  type MerkleInclusionProof,
-} from "@/lib/merkle";
 
 /**
  * POST /api/audit/decrypt
  *
- * Cryptographically verifies a time- and token-scoped auditor viewing key,
- * unwraps the organization's HKDF audit key using scope-bound GCM AAD,
- * decrypts each in-scope batch manifest, and verifies FULL Binary Merkle Sum
- * Tree completeness against every batch's anchored `merkle_root`.
+ * Zero-knowledge audit envelope delivery & independent Solana L1 root anchor verifier.
  *
- * Authentication: Bearer JWT from GET /api/audit/verify
- *
- * Guarantees:
- * - Altering DB temporal bounds or allowed_tokens fails GCM AAD authentication.
- * - Omitting or modifying even one recipient in a batch manifest fails Merkle
- *   Sum Tree completeness verification (root, leaf count, and total sum).
- * - Only runs within [valid_from, valid_until] AND matching allowed_tokens are
- *   decrypted and returned.
+ * Security invariants:
+ * 1. Aegis servers CANNOT decrypt customer payroll manifests. This route returns
+ *    client-encrypted `e2ee_envelope` blobs + the auditor's `auditor_wrapped_dek`
+ *    so decryption and Binary Merkle Sum Tree completeness checks execute locally
+ *    inside the auditor's browser using the auditor's private key.
+ * 2. Before returning any batch, this route INDEPENDENTLY pulls each batch's
+ *    `anchor_tx_signature` directly from Solana L1 RPC, parses `aegis:merkle:v1:<root>:<count>`,
+ *    and verifies `onChainRoot === payroll_runs.merkle_root`, `onChainLeafCount === recipient_count`,
+ *    `signer === initiated_by`, and `e2ee_envelope.aad` matches the L1-anchored root.
+ *    Even a compromised Postgres database cannot forge an on-chain verified audit batch.
  */
 
 interface AuditJwtPayload {
@@ -45,34 +41,6 @@ interface AuditJwtPayload {
   iat: number;
   iss: string;
 }
-
-interface StoredBatchManifest {
-  version: number;
-  payrollRunId: string;
-  orgId: string;
-  tokenSymbol: string;
-  merkleRoot: string;
-  totalAmountBaseUnits: string;
-  leafCount: number;
-  entries: Array<{
-    index: number;
-    recipient: string;
-    amountBaseUnits: string;
-    tokenSymbol: "USDC" | "USDT" | "SOL";
-    tokenMint: string;
-    settlementRail: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
-    saltHex: string;
-    runNonce: string;
-    commitmentHash: string;
-    merkleProof: MerkleInclusionProof;
-  }>;
-}
-
-const TOKEN_DECIMALS: Record<string, number> = {
-  SOL: 9,
-  USDC: 6,
-  USDT: 6,
-};
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -123,7 +91,7 @@ export async function POST(request: NextRequest) {
   const { data: vk, error: vkError } = await supabase
     .from("viewing_keys")
     .select(
-      "id, org_id, key_id, encrypted_viewing_key, valid_from, valid_until, allowed_tokens, revoked"
+      "id, org_id, key_id, encrypted_viewing_key, auditor_public_key, wrapped_batch_keys, valid_from, valid_until, allowed_tokens, revoked"
     )
     .eq("id", payload.vk_id)
     .single();
@@ -168,9 +136,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Unwrap the organization's real audit decryption key using scope-bound AAD.
-    // If any DB scope field (org_id, valid_from, valid_until, allowed_tokens) was
-    // modified after key issuance, AES-256-GCM authentication fails here.
+    // Verify GCM scope AAD integrity (fails if DB temporal or token scope was altered)
     const encryptedBlob = Buffer.from(vk.encrypted_viewing_key, "base64");
     const scopeAad = buildViewingKeyScopeAad({
       orgId: vk.org_id,
@@ -178,13 +144,13 @@ export async function POST(request: NextRequest) {
       validUntil: vk.valid_until,
       allowedTokens: vk.allowed_tokens,
     });
-    const orgAuditKey = decryptViewingKey(encryptedBlob, vk.key_id, scopeAad);
+    decryptViewingKey(encryptedBlob, vk.key_id, scopeAad);
 
-    // Query ONLY completed runs strictly within the authorized temporal & token scope
+    // Fetch completed runs strictly inside authorized temporal & token scope
     const { data: runs, error: runsError } = await supabase
       .from("payroll_runs")
       .select(
-        "id, total_amount_lamports, recipient_count, token_symbol, token_mint, tx_signatures, merkle_root, encrypted_manifest, created_at, completed_at"
+        "id, total_amount_lamports, recipient_count, token_symbol, token_mint, tx_signatures, anchor_tx_signature, anchor_slot, merkle_root, e2ee_envelope, settlement_verified, initiated_by, created_at, completed_at"
       )
       .eq("org_id", vk.org_id)
       .eq("status", "completed")
@@ -198,183 +164,121 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to query payroll runs: ${runsError.message}`);
     }
 
-    const verifiedBatches: Array<{
-      payroll_run_id: string;
-      token_symbol: string;
-      merkle_root: string;
-      completeness_verified: boolean;
-      verification_errors: string[];
-      leaf_count: number;
-      total_amount_base_units: string;
-      tx_signatures: string[];
-      settled_at: string;
-      entries: Array<{
-        index: number;
-        recipient: string;
-        amount_base_units: string;
-        token_symbol: string;
-        settlement_rail: string;
-        commitment_hash: string;
-        inclusion_proof_verified: boolean;
-        merkle_proof: MerkleInclusionProof;
-      }>;
-    }> = [];
+    const l1RpcUrl = process.env.SOLANA_RPC_URL || L1_DEVNET_RPC;
+    const l1Connection = new Connection(l1RpcUrl, "confirmed");
+    const wrappedKeys = vk.wrapped_batch_keys || {};
 
-    const decryptedTransactions: Array<{
-      txType: "withdrawal";
-      amount: number;
-      fee: number;
-      netAmount: number;
-      runningBalance: number;
-      timestamp: number;
-      recipient: string;
-      symbol: string;
-      decimals: number;
-      commitment: string;
-      merkleRoot: string;
-      completenessVerified: boolean;
-      settlementRail: string;
-      signature?: string;
-    }> = [];
+    const auditedBatches = await Promise.all(
+      (runs || []).map(async (run) => {
+        const settledAtIso = run.completed_at || run.created_at;
+        const auditorWrappedDek = wrappedKeys[run.id] ?? null;
 
-    let cumulativeOutflow = 0;
+        if (!run.anchor_tx_signature || !run.merkle_root) {
+          return {
+            payroll_run_id: run.id,
+            token_symbol: run.token_symbol,
+            merkle_root: run.merkle_root || "",
+            leaf_count: run.recipient_count,
+            total_amount_base_units: String(run.total_amount_lamports),
+            tx_signatures: run.tx_signatures || [],
+            settled_at: settledAtIso,
+            settlement_verified: Boolean(run.settlement_verified),
+            chain_anchor: {
+              verified: false,
+              signature: run.anchor_tx_signature || null,
+              error: "Missing Solana L1 anchor_tx_signature or merkle_root; cannot verify against chain.",
+            },
+            e2ee_envelope: run.e2ee_envelope || null,
+            auditor_wrapped_dek: auditorWrappedDek,
+            aad_matches_chain_root: false,
+          };
+        }
 
-    for (const run of runs || []) {
-      const settledAtIso = run.completed_at || run.created_at;
-      const settledMs = new Date(settledAtIso).getTime();
+        // Pull root independently from Solana L1 RPC & compare against DB merkle_root
+        const anchorCheck = await verifyAnchorTransactionOnChain(
+          l1Connection,
+          run.anchor_tx_signature,
+          run.initiated_by,
+          run.merkle_root,
+          run.recipient_count
+        );
 
-      if (!run.encrypted_manifest || !run.merkle_root) {
-        // Legacy or unsealed run without encrypted manifest — surface honestly as unverified
-        verifiedBatches.push({
+        const expectedAad = anchorCheck.onChainRoot
+          ? buildEnvelopeAad({
+              orgId: vk.org_id,
+              payrollRunId: run.id,
+              merkleRoot: anchorCheck.onChainRoot,
+              tokenSymbol: run.token_symbol,
+            })
+          : null;
+
+        const aadMatchesChainRoot = Boolean(
+          anchorCheck.verified &&
+            run.e2ee_envelope &&
+            expectedAad &&
+            run.e2ee_envelope.aad === expectedAad
+        );
+
+        return {
           payroll_run_id: run.id,
           token_symbol: run.token_symbol,
-          merkle_root: run.merkle_root || "",
-          completeness_verified: false,
-          verification_errors: [
-            "Missing encrypted audit manifest or Merkle Sum Tree root; batch completeness cannot be proven.",
-          ],
+          merkle_root: run.merkle_root,
           leaf_count: run.recipient_count,
           total_amount_base_units: String(run.total_amount_lamports),
           tx_signatures: run.tx_signatures || [],
           settled_at: settledAtIso,
-          entries: [],
-        });
-        continue;
-      }
-
-      // Decrypt batch manifest using the unwrapped orgAuditKey + manifest AAD
-      const manifestAad = buildManifestAad({
-        orgId: vk.org_id,
-        payrollRunId: run.id,
-        merkleRoot: run.merkle_root,
-        tokenSymbol: run.token_symbol,
-      });
-
-      const plaintextJson = decryptBatchManifest(
-        run.encrypted_manifest,
-        orgAuditKey,
-        run.id,
-        manifestAad
-      );
-      const manifest = JSON.parse(plaintextJson) as StoredBatchManifest;
-
-      // Verify full Binary Merkle Sum Tree completeness (root + leaf count + total sum)
-      const completeness = verifyBatchCompleteness(
-        manifest.entries,
-        run.merkle_root,
-        BigInt(run.total_amount_lamports),
-        run.recipient_count
-      );
-
-      const verifiedEntries = manifest.entries.map((entry) => {
-        const proofOk =
-          verifyMerkleInclusionProof(entry.merkleProof, run.merkle_root!) &&
-          entry.merkleProof.leafHash === entry.commitmentHash;
-
-        const amountNum = Number(entry.amountBaseUnits);
-        cumulativeOutflow += amountNum;
-
-        decryptedTransactions.push({
-          txType: "withdrawal",
-          amount: amountNum,
-          fee: 0,
-          netAmount: -amountNum,
-          runningBalance: -cumulativeOutflow,
-          timestamp: settledMs,
-          recipient: entry.recipient,
-          symbol: entry.tokenSymbol,
-          decimals: TOKEN_DECIMALS[entry.tokenSymbol] ?? 6,
-          commitment: entry.commitmentHash,
-          merkleRoot: run.merkle_root!,
-          completenessVerified: completeness.valid && proofOk,
-          settlementRail: entry.settlementRail,
-          signature: run.tx_signatures?.[0],
-        });
-
-        return {
-          index: entry.index,
-          recipient: entry.recipient,
-          amount_base_units: entry.amountBaseUnits,
-          token_symbol: entry.tokenSymbol,
-          settlement_rail: entry.settlementRail,
-          commitment_hash: entry.commitmentHash,
-          inclusion_proof_verified: proofOk,
-          merkle_proof: entry.merkleProof,
+          settlement_verified: Boolean(run.settlement_verified),
+          chain_anchor: {
+            verified: anchorCheck.verified,
+            signature: run.anchor_tx_signature,
+            slot: anchorCheck.slot ?? run.anchor_slot ?? null,
+            block_time: anchorCheck.blockTime ?? null,
+            on_chain_root: anchorCheck.onChainRoot ?? null,
+            on_chain_leaf_count: anchorCheck.onChainLeafCount ?? null,
+            signer_verified: anchorCheck.signerVerified ?? false,
+            error: anchorCheck.error ?? null,
+          },
+          e2ee_envelope: run.e2ee_envelope || null,
+          auditor_wrapped_dek: auditorWrappedDek,
+          aad_matches_chain_root: aadMatchesChainRoot,
         };
-      });
+      })
+    );
 
-      verifiedBatches.push({
-        payroll_run_id: run.id,
-        token_symbol: run.token_symbol,
-        merkle_root: run.merkle_root,
-        completeness_verified:
-          completeness.valid && verifiedEntries.every((e) => e.inclusion_proof_verified),
-        verification_errors: completeness.errors,
-        leaf_count: completeness.leafCount,
-        total_amount_base_units: completeness.totalSum,
-        tx_signatures: run.tx_signatures || [],
-        settled_at: settledAtIso,
-        entries: verifiedEntries,
-      });
-    }
-
-    const allBatchesVerified =
-      verifiedBatches.length > 0 &&
-      verifiedBatches.every((b) => b.completeness_verified);
+    const verifiedAnchorCount = auditedBatches.filter(
+      (b) => b.chain_anchor.verified && b.aad_matches_chain_root
+    ).length;
 
     return NextResponse.json(
       {
         audit: {
           org_id: vk.org_id,
           viewing_key_id: vk.id,
+          decryption_mode: "client_side_e2ee",
+          auditor_public_key_fingerprint: vk.auditor_public_key
+            ? getPublicKeyFingerprint(vk.auditor_public_key)
+            : null,
           scope: {
             valid_from: vk.valid_from,
             valid_until: vk.valid_until,
             allowed_tokens: vk.allowed_tokens,
           },
           integrity: {
-            all_batches_verified: allBatchesVerified,
-            verified_batch_count: verifiedBatches.filter((b) => b.completeness_verified).length,
-            total_batch_count: verifiedBatches.length,
+            all_chain_anchors_verified:
+              auditedBatches.length > 0 && verifiedAnchorCount === auditedBatches.length,
+            verified_chain_anchor_count: verifiedAnchorCount,
+            total_batch_count: auditedBatches.length,
           },
-          summary: {
-            totalWithdrawals: decryptedTransactions.reduce((s, t) => s + Math.abs(t.netAmount), 0),
-            totalFees: 0,
-            transactionCount: decryptedTransactions.length,
-          },
-          batches: verifiedBatches,
-          transactions: decryptedTransactions,
-          scanned_count: (runs || []).length,
-          filtered_count: decryptedTransactions.length,
+          batches: auditedBatches,
         },
       },
       { status: 200 }
     );
   } catch (error) {
-    console.error("[Aegis Audit] Decrypt/verify error:", error);
+    console.error("[Aegis Audit] Envelope fetch / L1 anchor verification error:", error);
     return NextResponse.json(
       {
-        error: "Failed to decrypt viewing key or verify audit manifests",
+        error: "Failed to verify viewing key scope or Solana L1 Merkle anchors",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }

@@ -7,12 +7,6 @@ import {
   PrivacyProofDetails,
 } from "./types";
 
-/**
- * Mask destination account for zero-knowledge receipt exposure.
- * Examples:
- * - "Access Bank · 0123456789" -> "Access Bank · 0123****89"
- * - "+254712345678" -> "+254 712 *** 78"
- */
 function maskDestination(dest: string): string {
   if (dest.includes("·")) {
     const [bank, acct] = dest.split("·").map((s) => s.trim());
@@ -23,7 +17,6 @@ function maskDestination(dest: string): string {
     return dest;
   }
 
-  // Phone number (e.g., Kenyan M-Pesa)
   const cleaned = dest.replace(/\s+/g, "");
   if (cleaned.length >= 10) {
     return `${cleaned.slice(0, 6)} *** ${cleaned.slice(-2)}`;
@@ -32,9 +25,6 @@ function maskDestination(dest: string): string {
   return dest;
 }
 
-/**
- * Deterministic reference generator simulating NIBSS / Safaricom M-Pesa rails
- */
 function generateRailReference(
   rail: "ngn_bank" | "kes_mpesa",
   noteCommitment: string
@@ -49,21 +39,25 @@ function generateRailReference(
 }
 
 /**
- * Computes an immutable cryptographic verification proof tying the off-ramp
- * disbursement to the MagicBlock TEE batch root.
+ * Computes a cryptographic receipt digest binding the off-ramp disbursement,
+ * server-quoted FX rate, FX provider, quote timestamp, and L1-anchored Merkle root.
  */
 function computePrivacyProof(
   batchRoot: string,
   noteCommitment: string,
-  fiatAmount: number
+  fiatAmount: number,
+  exchangeRate: number,
+  fxProvider: string,
+  fxQuotedAt: string,
+  fxQuoteId: string
 ): PrivacyProofDetails {
   const payload = new TextEncoder().encode(
-    `aegis:settlement:${batchRoot}:${noteCommitment}:${fiatAmount}`
+    `aegis:settlement:v2:${batchRoot}:${noteCommitment}:${fiatAmount}:${exchangeRate}:${fxProvider}:${fxQuotedAt}:${fxQuoteId}`
   );
   const hashSignature = bytesToHex(sha256(payload));
 
   return {
-    teeAttestation: `aegis:tee:batch:${batchRoot.slice(0, 32)}`,
+    teeAttestation: `aegis:merkle:v1:${batchRoot}`,
     onChainTrace: "NONE (Attested in TEE Merkle Root)",
     solscanStatus: "CONFIDENTIAL",
     hashSignature,
@@ -81,10 +75,23 @@ export class SandboxOfframpProvider implements OfframpProvider {
     const disbursementId = `disb_${Date.now()}_${recipient.noteCommitment.slice(0, 8)}`;
     const railRef = generateRailReference(recipient.rail, recipient.noteCommitment);
     const maskedAccount = maskDestination(recipient.destinationAccount);
+    const exchangeRate =
+      recipient.exchangeRate ??
+      (recipient.amountUsd > 0
+        ? Math.round((recipient.amountLocal / recipient.amountUsd) * 100) / 100
+        : 0);
+    const fxProvider = recipient.fxProvider || "Server-Quoted Live Spot FX";
+    const fxQuotedAt = recipient.fxQuotedAt || new Date().toISOString();
+    const fxQuoteId = recipient.fxQuoteId || `fx_local_${Date.now()}`;
+
     const privacyProof = computePrivacyProof(
       batchRoot,
       recipient.noteCommitment,
-      recipient.amountLocal
+      recipient.amountLocal,
+      exchangeRate,
+      fxProvider,
+      fxQuotedAt,
+      fxQuoteId
     );
 
     return {
@@ -96,15 +103,18 @@ export class SandboxOfframpProvider implements OfframpProvider {
       fiatAmount: recipient.amountLocal,
       fiatCurrency: recipient.currency,
       usdAmount: recipient.amountUsd,
-      exchangeRate:
-        recipient.amountUsd > 0
-          ? Math.round((recipient.amountLocal / recipient.amountUsd) * 100) / 100
-          : 0,
+      exchangeRate,
+      fxProvider,
+      fxQuotedAt,
+      fxQuoteId,
       railReference: railRef,
       settledAt: new Date().toISOString(),
       status: "SETTLED",
       network: "solana-devnet",
-      provider: recipient.rail === "kes_mpesa" ? "Kotani Pay (M-Pesa B2C)" : "Yellow Card / NIBSS Rail",
+      provider:
+        recipient.rail === "kes_mpesa"
+          ? "Kotani Pay (M-Pesa B2C · Sandbox)"
+          : "Yellow Card / NIBSS Rail · Sandbox",
       privacyProof,
     };
   }
