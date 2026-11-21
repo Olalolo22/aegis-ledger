@@ -103,6 +103,7 @@ export interface AuditorTreasurySetResolution {
 }
 
 export interface CrossBatchReconciliation {
+  verdictStatus: "complete" | "incomplete" | "not_evaluated";
   treasuryPubkeysChecked: string[];
   scannedSignatureCount: number;
   scanTruncated: boolean;
@@ -113,7 +114,7 @@ export interface CrossBatchReconciliation {
   deliveredMatchedCount: number;
   undisclosedAnchors: EnumeratedL1Anchor[];
   unanchoredDeliveredRunIds: string[];
-  completeZeroOmissions: boolean;
+  completeZeroOmissions: boolean | null;
 }
 
 /**
@@ -884,7 +885,33 @@ export function reconcileAuditedBatchesAgainstL1(
         meta.auditorDeclaredTreasuryPubkeys.length === 0)
   );
 
+  // Hard rule: with no auditor-declared treasury wallet, refuse to emit ANY
+  // whole-org zero-omission verdict or anchor count (per-batch view only).
+  if (missingAuditorDeclaredTreasury) {
+    return {
+      verdictStatus: "not_evaluated",
+      treasuryPubkeysChecked: [],
+      scannedSignatureCount: 0,
+      scanTruncated: false,
+      serverOmittedTreasuryPubkeys: [],
+      serverTreasuryListWasSubset: false,
+      missingAuditorDeclaredTreasury: true,
+      totalL1AnchorsInWindow: 0,
+      deliveredMatchedCount: 0,
+      undisclosedAnchors: [],
+      unanchoredDeliveredRunIds,
+      completeZeroOmissions: null,
+    };
+  }
+
+  const completeZeroOmissions =
+    !scanTruncated &&
+    !serverTreasuryListWasSubset &&
+    undisclosedAnchors.length === 0 &&
+    unanchoredDeliveredRunIds.length === 0;
+
   return {
+    verdictStatus: completeZeroOmissions ? "complete" : "incomplete",
     treasuryPubkeysChecked:
       meta?.treasuryPubkeysChecked ??
       Array.from(new Set(l1Anchors.map((a) => a.treasuryPubkey))),
@@ -892,16 +919,11 @@ export function reconcileAuditedBatchesAgainstL1(
     scanTruncated,
     serverOmittedTreasuryPubkeys,
     serverTreasuryListWasSubset,
-    missingAuditorDeclaredTreasury,
+    missingAuditorDeclaredTreasury: false,
     totalL1AnchorsInWindow: uniqueL1Anchors.size,
     deliveredMatchedCount,
     undisclosedAnchors,
     unanchoredDeliveredRunIds,
-    completeZeroOmissions:
-      !scanTruncated &&
-      !serverTreasuryListWasSubset &&
-      !missingAuditorDeclaredTreasury &&
-      undisclosedAnchors.length === 0 &&
-      unanchoredDeliveredRunIds.length === 0,
+    completeZeroOmissions,
   };
 }

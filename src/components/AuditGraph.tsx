@@ -157,13 +157,13 @@ function AuditorLogin({
               />
 
               <label className={styles.fieldLabel} style={{ marginTop: 10, display: "block" }}>
-                Expected Org Treasury Wallet(s) (Solana pubkeys · required for green zero-omission proof)
+                Expected Org Treasury Wallet(s) (Solana pubkeys · required to run whole-org cross-batch L1 check)
               </label>
               <input
                 className={styles.keyInput}
                 value={expectedTreasuries}
                 onChange={e => setExpectedTreasuries(e.target.value)}
-                placeholder="Enter org's declared treasury pubkey(s) (comma-separated); leaving blank yields partial-scope verification only"
+                placeholder="Enter org's declared treasury pubkey(s) (comma-separated); leave blank for per-batch view only"
               />
             </>
           )}
@@ -314,15 +314,12 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
 
   const isDone = status === "complete";
   const showFlow = isDone;
-  const isPartialScopeOnly = Boolean(
-    reconciliation &&
-      reconciliation.verifiedBy !== "demo" &&
-      reconciliation.missingAuditorDeclaredTreasury &&
-      !reconciliation.scanTruncated &&
-      !reconciliation.serverTreasuryListWasSubset &&
-      reconciliation.undisclosedAnchors.length === 0 &&
-      reconciliation.unanchoredDeliveredRunIds.length === 0
-  );
+  const isCrossBatchNotEvaluated =
+    reconciliation?.crossBatchVerdict === "not_evaluated";
+  const isCrossBatchComplete =
+    reconciliation?.crossBatchVerdict === "complete";
+  const isCrossBatchFinding =
+    reconciliation?.crossBatchVerdict === "incomplete";
 
   if (!authed) return <AuditorLogin onAuth={handleAuth} />;
 
@@ -341,11 +338,13 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             <span
               className={styles.authedDot}
               style={
-                reconciliation?.verifiedBy === "demo" || isPartialScopeOnly
+                reconciliation?.verifiedBy === "demo"
                   ? { background: "#d97706" }
-                  : reconciliation && !reconciliation.completeZeroOmissions
+                  : isCrossBatchFinding
                     ? { background: "#dc2626" }
-                    : undefined
+                    : isCrossBatchNotEvaluated
+                      ? { background: "#64748b" }
+                      : undefined
               }
             />
             <span
@@ -353,18 +352,20 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                 fontFamily: "var(--mono)",
                 fontSize: 10,
                 color:
-                  reconciliation?.verifiedBy === "demo" || isPartialScopeOnly
+                  reconciliation?.verifiedBy === "demo"
                     ? "#d97706"
-                    : reconciliation && !reconciliation.completeZeroOmissions
+                    : isCrossBatchFinding
                       ? "#dc2626"
-                      : "var(--green)",
+                      : isCrossBatchNotEvaluated
+                        ? "var(--dim)"
+                        : "var(--green)",
               }}
             >
               {reconciliation?.verifiedBy === "demo"
                 ? "Demo fixture · UNVERIFIED (not checked on Solana L1)"
-                : isPartialScopeOnly
-                  ? "Authenticated · Browser E2EE · PARTIAL SCOPE (declare treasury wallet)"
-                  : reconciliation && !reconciliation.completeZeroOmissions
+                : isCrossBatchNotEvaluated
+                  ? "Per-batch view · Browser E2EE & L1 verified (cross-batch not run)"
+                  : isCrossBatchFinding
                     ? "Authenticated · Browser E2EE · RECONCILIATION FINDING"
                     : "Authenticated · Browser-local E2EE · L1 reconciled"}
             </span>
@@ -393,17 +394,21 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
         <div
           style={{
             background:
-              reconciliation.verifiedBy === "demo" || isPartialScopeOnly
+              reconciliation.verifiedBy === "demo"
                 ? "rgba(217, 119, 6, 0.08)"
-                : reconciliation.completeZeroOmissions
-                  ? "rgba(16, 185, 129, 0.08)"
-                  : "rgba(239, 68, 68, 0.08)",
+                : isCrossBatchNotEvaluated
+                  ? "rgba(100, 116, 139, 0.08)"
+                  : isCrossBatchComplete
+                    ? "rgba(16, 185, 129, 0.08)"
+                    : "rgba(239, 68, 68, 0.08)",
             border:
-              reconciliation.verifiedBy === "demo" || isPartialScopeOnly
+              reconciliation.verifiedBy === "demo"
                 ? "1px solid rgba(217, 119, 6, 0.4)"
-                : reconciliation.completeZeroOmissions
-                  ? "1px solid rgba(16, 185, 129, 0.3)"
-                  : "1px solid rgba(239, 68, 68, 0.45)",
+                : isCrossBatchNotEvaluated
+                  ? "1px solid rgba(100, 116, 139, 0.35)"
+                  : isCrossBatchComplete
+                    ? "1px solid rgba(16, 185, 129, 0.3)"
+                    : "1px solid rgba(239, 68, 68, 0.45)",
             borderRadius: 10,
             padding: "12px 16px",
             marginBottom: 16,
@@ -416,18 +421,20 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
               style={{
                 fontWeight: 700,
                 color:
-                  reconciliation.verifiedBy === "demo" || isPartialScopeOnly
+                  reconciliation.verifiedBy === "demo"
                     ? "#b45309"
-                    : reconciliation.completeZeroOmissions
-                      ? "#059669"
-                      : "#dc2626",
+                    : isCrossBatchNotEvaluated
+                      ? "var(--ink)"
+                      : isCrossBatchComplete
+                        ? "#059669"
+                        : "#dc2626",
               }}
             >
               {reconciliation.verifiedBy === "demo"
                 ? "⚠ SIMULATED DEMO FIXTURE — NOT VERIFIED ON SOLANA L1 OR MAGICBLOCK ER"
-                : isPartialScopeOnly
-                  ? `⚠ PARTIAL SCOPE — NO ORG TREASURY WALLET DECLARED BY AUDITOR (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled on manifest-signed wallet(s) only)`
-                  : reconciliation.completeZeroOmissions
+                : isCrossBatchNotEvaluated
+                  ? "PER-BATCH VIEW ONLY — WHOLE-ORG CROSS-BATCH COMPLETENESS NOT EVALUATED"
+                  : isCrossBatchComplete
                     ? `✓ CROSS-BATCH L1 COMPLETENESS VERIFIED: 0 WITHHELD BATCHES (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled across ${reconciliation.treasuryPubkeysChecked.length} declared/manifest wallet(s))`
                     : `⚠ CROSS-BATCH COMPLETENESS NOT PROVEN: ${[
                         reconciliation.undisclosedAnchors.length > 0
@@ -442,23 +449,22 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                         reconciliation.unanchoredDeliveredRunIds.length > 0
                           ? `${reconciliation.unanchoredDeliveredRunIds.length} UNANCHORED RUN(S)`
                           : null,
-                        reconciliation.missingAuditorDeclaredTreasury
-                          ? "NO AUDITOR-DECLARED TREASURY WALLET"
-                          : null,
                       ]
                         .filter(Boolean)
                         .join(" · ")}`}
             </span>
             <span style={{ fontSize: 10, color: "var(--dim)" }}>
-              Source: {reconciliation.verifiedBy === "demo" ? "Demo Fixture (Unverified)" : `Direct Auditor L1 RPC (${reconciliation.l1RpcEndpoint})`} · Sigs Scanned: {reconciliation.scannedSignatureCount.toLocaleString()}{reconciliation.scanTruncated ? " (TRUNCATED)" : ""} · ER Wire Verified: {reconciliation.erTransfersVerifiedCount}
+              Source: {reconciliation.verifiedBy === "demo" ? "Demo Fixture (Unverified)" : `Direct Auditor L1 RPC (${reconciliation.l1RpcEndpoint})`}
+              {isCrossBatchNotEvaluated
+                ? ` · ER Wire Verified: ${reconciliation.erTransfersVerifiedCount}`
+                : ` · Sigs Scanned: ${reconciliation.scannedSignatureCount.toLocaleString()}${reconciliation.scanTruncated ? " (TRUNCATED)" : ""} · ER Wire Verified: ${reconciliation.erTransfersVerifiedCount}`}
             </span>
           </div>
-          {reconciliation.verifiedBy !== "demo" &&
-            reconciliation.missingAuditorDeclaredTreasury && (
-              <div style={{ marginTop: 6, fontSize: 10, color: "#92400e" }}>
-                • Completeness is proven relative to the wallets the auditor declares out-of-band plus the wallets proven by delivered manifests. Enter the org&apos;s declared Solana treasury wallet(s) at login to rule out a completely hidden secondary wallet and unlock a green zero-omission result.
-              </div>
-            )}
+          {isCrossBatchNotEvaluated && (
+            <div style={{ marginTop: 6, fontSize: 10, color: "var(--dim)" }}>
+              No org treasury wallet was declared by the auditor, so no whole-org zero-omission verdict was computed. Each delivered batch below is verified per-batch directly against Solana L1 and MagicBlock ER; re-authenticate with the org&apos;s declared Solana treasury wallet(s) to run whole-org L1 anchor enumeration.
+            </div>
+          )}
           {reconciliation.serverTreasuryListWasSubset && (
             <div style={{ marginTop: 8, fontSize: 10, color: "#b91c1c" }}>
               • Server advisory treasury list was a strict subset and omitted wallet(s):{" "}
@@ -569,7 +575,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
               { label: "Total outflow", val: decrypted ? `$${(filteredTxs.reduce((s, t) => s + Math.abs(t.netAmount), 0) / 1e6).toLocaleString()}` : "ENCRYPTED" },
               { label: "Recipients", val: decrypted ? `${uniqueRecipientsCount} wallets` : "HIDDEN" },
               {
-                label: "Proof status",
+                label: "Per-batch proof",
                 val:
                   reconciliation?.verifiedBy === "demo"
                     ? "UNVERIFIED DEMO"
@@ -585,32 +591,36 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
               },
               {
                 label: "L1 sigs scanned",
-                val: reconciliation
-                  ? `${reconciliation.scannedSignatureCount.toLocaleString()}${reconciliation.scanTruncated ? " (TRUNCATED)" : ""}`
-                  : "—",
-                col: reconciliation?.scanTruncated ? "#dc2626" : "var(--ink)",
+                val: !reconciliation
+                  ? "—"
+                  : isCrossBatchNotEvaluated
+                    ? "Not run"
+                    : `${reconciliation.scannedSignatureCount.toLocaleString()}${reconciliation.scanTruncated ? " (TRUNCATED)" : ""}`,
+                col: reconciliation?.scanTruncated ? "#dc2626" : isCrossBatchNotEvaluated ? "var(--dim)" : "var(--ink)",
               },
               {
-                label: "Withheld batches",
-                val: reconciliation
-                  ? reconciliation.verifiedBy === "demo"
+                label: "Cross-batch verdict",
+                val: !reconciliation
+                  ? "Checking..."
+                  : reconciliation.verifiedBy === "demo"
                     ? "N/A (Demo)"
-                    : isPartialScopeOnly
-                      ? "⚠ PARTIAL SCOPE"
-                      : reconciliation.completeZeroOmissions
-                        ? "0 (L1 reconciled)"
+                    : isCrossBatchNotEvaluated
+                      ? "Not evaluated (no wallet declared)"
+                      : isCrossBatchComplete
+                        ? "0 withheld (L1 reconciled)"
                         : reconciliation.scanTruncated
                           ? "⚠ SCAN TRUNCATED"
                           : reconciliation.serverTreasuryListWasSubset
                             ? "⚠ OMITTED WALLET"
-                            : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`
-                  : "Checking...",
+                            : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`,
                 col:
-                  reconciliation?.verifiedBy === "demo" || isPartialScopeOnly
+                  reconciliation?.verifiedBy === "demo"
                     ? "#d97706"
-                    : reconciliation && !reconciliation.completeZeroOmissions
-                      ? "#dc2626"
-                      : "var(--green)",
+                    : isCrossBatchNotEvaluated
+                      ? "var(--dim)"
+                      : isCrossBatchFinding
+                        ? "#dc2626"
+                        : "var(--green)",
               },
             ].map(s => (
               <div key={s.label} className={styles.statRow}>

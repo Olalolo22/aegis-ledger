@@ -96,6 +96,7 @@ export interface DecryptedTransaction {
 
 export interface AuditorReconciliationReport {
   verifiedBy: "auditor_browser_l1_rpc" | "demo";
+  crossBatchVerdict: "complete" | "incomplete" | "not_evaluated" | "demo";
   l1RpcEndpoint: string;
   treasuryPubkeysChecked: string[];
   auditorEnteredTreasuryPubkeys: string[];
@@ -108,7 +109,7 @@ export interface AuditorReconciliationReport {
   deliveredMatchedCount: number;
   undisclosedAnchors: EnumeratedL1Anchor[];
   unanchoredDeliveredRunIds: string[];
-  completeZeroOmissions: boolean;
+  completeZeroOmissions: boolean | null;
   erTransfersVerifiedCount: number;
 }
 
@@ -406,6 +407,7 @@ export function useAuditorEngine(): AuditorEngineResult {
           erTransfersVerifiedCount = 0;
           reconReport = {
             verifiedBy: "demo",
+            crossBatchVerdict: "demo",
             l1RpcEndpoint,
             treasuryPubkeysChecked: [],
             auditorEnteredTreasuryPubkeys: [],
@@ -418,7 +420,7 @@ export function useAuditorEngine(): AuditorEngineResult {
             deliveredMatchedCount: 0,
             undisclosedAnchors: [],
             unanchoredDeliveredRunIds: [],
-            completeZeroOmissions: false,
+            completeZeroOmissions: null,
             erTransfersVerifiedCount: 0,
           };
         } else {
@@ -643,95 +645,112 @@ export function useAuditorEngine(): AuditorEngineResult {
           }
 
           // 5. Zero-Trust Direct Browser-Side Solana L1 Enumeration ("Proof Nothing Was Withheld")
-          //    Derives the treasury enumeration set strictly from
+          //    Hard rule: with NO auditor-declared treasury wallet, refuse to compute a
+          //    whole-org zero-omission verdict at all (per-batch view only).
+          //    When declared, derives the enumeration set strictly from
           //      auditorEnteredPubkeys ∪ decryptedManifests.initiatedBy
-          //    (NEVER trusts server-supplied data.audit.treasury_pubkeys as authoritative)
-          //    and flags whenever the server list is a strict subset or the L1 scan truncates.
-          const serverAdvisoryTreasuryPubkeys: string[] = Array.isArray(
-            data.audit?.treasury_pubkeys
-          )
-            ? data.audit.treasury_pubkeys
-            : [];
+          //    and flags any withheld anchor, server-omitted wallet, or scan truncation.
+          if (auditorEnteredPubkeys.length === 0) {
+            reconReport = {
+              verifiedBy: "auditor_browser_l1_rpc",
+              crossBatchVerdict: "not_evaluated",
+              l1RpcEndpoint,
+              treasuryPubkeysChecked: [],
+              auditorEnteredTreasuryPubkeys: [],
+              serverOmittedTreasuryPubkeys: [],
+              serverTreasuryListWasSubset: false,
+              missingAuditorDeclaredTreasury: true,
+              scannedSignatureCount: 0,
+              scanTruncated: false,
+              totalL1AnchorsInWindow: 0,
+              deliveredMatchedCount: 0,
+              undisclosedAnchors: [],
+              unanchoredDeliveredRunIds: [],
+              completeZeroOmissions: null,
+              erTransfersVerifiedCount,
+            };
+          } else {
+            const serverAdvisoryTreasuryPubkeys: string[] = Array.isArray(
+              data.audit?.treasury_pubkeys
+            )
+              ? data.audit.treasury_pubkeys
+              : [];
 
-          const treasuryResolution = resolveAuditorTreasuryEnumerationSet({
-            auditorEnteredPubkeys,
-            manifestInitiatedByPubkeys,
-            serverAdvisoryPubkeys: serverAdvisoryTreasuryPubkeys,
-          });
+            const treasuryResolution = resolveAuditorTreasuryEnumerationSet({
+              auditorEnteredPubkeys,
+              manifestInitiatedByPubkeys,
+              serverAdvisoryPubkeys: serverAdvisoryTreasuryPubkeys,
+            });
 
-          if (treasuryResolution.enumerationPubkeys.length === 0) {
-            throw new Error(
-              "No authoritative treasury public keys available for Solana L1 enumeration (0 batches delivered and no expected org treasury wallet supplied). Enter the organization's declared Solana treasury wallet(s) to verify zero withheld batches directly on Solana L1."
+            setProgress(
+              `Enumerating all Solana L1 anchors across ${treasuryResolution.enumerationPubkeys.length} treasury wallet(s) directly via ${l1RpcEndpoint}...`
             );
-          }
 
-          setProgress(
-            `Enumerating all Solana L1 anchors across ${treasuryResolution.enumerationPubkeys.length} treasury wallet(s) directly via ${l1RpcEndpoint}...`
-          );
+            const browserL1Anchors: EnumeratedL1Anchor[] = [];
+            let scanned = 0;
+            let anyTruncated = false;
 
-          const browserL1Anchors: EnumeratedL1Anchor[] = [];
-          let scanned = 0;
-          let anyTruncated = false;
-
-          try {
-            for (const pubkey of treasuryResolution.enumerationPubkeys) {
-              const resEnum = await enumerateTreasuryAnchorsOnL1(
-                l1Connection,
-                pubkey,
-                {
-                  validFromIso: auditScope.valid_from,
-                  validUntilIso: auditScope.valid_until,
-                  maxSignatures: 5000,
-                }
+            try {
+              for (const pubkey of treasuryResolution.enumerationPubkeys) {
+                const resEnum = await enumerateTreasuryAnchorsOnL1(
+                  l1Connection,
+                  pubkey,
+                  {
+                    validFromIso: auditScope.valid_from,
+                    validUntilIso: auditScope.valid_until,
+                    maxSignatures: 5000,
+                  }
+                );
+                scanned += resEnum.scannedSignatureCount;
+                anyTruncated = anyTruncated || resEnum.truncated;
+                browserL1Anchors.push(...resEnum.anchors);
+              }
+            } catch (rpcErr) {
+              const detail =
+                rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
+              throw new Error(
+                `Direct auditor Solana L1 RPC enumeration failed (${l1RpcEndpoint}): ${detail}. Supply an unthrottled Solana L1 RPC endpoint to complete zero-trust reconciliation.`
               );
-              scanned += resEnum.scannedSignatureCount;
-              anyTruncated = anyTruncated || resEnum.truncated;
-              browserL1Anchors.push(...resEnum.anchors);
             }
-          } catch (rpcErr) {
-            const detail =
-              rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
-            throw new Error(
-              `Direct auditor Solana L1 RPC enumeration failed (${l1RpcEndpoint}): ${detail}. Supply an unthrottled Solana L1 RPC endpoint to complete zero-trust reconciliation.`
+
+            const browserRecon = reconcileAuditedBatchesAgainstL1(
+              browserL1Anchors,
+              browserVerifiedBatchesForRecon,
+              {
+                treasuryPubkeysChecked: treasuryResolution.enumerationPubkeys,
+                scannedSignatureCount: scanned,
+                scanTruncated: anyTruncated,
+                serverOmittedTreasuryPubkeys:
+                  treasuryResolution.serverOmittedPubkeys,
+                requireAuditorDeclaredTreasury: true,
+                auditorDeclaredTreasuryPubkeys:
+                  treasuryResolution.auditorEnteredPubkeys,
+              }
             );
-          }
 
-          const browserRecon = reconcileAuditedBatchesAgainstL1(
-            browserL1Anchors,
-            browserVerifiedBatchesForRecon,
-            {
-              treasuryPubkeysChecked: treasuryResolution.enumerationPubkeys,
-              scannedSignatureCount: scanned,
-              scanTruncated: anyTruncated,
-              serverOmittedTreasuryPubkeys:
-                treasuryResolution.serverOmittedPubkeys,
-              requireAuditorDeclaredTreasury: true,
-              auditorDeclaredTreasuryPubkeys:
+            reconReport = {
+              verifiedBy: "auditor_browser_l1_rpc",
+              crossBatchVerdict: browserRecon.verdictStatus,
+              l1RpcEndpoint,
+              treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
+              auditorEnteredTreasuryPubkeys:
                 treasuryResolution.auditorEnteredPubkeys,
-            }
-          );
-
-          reconReport = {
-            verifiedBy: "auditor_browser_l1_rpc",
-            l1RpcEndpoint,
-            treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
-            auditorEnteredTreasuryPubkeys:
-              treasuryResolution.auditorEnteredPubkeys,
-            serverOmittedTreasuryPubkeys:
-              browserRecon.serverOmittedTreasuryPubkeys,
-            serverTreasuryListWasSubset:
-              browserRecon.serverTreasuryListWasSubset,
-            missingAuditorDeclaredTreasury:
-              browserRecon.missingAuditorDeclaredTreasury,
-            scannedSignatureCount: browserRecon.scannedSignatureCount,
-            scanTruncated: browserRecon.scanTruncated,
-            totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,
-            deliveredMatchedCount: browserRecon.deliveredMatchedCount,
-            undisclosedAnchors: browserRecon.undisclosedAnchors,
-            unanchoredDeliveredRunIds: browserRecon.unanchoredDeliveredRunIds,
-            completeZeroOmissions: browserRecon.completeZeroOmissions,
-            erTransfersVerifiedCount,
-          };
+              serverOmittedTreasuryPubkeys:
+                browserRecon.serverOmittedTreasuryPubkeys,
+              serverTreasuryListWasSubset:
+                browserRecon.serverTreasuryListWasSubset,
+              missingAuditorDeclaredTreasury:
+                browserRecon.missingAuditorDeclaredTreasury,
+              scannedSignatureCount: browserRecon.scannedSignatureCount,
+              scanTruncated: browserRecon.scanTruncated,
+              totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,
+              deliveredMatchedCount: browserRecon.deliveredMatchedCount,
+              undisclosedAnchors: browserRecon.undisclosedAnchors,
+              unanchoredDeliveredRunIds: browserRecon.unanchoredDeliveredRunIds,
+              completeZeroOmissions: browserRecon.completeZeroOmissions,
+              erTransfersVerifiedCount,
+            };
+          }
         }
 
         setStatus("formatting");

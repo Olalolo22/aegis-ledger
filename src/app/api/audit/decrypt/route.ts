@@ -365,7 +365,8 @@ export async function POST(request: NextRequest) {
             unanchored_delivered_run_ids:
               reconciliation.unanchoredDeliveredRunIds,
             complete_zero_omissions:
-              enumerationError === null && reconciliation.completeZeroOmissions,
+              enumerationError === null &&
+              reconciliation.completeZeroOmissions === true,
             enumeration_error: enumerationError,
           },
           batches: auditedBatches,
