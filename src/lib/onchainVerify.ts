@@ -68,6 +68,7 @@ export interface OnChainAnchorVerification {
   onChainRoot?: string;
   onChainLeafCount?: number;
   signerVerified?: boolean;
+  signers?: string[];
   error?: string;
 }
 
@@ -90,9 +91,23 @@ export interface EnumeratedL1Anchor {
   treasuryPubkey: string;
 }
 
+export interface AuditorTreasurySetResolution {
+  /** Authoritative union of auditor-entered pubkeys and decrypted manifest initiatedBy pubkeys (never server-sourced). */
+  enumerationPubkeys: string[];
+  auditorEnteredPubkeys: string[];
+  manifestPubkeys: string[];
+  /** Pubkeys in `enumerationPubkeys` that the server omitted from its advisory `treasury_pubkeys` list. */
+  serverOmittedPubkeys: string[];
+  /** True when the server's advisory list omitted at least one authoritative treasury wallet. */
+  serverListWasStrictSubset: boolean;
+}
+
 export interface CrossBatchReconciliation {
   treasuryPubkeysChecked: string[];
   scannedSignatureCount: number;
+  scanTruncated: boolean;
+  serverOmittedTreasuryPubkeys: string[];
+  serverTreasuryListWasSubset: boolean;
   totalL1AnchorsInWindow: number;
   deliveredMatchedCount: number;
   undisclosedAnchors: EnumeratedL1Anchor[];
@@ -365,6 +380,7 @@ export async function verifyAnchorTransactionOnChain(
         onChainRoot: decoded.anchor.merkleRoot,
         onChainLeafCount: decoded.anchor.leafCount,
         signerVerified: false,
+        signers: decoded.signers,
         error: `Anchor transaction signer mismatch: expected ${expectedSigner}.`,
       };
     }
@@ -377,6 +393,7 @@ export async function verifyAnchorTransactionOnChain(
         onChainRoot: decoded.anchor.merkleRoot,
         onChainLeafCount: decoded.anchor.leafCount,
         signerVerified: true,
+        signers: decoded.signers,
         error: `On-chain Merkle root (${decoded.anchor.merkleRoot}) does not match expected root (${expectedMerkleRoot}).`,
       };
     }
@@ -389,6 +406,7 @@ export async function verifyAnchorTransactionOnChain(
         onChainRoot: decoded.anchor.merkleRoot,
         onChainLeafCount: decoded.anchor.leafCount,
         signerVerified: true,
+        signers: decoded.signers,
         error: `On-chain leaf count (${decoded.anchor.leafCount}) does not match expected count (${expectedLeafCount}).`,
       };
     }
@@ -401,6 +419,7 @@ export async function verifyAnchorTransactionOnChain(
       onChainRoot: decoded.anchor.merkleRoot,
       onChainLeafCount: decoded.anchor.leafCount,
       signerVerified: true,
+      signers: decoded.signers,
     };
   } catch (err) {
     return {
@@ -599,12 +618,90 @@ export async function verifyMagicBlockTransferOnChain(
 }
 
 /**
+ * Parses and validates comma/whitespace/newline-separated Solana treasury pubkeys
+ * supplied directly by an auditor (e.g. from the client's engagement letter or
+ * corporate resolution). Throws on any malformed base58 public key.
+ */
+export function parseExpectedTreasuryPubkeys(rawInput?: string): string[] {
+  if (!rawInput || !rawInput.trim()) return [];
+  const tokens = rawInput
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const unique = new Set<string>();
+  for (const token of tokens) {
+    try {
+      unique.add(new PublicKey(token).toBase58());
+    } catch {
+      throw new Error(
+        `Invalid Solana treasury public key supplied by auditor: "${token}".`
+      );
+    }
+  }
+  return Array.from(unique);
+}
+
+/**
+ * Derives the auditor's authoritative Solana L1 treasury enumeration set WITHOUT
+ * trusting the server's advisory `data.audit.treasury_pubkeys` list:
+ *
+ *   enumerationPubkeys = unique(auditorEnteredPubkeys ∪ manifestInitiatedByPubkeys)
+ *
+ * Also checks whether the server's advisory list omitted any wallet present in
+ * `enumerationPubkeys` (i.e. server list was a strict subset / withheld a wallet).
+ */
+export function resolveAuditorTreasuryEnumerationSet(params: {
+  auditorEnteredPubkeys: string[];
+  manifestInitiatedByPubkeys: string[];
+  serverAdvisoryPubkeys: string[];
+}): AuditorTreasurySetResolution {
+  const normalizeList = (list: string[]): string[] => {
+    const out = new Set<string>();
+    for (const raw of list) {
+      const trimmed = raw?.trim();
+      if (!trimmed) continue;
+      try {
+        out.add(new PublicKey(trimmed).toBase58());
+      } catch {
+        // Ignore malformed non-Solana strings from untrusted sources
+      }
+    }
+    return Array.from(out);
+  };
+
+  const auditorEnteredPubkeys = normalizeList(params.auditorEnteredPubkeys);
+  const manifestPubkeys = normalizeList(params.manifestInitiatedByPubkeys);
+  const serverSet = new Set(normalizeList(params.serverAdvisoryPubkeys));
+
+  const enumerationSet = new Set<string>([
+    ...auditorEnteredPubkeys,
+    ...manifestPubkeys,
+  ]);
+  const enumerationPubkeys = Array.from(enumerationSet);
+
+  const serverOmittedPubkeys = enumerationPubkeys.filter(
+    (pk) => !serverSet.has(pk)
+  );
+
+  return {
+    enumerationPubkeys,
+    auditorEnteredPubkeys,
+    manifestPubkeys,
+    serverOmittedPubkeys,
+    serverListWasStrictSubset: serverOmittedPubkeys.length > 0,
+  };
+}
+
+/**
  * Enumerates EVERY `aegis:merkle:v1:<root>:<count>` memo signed by `treasuryPubkey`
  * on Solana L1 within `[validFromIso, validUntilIso]`.
  *
- * Used for cross-batch completeness reconciliation: proves whether the
- * organization disclosed every payroll batch it anchored on Solana L1 during
- * the audit period (or flags any anchored-but-undisclosed batches).
+ * Paginates across `getSignaturesForAddress` (up to Solana's 1,000-sig page size)
+ * until reaching `validFromIso`, account genesis, or `maxSignatures`.
+ *
+ * Honesty invariant: if the scan hits `maxSignatures` before passing `validFromIso`
+ * or reaching end-of-history, returns `truncated: true` so callers NEVER claim
+ * `completeZeroOmissions: true` on a partial scan.
  */
 export async function enumerateTreasuryAnchorsOnL1(
   l1Connection: Connection,
@@ -613,10 +710,13 @@ export async function enumerateTreasuryAnchorsOnL1(
     validFromIso?: string;
     validUntilIso?: string;
     maxSignatures?: number;
+    pageLimit?: number;
   }
 ): Promise<{
   treasuryPubkey: string;
   scannedSignatureCount: number;
+  maxSignatures: number;
+  truncated: boolean;
   anchors: EnumeratedL1Anchor[];
 }> {
   const pubkey = new PublicKey(treasuryPubkey);
@@ -626,30 +726,35 @@ export async function enumerateTreasuryAnchorsOnL1(
   const validUntilSec = options?.validUntilIso
     ? Math.ceil(new Date(options.validUntilIso).getTime() / 1000)
     : Number.MAX_SAFE_INTEGER;
-  const maxSignatures = options?.maxSignatures ?? 200;
+  const maxSignatures = options?.maxSignatures ?? 5000;
+  const pageLimit = Math.min(1000, Math.max(1, options?.pageLimit ?? 1000));
 
   const candidateSigs: Array<{ signature: string; slot: number; blockTime: number | null }> = [];
   let before: string | undefined;
   let scannedSignatureCount = 0;
+  let reachedEndOfWindow = false;
 
   while (scannedSignatureCount < maxSignatures) {
-    const batchLimit = Math.min(100, maxSignatures - scannedSignatureCount);
+    const batchLimit = Math.min(pageLimit, maxSignatures - scannedSignatureCount);
     const sigInfos = await l1Connection.getSignaturesForAddress(pubkey, {
       limit: batchLimit,
       before,
     });
 
-    if (sigInfos.length === 0) break;
+    if (sigInfos.length === 0) {
+      reachedEndOfWindow = true;
+      break;
+    }
     scannedSignatureCount += sigInfos.length;
 
     let passedLowerBound = false;
     for (const info of sigInfos) {
-      if (info.err !== null) continue;
       const bt = info.blockTime ?? null;
       if (bt !== null && bt < validFromSec) {
         passedLowerBound = true;
         break;
       }
+      if (info.err !== null) continue;
       if (bt !== null && bt > validUntilSec) {
         continue;
       }
@@ -664,9 +769,14 @@ export async function enumerateTreasuryAnchorsOnL1(
       });
     }
 
-    if (passedLowerBound || sigInfos.length < batchLimit) break;
+    if (passedLowerBound || sigInfos.length < batchLimit) {
+      reachedEndOfWindow = true;
+      break;
+    }
     before = sigInfos[sigInfos.length - 1].signature;
   }
+
+  const truncated = !reachedEndOfWindow;
 
   const anchors: EnumeratedL1Anchor[] = [];
   for (const cand of candidateSigs) {
@@ -695,6 +805,8 @@ export async function enumerateTreasuryAnchorsOnL1(
   return {
     treasuryPubkey,
     scannedSignatureCount,
+    maxSignatures,
+    truncated,
     anchors,
   };
 }
@@ -703,9 +815,12 @@ export async function enumerateTreasuryAnchorsOnL1(
  * Reconciles every Solana L1 `aegis:merkle:v1` anchor signed by the treasury
  * during the audit window against the batches delivered to the auditor.
  *
- * Any L1 anchor NOT present in `deliveredBatches` is reported in
- * `undisclosedAnchors` ("Anchored on L1, withheld from audit") and sets
- * `completeZeroOmissions = false`.
+ * Forces `completeZeroOmissions = false` if ANY of the following holds:
+ * 1. One or more L1 anchors were withheld from disclosure (`undisclosedAnchors`).
+ * 2. One or more delivered runs lacked a verified L1 anchor (`unanchoredDeliveredRunIds`).
+ * 3. L1 signature scanning hit its cap before reaching `validFromIso` (`scanTruncated`).
+ * 4. The server's advisory treasury list omitted an authoritative treasury wallet
+ *    (`serverOmittedTreasuryPubkeys.length > 0`).
  */
 export function reconcileAuditedBatchesAgainstL1(
   l1Anchors: EnumeratedL1Anchor[],
@@ -718,6 +833,8 @@ export function reconcileAuditedBatchesAgainstL1(
   meta?: {
     treasuryPubkeysChecked?: string[];
     scannedSignatureCount?: number;
+    scanTruncated?: boolean;
+    serverOmittedTreasuryPubkeys?: string[];
   }
 ): CrossBatchReconciliation {
   const deliveredAnchorKeys = new Set<string>();
@@ -753,16 +870,26 @@ export function reconcileAuditedBatchesAgainstL1(
     }
   }
 
+  const scanTruncated = Boolean(meta?.scanTruncated);
+  const serverOmittedTreasuryPubkeys = meta?.serverOmittedTreasuryPubkeys ?? [];
+  const serverTreasuryListWasSubset = serverOmittedTreasuryPubkeys.length > 0;
+
   return {
     treasuryPubkeysChecked:
       meta?.treasuryPubkeysChecked ??
       Array.from(new Set(l1Anchors.map((a) => a.treasuryPubkey))),
     scannedSignatureCount: meta?.scannedSignatureCount ?? l1Anchors.length,
+    scanTruncated,
+    serverOmittedTreasuryPubkeys,
+    serverTreasuryListWasSubset,
     totalL1AnchorsInWindow: uniqueL1Anchors.size,
     deliveredMatchedCount,
     undisclosedAnchors,
     unanchoredDeliveredRunIds,
     completeZeroOmissions:
-      undisclosedAnchors.length === 0 && unanchoredDeliveredRunIds.length === 0,
+      !scanTruncated &&
+      !serverTreasuryListWasSubset &&
+      undisclosedAnchors.length === 0 &&
+      unanchoredDeliveredRunIds.length === 0,
   };
 }

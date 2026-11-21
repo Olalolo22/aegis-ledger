@@ -13,7 +13,11 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import styles from "./AuditGraph.module.css";
-import { useAuditorEngine, buildReactFlowData } from "@/hooks/useAuditorEngine";
+import {
+  useAuditorEngine,
+  buildReactFlowData,
+  IS_AUDIT_DEMO_MODE_ENABLED,
+} from "@/hooks/useAuditorEngine";
 import { IconHourglass } from "./Icons";
 
 // Custom ReactFlow Node Components 
@@ -85,16 +89,24 @@ const nodeTypes = {
 function AuditorLogin({
   onAuth,
 }: {
-  onAuth: (jwt: string, auditorPrivateKey?: string, customL1RpcUrl?: string) => void;
+  onAuth: (
+    jwt: string,
+    auditorPrivateKey?: string,
+    customL1RpcUrl?: string,
+    expectedTreasuryPubkeys?: string
+  ) => void;
 }) {
   const [key, setKey] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [l1RpcUrl, setL1RpcUrl] = useState("https://api.devnet.solana.com");
+  const [expectedTreasuries, setExpectedTreasuries] = useState("");
   const [ttl, setTtl] = useState("--:--");
+
+  const isDemoKeySelected = IS_AUDIT_DEMO_MODE_ENABLED && key === "demo-token";
 
   useEffect(() => {
     if (!key) { setTtl("--:--"); return; }
-    if (key === "demo-token") { setTtl("15m 00s remaining"); return; }
+    if (IS_AUDIT_DEMO_MODE_ENABLED && key === "demo-token") { setTtl("Unverified demo fixture"); return; }
     setTtl("Session active");
   }, [key]);
 
@@ -114,10 +126,14 @@ function AuditorLogin({
             className={styles.keyInput}
             value={key}
             onChange={e => setKey(e.target.value)}
-            placeholder="eyJhbGciOiJIUzI1NiIs... (or demo-token)"
+            placeholder={
+              IS_AUDIT_DEMO_MODE_ENABLED
+                ? "eyJhbGciOiJIUzI1NiIs... (or demo-token)"
+                : "eyJhbGciOiJIUzI1NiIs..."
+            }
           />
 
-          {key !== "demo-token" && (
+          {!isDemoKeySelected && (
             <>
               <label className={styles.fieldLabel} style={{ marginTop: 10, display: "block" }}>
                 Auditor Private Key (Base64 PKCS#8 · Browser-only, never sent to server)
@@ -139,6 +155,16 @@ function AuditorLogin({
                 onChange={e => setL1RpcUrl(e.target.value)}
                 placeholder="https://api.devnet.solana.com"
               />
+
+              <label className={styles.fieldLabel} style={{ marginTop: 10, display: "block" }}>
+                Expected Org Treasury Wallet(s) (Solana pubkeys · comma-separated · detects withheld wallets)
+              </label>
+              <input
+                className={styles.keyInput}
+                value={expectedTreasuries}
+                onChange={e => setExpectedTreasuries(e.target.value)}
+                placeholder="Optional if batches exist; enter org's declared treasury pubkey(s) to rule out hidden wallets"
+              />
             </>
           )}
 
@@ -157,14 +183,25 @@ function AuditorLogin({
 
           <button
             className={styles.authBtn}
-            onClick={() => { if (key) onAuth(key, privateKey || undefined, l1RpcUrl || undefined); }}
-            disabled={!key || (key !== "demo-token" && !privateKey)}
+            onClick={() => {
+              if (key) {
+                onAuth(
+                  key,
+                  privateKey || undefined,
+                  l1RpcUrl || undefined,
+                  expectedTreasuries || undefined
+                );
+              }
+            }}
+            disabled={!key || (!isDemoKeySelected && !privateKey)}
           >
             Authenticate &amp; Verify on Solana L1 →
           </button>
-          <button className={styles.demoKeyBtn} onClick={() => setKey("demo-token")}>
-            Use demo key
-          </button>
+          {IS_AUDIT_DEMO_MODE_ENABLED && (
+            <button className={styles.demoKeyBtn} onClick={() => setKey("demo-token")}>
+              Use demo fixture (unverified)
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -175,6 +212,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const [localToken, setLocalToken] = useState<string>(accessToken || "");
   const [localPrivKey, setLocalPrivKey] = useState<string | undefined>(undefined);
   const [localL1RpcUrl, setLocalL1RpcUrl] = useState<string | undefined>(undefined);
+  const [localExpectedTreasuries, setLocalExpectedTreasuries] = useState<string | undefined>(undefined);
   const [authed, setAuthed] = useState(!!accessToken);
   const [decrypted, setDecrypted] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -184,14 +222,20 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
 
   useEffect(() => {
     if (authed && localToken && status === "idle") {
-      execute(localToken, localPrivKey, localL1RpcUrl);
+      execute(localToken, localPrivKey, localL1RpcUrl, localExpectedTreasuries);
     }
-  }, [authed, localToken, localPrivKey, localL1RpcUrl, status, execute]);
+  }, [authed, localToken, localPrivKey, localL1RpcUrl, localExpectedTreasuries, status, execute]);
 
-  const handleAuth = (key: string, privKey?: string, customL1Rpc?: string) => {
+  const handleAuth = (
+    key: string,
+    privKey?: string,
+    customL1Rpc?: string,
+    expectedTreasuries?: string
+  ) => {
     setLocalToken(key);
     setLocalPrivKey(privKey);
     setLocalL1RpcUrl(customL1Rpc);
+    setLocalExpectedTreasuries(expectedTreasuries);
     setAuthed(true);
   };
 
@@ -285,9 +329,33 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
         </div>
         <div className={styles.headerRight}>
           <div className={styles.authedPill}>
-            <span className={styles.authedDot} />
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)" }}>
-              Authenticated · Browser-local E2EE · L1 reconciled
+            <span
+              className={styles.authedDot}
+              style={
+                reconciliation?.verifiedBy === "demo"
+                  ? { background: "#d97706" }
+                  : reconciliation && !reconciliation.completeZeroOmissions
+                    ? { background: "#dc2626" }
+                    : undefined
+              }
+            />
+            <span
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                color:
+                  reconciliation?.verifiedBy === "demo"
+                    ? "#d97706"
+                    : reconciliation && !reconciliation.completeZeroOmissions
+                      ? "#dc2626"
+                      : "var(--green)",
+              }}
+            >
+              {reconciliation?.verifiedBy === "demo"
+                ? "Demo fixture · UNVERIFIED (not checked on Solana L1)"
+                : reconciliation && !reconciliation.completeZeroOmissions
+                  ? "Authenticated · Browser E2EE · RECONCILIATION FINDING"
+                  : "Authenticated · Browser-local E2EE · L1 reconciled"}
             </span>
           </div>
         </div>
@@ -313,12 +381,18 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
       {reconciliation && (
         <div
           style={{
-            background: reconciliation.completeZeroOmissions
-              ? "rgba(16, 185, 129, 0.08)"
-              : "rgba(239, 68, 68, 0.08)",
-            border: reconciliation.completeZeroOmissions
-              ? "1px solid rgba(16, 185, 129, 0.3)"
-              : "1px solid rgba(239, 68, 68, 0.45)",
+            background:
+              reconciliation.verifiedBy === "demo"
+                ? "rgba(217, 119, 6, 0.08)"
+                : reconciliation.completeZeroOmissions
+                  ? "rgba(16, 185, 129, 0.08)"
+                  : "rgba(239, 68, 68, 0.08)",
+            border:
+              reconciliation.verifiedBy === "demo"
+                ? "1px solid rgba(217, 119, 6, 0.4)"
+                : reconciliation.completeZeroOmissions
+                  ? "1px solid rgba(16, 185, 129, 0.3)"
+                  : "1px solid rgba(239, 68, 68, 0.45)",
             borderRadius: 10,
             padding: "12px 16px",
             marginBottom: 16,
@@ -327,20 +401,65 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, color: reconciliation.completeZeroOmissions ? "#059669" : "#dc2626" }}>
-              {reconciliation.completeZeroOmissions
-                ? `✓ CROSS-BATCH L1 COMPLETENESS VERIFIED: 0 WITHHELD BATCHES (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled)`
-                : `⚠ AUDIT FINDING: ${reconciliation.undisclosedAnchors.length} SOLANA L1 ANCHORED BATCH(ES) WITHHELD FROM DISCLOSURE`}
+            <span
+              style={{
+                fontWeight: 700,
+                color:
+                  reconciliation.verifiedBy === "demo"
+                    ? "#b45309"
+                    : reconciliation.completeZeroOmissions
+                      ? "#059669"
+                      : "#dc2626",
+              }}
+            >
+              {reconciliation.verifiedBy === "demo"
+                ? "⚠ SIMULATED DEMO FIXTURE — NOT VERIFIED ON SOLANA L1 OR MAGICBLOCK ER"
+                : reconciliation.completeZeroOmissions
+                  ? `✓ CROSS-BATCH L1 COMPLETENESS VERIFIED: 0 WITHHELD BATCHES (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled across ${reconciliation.treasuryPubkeysChecked.length} wallet(s))`
+                  : `⚠ CROSS-BATCH COMPLETENESS NOT PROVEN: ${[
+                      reconciliation.undisclosedAnchors.length > 0
+                        ? `${reconciliation.undisclosedAnchors.length} WITHHELD L1 ANCHOR(S)`
+                        : null,
+                      reconciliation.serverTreasuryListWasSubset
+                        ? `${reconciliation.serverOmittedTreasuryPubkeys.length} SERVER-OMITTED TREASURY WALLET(S)`
+                        : null,
+                      reconciliation.scanTruncated
+                        ? `L1 SCAN TRUNCATED AT ${reconciliation.scannedSignatureCount.toLocaleString()} SIGS`
+                        : null,
+                      reconciliation.unanchoredDeliveredRunIds.length > 0
+                        ? `${reconciliation.unanchoredDeliveredRunIds.length} UNANCHORED RUN(S)`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}`}
             </span>
             <span style={{ fontSize: 10, color: "var(--dim)" }}>
-              Source: {reconciliation.verifiedBy === "demo" ? "Demo Ledger" : `Direct Auditor L1 RPC (${reconciliation.l1RpcEndpoint})`} · ER Wire Verified: {reconciliation.erTransfersVerifiedCount}
+              Source: {reconciliation.verifiedBy === "demo" ? "Demo Fixture (Unverified)" : `Direct Auditor L1 RPC (${reconciliation.l1RpcEndpoint})`} · Sigs Scanned: {reconciliation.scannedSignatureCount.toLocaleString()}{reconciliation.scanTruncated ? " (TRUNCATED)" : ""} · ER Wire Verified: {reconciliation.erTransfersVerifiedCount}
             </span>
           </div>
+          {reconciliation.verifiedBy !== "demo" &&
+            reconciliation.completeZeroOmissions &&
+            reconciliation.auditorEnteredTreasuryPubkeys.length === 0 && (
+              <div style={{ marginTop: 6, fontSize: 10, color: "var(--dim)" }}>
+                Note: Enumeration set derived from decrypted L1-signed manifests. Supply the org&apos;s declared treasury pubkey(s) at login to additionally guard against a completely hidden treasury wallet.
+              </div>
+            )}
+          {reconciliation.serverTreasuryListWasSubset && (
+            <div style={{ marginTop: 8, fontSize: 10, color: "#b91c1c" }}>
+              • Server advisory treasury list was a strict subset and omitted wallet(s):{" "}
+              {reconciliation.serverOmittedTreasuryPubkeys.join(", ")}
+            </div>
+          )}
+          {reconciliation.scanTruncated && (
+            <div style={{ marginTop: 8, fontSize: 10, color: "#b91c1c" }}>
+              • Solana L1 signature enumeration hit its scan cap ({reconciliation.scannedSignatureCount.toLocaleString()} signatures scanned) before reaching the start of the audit window. Completeness cannot be proven — narrow the audit window or query with a dedicated RPC.
+            </div>
+          )}
           {reconciliation.undisclosedAnchors.length > 0 && (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
               {reconciliation.undisclosedAnchors.map((a) => (
                 <div key={a.signature} style={{ fontSize: 10, color: "#b91c1c" }}>
-                  • Undisclosed L1 anchor: tx {a.signature.slice(0, 14)}... · root {a.merkleRoot.slice(0, 16)}... ({a.leafCount} leaves, slot {a.slot})
+                  • Undisclosed L1 anchor ({a.treasuryPubkey.slice(0, 8)}...): tx {a.signature.slice(0, 14)}... · root {a.merkleRoot.slice(0, 16)}... ({a.leafCount} leaves, slot {a.slot})
                 </div>
               ))}
             </div>
@@ -417,7 +536,13 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           <div className={styles.toggleRow}>
             <div>
               <div className={styles.toggleTitle}>{decrypted ? "Decrypted Ledger" : "Public Ciphertext"}</div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{decrypted ? "Plaintext · L1 & ER verified" : "Scrambled on-chain hashes"}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>
+                {reconciliation?.verifiedBy === "demo"
+                  ? "Simulated demo fixture (unverified)"
+                  : decrypted
+                    ? "Plaintext · L1 & ER verified"
+                    : "Scrambled on-chain hashes"}
+              </span>
             </div>
             <button className={styles.toggle} onClick={handleDecryptToggle} style={{ background: decrypted ? "var(--green)" : "var(--mist)" }} disabled={!isDone || scanning}>
               <span className={styles.toggleThumb} style={{ transform: decrypted ? "translateX(20px)" : "none" }} />
@@ -430,17 +555,45 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
               { label: "Recipients", val: decrypted ? `${uniqueRecipientsCount} wallets` : "HIDDEN" },
               {
                 label: "Proof status",
-                val: summary?.verifiedChainAnchors ? "✓ L1 Merkle + ER Wire" : "✓ L1 Merkle Sum Tree",
-                col: "var(--green)",
+                val:
+                  reconciliation?.verifiedBy === "demo"
+                    ? "UNVERIFIED DEMO"
+                    : summary?.verifiedChainAnchors
+                      ? "✓ L1 Merkle + ER Wire"
+                      : "Pending L1 check",
+                col:
+                  reconciliation?.verifiedBy === "demo"
+                    ? "#d97706"
+                    : summary?.verifiedChainAnchors
+                      ? "var(--green)"
+                      : "var(--dim)",
+              },
+              {
+                label: "L1 sigs scanned",
+                val: reconciliation
+                  ? `${reconciliation.scannedSignatureCount.toLocaleString()}${reconciliation.scanTruncated ? " (TRUNCATED)" : ""}`
+                  : "—",
+                col: reconciliation?.scanTruncated ? "#dc2626" : "var(--ink)",
               },
               {
                 label: "Withheld batches",
                 val: reconciliation
-                  ? reconciliation.completeZeroOmissions
-                    ? "0 (L1 reconciled)"
-                    : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`
+                  ? reconciliation.verifiedBy === "demo"
+                    ? "N/A (Demo)"
+                    : reconciliation.completeZeroOmissions
+                      ? "0 (L1 reconciled)"
+                      : reconciliation.scanTruncated
+                        ? "⚠ SCAN TRUNCATED"
+                        : reconciliation.serverTreasuryListWasSubset
+                          ? "⚠ OMITTED WALLET"
+                          : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`
                   : "Checking...",
-                col: reconciliation && !reconciliation.completeZeroOmissions ? "#dc2626" : "var(--green)",
+                col:
+                  reconciliation?.verifiedBy === "demo"
+                    ? "#d97706"
+                    : reconciliation && !reconciliation.completeZeroOmissions
+                      ? "#dc2626"
+                      : "var(--green)",
               },
             ].map(s => (
               <div key={s.label} className={styles.statRow}>

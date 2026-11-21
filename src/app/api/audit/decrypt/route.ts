@@ -298,6 +298,7 @@ export async function POST(request: NextRequest) {
 
     const allL1Anchors: EnumeratedL1Anchor[] = [];
     let totalScannedSignatures = 0;
+    let anyTruncated = false;
     let enumerationError: string | null = null;
 
     for (const treasuryPubkey of treasuryPubkeys) {
@@ -308,10 +309,11 @@ export async function POST(request: NextRequest) {
           {
             validFromIso: vk.valid_from,
             validUntilIso: vk.valid_until,
-            maxSignatures: 200,
+            maxSignatures: 2000,
           }
         );
         totalScannedSignatures += enumResult.scannedSignatureCount;
+        anyTruncated = anyTruncated || enumResult.truncated;
         allL1Anchors.push(...enumResult.anchors);
       } catch (enumErr) {
         enumerationError =
@@ -332,6 +334,7 @@ export async function POST(request: NextRequest) {
       {
         treasuryPubkeysChecked: treasuryPubkeys,
         scannedSignatureCount: totalScannedSignatures,
+        scanTruncated: anyTruncated,
       }
     );
 
@@ -355,6 +358,7 @@ export async function POST(request: NextRequest) {
             authoritative: false,
             treasury_pubkeys_checked: reconciliation.treasuryPubkeysChecked,
             scanned_signature_count: reconciliation.scannedSignatureCount,
+            scan_truncated: reconciliation.scanTruncated,
             total_l1_anchors_in_window: reconciliation.totalL1AnchorsInWindow,
             delivered_matched_count: reconciliation.deliveredMatchedCount,
             undisclosed_anchors: reconciliation.undisclosedAnchors,

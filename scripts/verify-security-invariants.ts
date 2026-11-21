@@ -24,8 +24,11 @@ import {
   deriveAdminSessionJwtKey,
   generateAuthNonce,
   mintOrgAdminSessionToken,
+  verifyAndConsumeChallengeWithStore,
   verifyOrgAdminSessionToken,
   verifySolanaWalletSignature,
+  type WalletChallengeRecord,
+  type WalletChallengeStore,
 } from "../src/lib/auth";
 import {
   buildEnvelopeAad,
@@ -57,12 +60,16 @@ import {
   MAGICBLOCK_PRIVATE_TRANSFER_DISCRIMINANT,
   decodeAnchorMemoFromTransaction,
   decodeMagicBlockTransferFromTransaction,
+  enumerateTreasuryAnchorsOnL1,
   formatLeafMemo,
+  parseExpectedTreasuryPubkeys,
   parseLeafMemo,
   reconcileAuditedBatchesAgainstL1,
+  resolveAuditorTreasuryEnumerationSet,
   verifyDecodedMagicBlockTransfer,
   type EnumeratedL1Anchor,
 } from "../src/lib/onchainVerify";
+import { isDemoTokenAllowed } from "../src/hooks/useAuditorEngine";
 import {
   FxSanityCheckError,
   computeFiatPayoutFromQuote,
@@ -561,7 +568,129 @@ async function run() {
   assert.equal(withheldRecon.undisclosedAnchors.length, 1);
   assert.equal(withheldRecon.undisclosedAnchors[0].signature, "C".repeat(88));
   assert.equal(withheldRecon.undisclosedAnchors[0].merkleRoot, "c".repeat(64));
-  console.log("   ✓ Cross-batch L1 completeness reconciliation detected withheld anchor C.");
+
+  // Zero-trust treasury enumeration set: derived strictly from manifests + auditor input (NEVER server-trusted)
+  const hiddenTreasury = Keypair.generate().publicKey.toBase58();
+  const parsedAuditorWallets = parseExpectedTreasuryPubkeys(
+    `${hiddenTreasury}, ${payer.publicKey.toBase58()}`
+  );
+  assert.deepEqual(parsedAuditorWallets, [hiddenTreasury, payer.publicKey.toBase58()]);
+  assert.throws(
+    () => parseExpectedTreasuryPubkeys("not-a-valid-solana-pubkey"),
+    /Invalid Solana treasury public key/
+  );
+
+  // Server omits `hiddenTreasury` from its advisory list -> MUST flag strict subset!
+  const subsetResolution = resolveAuditorTreasuryEnumerationSet({
+    auditorEnteredPubkeys: [hiddenTreasury],
+    manifestInitiatedByPubkeys: [payer.publicKey.toBase58()],
+    serverAdvisoryPubkeys: [payer.publicKey.toBase58()],
+  });
+  assert.equal(subsetResolution.serverListWasStrictSubset, true);
+  assert.deepEqual(subsetResolution.serverOmittedPubkeys, [hiddenTreasury]);
+  assert.equal(subsetResolution.enumerationPubkeys.includes(hiddenTreasury), true);
+  assert.equal(subsetResolution.enumerationPubkeys.includes(payer.publicKey.toBase58()), true);
+
+  // Even if all seen anchors matched, server-omitted wallet MUST force completeZeroOmissions = false
+  const omittedWalletRecon = reconcileAuditedBatchesAgainstL1(
+    l1Anchors,
+    [
+      { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+    ],
+    {
+      treasuryPubkeysChecked: subsetResolution.enumerationPubkeys,
+      scannedSignatureCount: 42,
+      scanTruncated: false,
+      serverOmittedTreasuryPubkeys: subsetResolution.serverOmittedPubkeys,
+    }
+  );
+  assert.equal(omittedWalletRecon.serverTreasuryListWasSubset, true);
+  assert.equal(omittedWalletRecon.completeZeroOmissions, false);
+
+  // Truncated L1 scan MUST force completeZeroOmissions = false & preserve scannedSignatureCount
+  const truncatedRecon = reconcileAuditedBatchesAgainstL1(
+    l1Anchors,
+    [
+      { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+    ],
+    {
+      treasuryPubkeysChecked: [payer.publicKey.toBase58()],
+      scannedSignatureCount: 5000,
+      scanTruncated: true,
+    }
+  );
+  assert.equal(truncatedRecon.scanTruncated, true);
+  assert.equal(truncatedRecon.scannedSignatureCount, 5000);
+  assert.equal(truncatedRecon.completeZeroOmissions, false);
+
+  // Direct test of enumerateTreasuryAnchorsOnL1 pagination + truncation detection
+  const mockSigHistory = [
+    { signature: "sig-5", slot: 500, err: null, blockTime: 1760500000, memo: "unrelated" },
+    { signature: "sig-4", slot: 400, err: null, blockTime: 1760400000, memo: "unrelated" },
+    { signature: "sig-3", slot: 300, err: null, blockTime: 1760300000, memo: "unrelated" },
+    { signature: "sig-2", slot: 200, err: null, blockTime: 1760200000, memo: "unrelated" },
+    { signature: "sig-1", slot: 100, err: null, blockTime: 1759000000, memo: "unrelated" }, // older than validFromSec
+  ];
+  const mockL1Conn = {
+    async getSignaturesForAddress(_pubkey: unknown, opts?: { limit?: number; before?: string }) {
+      const startIdx = opts?.before
+        ? mockSigHistory.findIndex((s) => s.signature === opts.before) + 1
+        : 0;
+      return mockSigHistory.slice(startIdx, startIdx + (opts?.limit ?? 1000));
+    },
+    async getTransaction() {
+      return null;
+    },
+  };
+  const truncatedEnum = await enumerateTreasuryAnchorsOnL1(
+    mockL1Conn as never,
+    payer.publicKey.toBase58(),
+    {
+      validFromIso: new Date(1760000000 * 1000).toISOString(),
+      validUntilIso: new Date(1761000000 * 1000).toISOString(),
+      maxSignatures: 2,
+      pageLimit: 2,
+    }
+  );
+  assert.equal(truncatedEnum.scannedSignatureCount, 2);
+  assert.equal(truncatedEnum.truncated, true, "Hitting maxSignatures before validFrom MUST set truncated: true");
+
+  const fullPaginatedEnum = await enumerateTreasuryAnchorsOnL1(
+    mockL1Conn as never,
+    payer.publicKey.toBase58(),
+    {
+      validFromIso: new Date(1760000000 * 1000).toISOString(),
+      validUntilIso: new Date(1761000000 * 1000).toISOString(),
+      maxSignatures: 10,
+      pageLimit: 2,
+    }
+  );
+  assert.equal(fullPaginatedEnum.scannedSignatureCount, 5);
+  assert.equal(fullPaginatedEnum.truncated, false, "Paginating past validFromSec MUST set truncated: false");
+
+  // Demo mode MUST be disabled by default in production
+  assert.equal(
+    isDemoTokenAllowed("demo-token", undefined),
+    false,
+    "demo-token MUST be rejected when NEXT_PUBLIC_ENABLE_DEMO_MODE is unset"
+  );
+  assert.equal(
+    isDemoTokenAllowed("demo-token", "false"),
+    false,
+    "demo-token MUST be rejected when NEXT_PUBLIC_ENABLE_DEMO_MODE is false"
+  );
+  assert.equal(
+    isDemoTokenAllowed("demo-token", "true"),
+    true,
+    "demo-token is only allowed when NEXT_PUBLIC_ENABLE_DEMO_MODE === 'true'"
+  );
+  console.log(
+    "   ✓ Cross-batch L1 completeness, zero-trust treasury set, pagination/truncation honesty, and demo-mode build gate verified."
+  );
 
   console.log("6. Testing Partner-Applied FX Receipts & Mid-Market Sanity Guardrail...");
   const refBenchmark = await fetchLiveFxQuote({ bypassCache: true });
@@ -780,7 +909,75 @@ async function run() {
     false,
     "swapQuoteRequestSchema MUST reject caller-supplied org_id"
   );
-  console.log("   ✓ SIWS Ed25519 auth, per-mutation vault signing, domain-separated JWTs, and zero caller org_id verified.");
+
+  // Verify-before-consume: a garbage signature MUST NOT burn a live challenge nonce,
+  // while a valid signature consumes it atomically once and blocks replay!
+  let mockConsumedAt: string | null = null;
+  let consumeCalls = 0;
+  const mockChallengeRow: WalletChallengeRecord = {
+    nonce: loginNonce,
+    purpose: "session_login",
+    wallet_pubkey: adminWallet.publicKey.toBase58(),
+    org_id: null,
+    target_fingerprint: null,
+    message: loginMsg,
+  };
+  const mockStore: WalletChallengeStore = {
+    async findActive(q) {
+      if (
+        mockConsumedAt === null &&
+        q.nonce === mockChallengeRow.nonce &&
+        q.walletPubkey === mockChallengeRow.wallet_pubkey &&
+        q.purpose === mockChallengeRow.purpose
+      ) {
+        return { data: mockChallengeRow, error: null };
+      }
+      return { data: null, error: null };
+    },
+    async consumeActive(q) {
+      consumeCalls += 1;
+      if (mockConsumedAt === null && q.nonce === mockChallengeRow.nonce) {
+        mockConsumedAt = q.consumedAtIso;
+        return { consumed: true, error: null };
+      }
+      return { consumed: false, error: null };
+    },
+  };
+
+  // 1) Attacker sends garbage signature -> MUST fail AND leave nonce unconsumed!
+  const garbageAttempt = await verifyAndConsumeChallengeWithStore(mockStore, {
+    nonce: loginNonce,
+    purpose: "session_login",
+    walletPubkey: adminWallet.publicKey.toBase58(),
+    signature: bs58.encode(randomBytes(64)),
+  });
+  assert.equal(garbageAttempt.ok, false, "Garbage signature MUST fail");
+  assert.equal(consumeCalls, 0, "Garbage signature MUST NOT invoke consumeActive");
+  assert.equal(mockConsumedAt, null, "Live nonce MUST remain unconsumed after garbage signature");
+
+  // 2) Legitimate admin submits valid signature on that same live nonce -> MUST succeed & consume!
+  const validAttempt = await verifyAndConsumeChallengeWithStore(mockStore, {
+    nonce: loginNonce,
+    purpose: "session_login",
+    walletPubkey: adminWallet.publicKey.toBase58(),
+    signature: loginSig,
+  });
+  assert.equal(validAttempt.ok, true, "Valid signature on surviving live nonce MUST succeed");
+  assert.equal(consumeCalls, 1);
+  assert.ok(mockConsumedAt !== null);
+
+  // 3) Replay of valid signature -> MUST fail!
+  const replayAttempt = await verifyAndConsumeChallengeWithStore(mockStore, {
+    nonce: loginNonce,
+    purpose: "session_login",
+    walletPubkey: adminWallet.publicKey.toBase58(),
+    signature: loginSig,
+  });
+  assert.equal(replayAttempt.ok, false, "Replayed valid signature MUST fail after single-use consumption");
+
+  console.log(
+    "   ✓ SIWS Ed25519 auth, verify-before-consume nonce safety, per-mutation vault signing, domain-separated JWTs, and zero caller org_id verified."
+  );
 
   console.log("\nALL 7 SECURITY, BLIND-SERVER, WALLET AUTH, KEY VAULT, L1 RECONCILIATION & FX SUITES PASSED ✓");
 }

@@ -385,49 +385,67 @@ export async function requireOrgAdminSession(
   };
 }
 
-/**
- * Atomically consumes a single-use Ed25519 challenge from `auth_challenges`
- * and verifies the wallet signature over the exact persisted challenge message.
- *
- * Replay-proof: `UPDATE ... WHERE consumed_at IS NULL AND expires_at > now()`
- * guarantees that concurrent or repeated submissions with the same nonce fail.
- */
-export async function verifyAndConsumeWalletChallenge(params: {
+export interface WalletChallengeRecord {
   nonce: string;
   purpose: AuthChallengePurpose;
-  walletPubkey: string;
-  signature: string;
-  expectedOrgId?: string;
-  expectedTargetFingerprint?: string;
-}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
-  const supabase = createServiceClient();
+  wallet_pubkey: string;
+  org_id: string | null;
+  target_fingerprint: string | null;
+  message: string;
+}
+
+export interface WalletChallengeStore {
+  findActive: (params: {
+    nonce: string;
+    purpose: AuthChallengePurpose;
+    walletPubkey: string;
+    expectedOrgId?: string;
+    expectedTargetFingerprint?: string;
+    nowIso: string;
+  }) => Promise<{ data: WalletChallengeRecord | null; error: unknown }>;
+  consumeActive: (params: {
+    nonce: string;
+    purpose: AuthChallengePurpose;
+    walletPubkey: string;
+    expectedOrgId?: string;
+    expectedTargetFingerprint?: string;
+    consumedAtIso: string;
+  }) => Promise<{ consumed: boolean; error: unknown }>;
+}
+
+/**
+ * Core verify-then-consume state machine (dependency-injectable for invariant testing):
+ * 1. Read-only lookup of active unconsumed, unexpired challenge.
+ * 2. Verify Ed25519 signature BEFORE mutating DB so invalid/garbage signatures
+ *    cannot burn a live challenge nonce (availability protection).
+ * 3. Atomically consume with conditional `UPDATE ... WHERE consumed_at IS NULL
+ *    AND expires_at > now()` so concurrent/replayed submissions with a valid
+ *    signature can succeed at most once.
+ */
+export async function verifyAndConsumeChallengeWithStore(
+  store: WalletChallengeStore,
+  params: {
+    nonce: string;
+    purpose: AuthChallengePurpose;
+    walletPubkey: string;
+    signature: string;
+    expectedOrgId?: string;
+    expectedTargetFingerprint?: string;
+  }
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const nowIso = new Date().toISOString();
 
-  let query = supabase
-    .from("auth_challenges")
-    .update({ consumed_at: nowIso })
-    .eq("nonce", params.nonce)
-    .eq("purpose", params.purpose)
-    .eq("wallet_pubkey", params.walletPubkey)
-    .is("consumed_at", null)
-    .gt("expires_at", nowIso);
+  const { data: challenge, error: findErr } = await store.findActive({
+    nonce: params.nonce,
+    purpose: params.purpose,
+    walletPubkey: params.walletPubkey,
+    expectedOrgId: params.expectedOrgId,
+    expectedTargetFingerprint: params.expectedTargetFingerprint,
+    nowIso,
+  });
 
-  if (params.expectedOrgId) {
-    query = query.eq("org_id", params.expectedOrgId);
-  }
-  if (params.expectedTargetFingerprint) {
-    query = query.eq(
-      "target_fingerprint",
-      params.expectedTargetFingerprint.toLowerCase()
-    );
-  }
-
-  const { data: challenge, error } = await query
-    .select("nonce, purpose, wallet_pubkey, org_id, target_fingerprint, message")
-    .maybeSingle();
-
-  if (error) {
-    console.error("[Aegis Auth] Challenge consumption DB error:", error);
+  if (findErr) {
+    console.error("[Aegis Auth] Challenge lookup DB error:", findErr);
     return { ok: false, error: "Authentication challenge store unavailable." };
   }
 
@@ -439,6 +457,7 @@ export async function verifyAndConsumeWalletChallenge(params: {
     };
   }
 
+  // Verify Ed25519 signature BEFORE claiming the nonce
   const sigValid = verifySolanaWalletSignature({
     walletPubkey: params.walletPubkey,
     message: challenge.message,
@@ -452,5 +471,102 @@ export async function verifyAndConsumeWalletChallenge(params: {
     };
   }
 
+  // Signature is valid — now atomically consume the single-use nonce
+  const consumedAtIso = new Date().toISOString();
+  const { consumed, error: consumeErr } = await store.consumeActive({
+    nonce: params.nonce,
+    purpose: params.purpose,
+    walletPubkey: params.walletPubkey,
+    expectedOrgId: params.expectedOrgId,
+    expectedTargetFingerprint: params.expectedTargetFingerprint,
+    consumedAtIso,
+  });
+
+  if (consumeErr) {
+    console.error("[Aegis Auth] Challenge consumption DB error:", consumeErr);
+    return { ok: false, error: "Authentication challenge store unavailable." };
+  }
+
+  if (!consumed) {
+    return {
+      ok: false,
+      error:
+        "Challenge nonce was already consumed or expired during verification.",
+    };
+  }
+
   return { ok: true, message: challenge.message };
+}
+
+/**
+ * Verifies the Ed25519 wallet signature against an active `auth_challenges` row
+ * and ONLY THEN atomically consumes the single-use nonce.
+ *
+ * - Availability-safe: invalid signatures never burn a live challenge nonce.
+ * - Replay-proof: `UPDATE ... WHERE consumed_at IS NULL AND expires_at > now()`
+ *   guarantees concurrent or repeated valid submissions can succeed at most once.
+ */
+export async function verifyAndConsumeWalletChallenge(params: {
+  nonce: string;
+  purpose: AuthChallengePurpose;
+  walletPubkey: string;
+  signature: string;
+  expectedOrgId?: string;
+  expectedTargetFingerprint?: string;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const supabase = createServiceClient();
+
+  const store: WalletChallengeStore = {
+    async findActive(q) {
+      let query = supabase
+        .from("auth_challenges")
+        .select("nonce, purpose, wallet_pubkey, org_id, target_fingerprint, message")
+        .eq("nonce", q.nonce)
+        .eq("purpose", q.purpose)
+        .eq("wallet_pubkey", q.walletPubkey)
+        .is("consumed_at", null)
+        .gt("expires_at", q.nowIso);
+
+      if (q.expectedOrgId) {
+        query = query.eq("org_id", q.expectedOrgId);
+      }
+      if (q.expectedTargetFingerprint) {
+        query = query.eq(
+          "target_fingerprint",
+          q.expectedTargetFingerprint.toLowerCase()
+        );
+      }
+
+      const { data, error } = await query.maybeSingle();
+      return {
+        data: (data as WalletChallengeRecord | null) ?? null,
+        error,
+      };
+    },
+    async consumeActive(q) {
+      let query = supabase
+        .from("auth_challenges")
+        .update({ consumed_at: q.consumedAtIso })
+        .eq("nonce", q.nonce)
+        .eq("purpose", q.purpose)
+        .eq("wallet_pubkey", q.walletPubkey)
+        .is("consumed_at", null)
+        .gt("expires_at", q.consumedAtIso);
+
+      if (q.expectedOrgId) {
+        query = query.eq("org_id", q.expectedOrgId);
+      }
+      if (q.expectedTargetFingerprint) {
+        query = query.eq(
+          "target_fingerprint",
+          q.expectedTargetFingerprint.toLowerCase()
+        );
+      }
+
+      const { data, error } = await query.select("nonce").maybeSingle();
+      return { consumed: Boolean(data), error };
+    },
+  };
+
+  return verifyAndConsumeChallengeWithStore(store, params);
 }

@@ -17,11 +17,29 @@ import {
 import { L1_DEVNET_RPC, getErConnection } from "@/lib/magicblock";
 import {
   enumerateTreasuryAnchorsOnL1,
+  parseExpectedTreasuryPubkeys,
   reconcileAuditedBatchesAgainstL1,
+  resolveAuditorTreasuryEnumerationSet,
   verifyAnchorTransactionOnChain,
   verifyMagicBlockTransferOnChain,
   type EnumeratedL1Anchor,
 } from "@/lib/onchainVerify";
+
+/**
+ * Build-time gate for demonstration fixtures.
+ * Disabled by default in production so `"demo-token"` cannot short-circuit
+ * into hardcoded fixtures. Even when explicitly enabled, demo rows are NEVER
+ * marked as L1/ER verified.
+ */
+export const IS_AUDIT_DEMO_MODE_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_DEMO_MODE === "true";
+
+export function isDemoTokenAllowed(
+  accessToken: string,
+  enableDemoFlag: string | undefined = process.env.NEXT_PUBLIC_ENABLE_DEMO_MODE
+): boolean {
+  return accessToken === "demo-token" && enableDemoFlag === "true";
+}
 
 /**
  * useAuditorEngine — Zero-Trust Client-Side Auditor Verification Engine.
@@ -29,19 +47,22 @@ import {
  * Trust Boundary Invariant (ZERO trust in Aegis servers):
  * 1. `/api/audit/decrypt` is treated STRICTLY as an untrusted ciphertext &
  *    pointer courier (`anchor_tx_signature`, `e2ee_envelope`, `auditor_wrapped_dek`).
- *    Any server-advisory flags are IGNORED.
+ *    Any server-advisory flags and server-supplied `treasury_pubkeys` are NEVER trusted.
  * 2. For EVERY batch, THIS browser connects directly to the auditor's chosen
  *    Solana L1 RPC (`customL1RpcUrl || L1_DEVNET_RPC`), pulls `anchor_tx_signature`
  *    directly off Solana L1, verifies tx success + signer + `aegis:merkle:v1:<root>:<count>`,
  *    and treats ONLY that browser-fetched L1 root as authoritative.
  * 3. Decrypts each `e2ee_envelope` locally with the auditor's private key, binding
- *    GCM AAD to the browser-fetched L1 root.
+ *    GCM AAD to the browser-fetched L1 root, and verifies `manifest.initiatedBy`
+ *    actually signed the L1 anchor transaction.
  * 4. Rebuilds the full Binary SHA-256 Merkle Sum Tree against the browser-fetched
  *    L1 root AND decodes every `onchain_shielded` MagicBlock `SPLxh1LVZz...` (`0x10`)
  *    transfer directly from MagicBlock ER RPC (strict 64-hex leaf memo required).
- * 5. Enumerates ALL `aegis:merkle:v1` memos signed by the treasury directly via
- *    the auditor's Solana L1 RPC (NEVER falls back silently to Aegis server reports)
- *    and flags any anchored-but-undisclosed batch as a finding.
+ * 5. Derives the L1 enumeration wallet set strictly from
+ *    `auditorEnteredPubkeys ∪ decryptedManifests.initiatedBy` (flagging whenever
+ *    the server's advisory list is a strict subset), paginates Solana L1 directly,
+ *    surfaces `scannedSignatureCount` + `scanTruncated`, and forces
+ *    `completeZeroOmissions = false` on any withheld anchor, omitted wallet, or truncation.
  */
 
 export type AuditorEngineStatus =
@@ -77,6 +98,11 @@ export interface AuditorReconciliationReport {
   verifiedBy: "auditor_browser_l1_rpc" | "demo";
   l1RpcEndpoint: string;
   treasuryPubkeysChecked: string[];
+  auditorEnteredTreasuryPubkeys: string[];
+  serverOmittedTreasuryPubkeys: string[];
+  serverTreasuryListWasSubset: boolean;
+  scannedSignatureCount: number;
+  scanTruncated: boolean;
   totalL1AnchorsInWindow: number;
   deliveredMatchedCount: number;
   undisclosedAnchors: EnumeratedL1Anchor[];
@@ -152,7 +178,8 @@ export interface AuditorEngineResult {
   execute: (
     accessToken: string,
     auditorPrivateKeyPkcs8?: string,
-    customL1RpcUrl?: string
+    customL1RpcUrl?: string,
+    expectedTreasuryPubkeysInput?: string
   ) => Promise<void>;
   status: AuditorEngineStatus;
   isLoadingData: boolean;
@@ -294,13 +321,14 @@ export function buildReactFlowData(transactions: DecryptedTransaction[]): {
 }
 
 function generateDemoTransactions(): DecryptedTransaction[] {
+  // Demo fixtures MUST NEVER spoof cryptographic verification flags
   return [
-    { txType: "withdrawal", amount: 4500e6, fee: 0, netAmount: -4500e6, runningBalance: -4500e6, timestamp: new Date("2026-02-15").getTime(), recipient: "61ro7AEx...pMPunJf", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
-    { txType: "withdrawal", amount: 3200e6, fee: 0, netAmount: -3200e6, runningBalance: -7700e6, timestamp: new Date("2026-03-10").getTime(), recipient: "7nYF4xZ8...De1234", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
-    { txType: "withdrawal", amount: 8750e6, fee: 0, netAmount: -8750e6, runningBalance: -16450e6, timestamp: new Date("2026-05-12").getTime(), recipient: "9pAG5xR8...De5678", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
-    { txType: "withdrawal", amount: 2400e6, fee: 0, netAmount: -2400e6, runningBalance: -18850e6, timestamp: new Date("2026-06-28").getTime(), recipient: "2qBH6yS9...Ef9012", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
-    { txType: "withdrawal", amount: 6100e6, fee: 0, netAmount: -6100e6, runningBalance: -24950e6, timestamp: new Date("2026-08-20").getTime(), recipient: "3rCI7zT0...Eg0123", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
-    { txType: "withdrawal", amount: 9500e6, fee: 0, netAmount: -9500e6, runningBalance: -34450e6, timestamp: new Date("2026-11-05").getTime(), recipient: "GxK6sHpq...RaTKT", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
+    { txType: "withdrawal", amount: 4500e6, fee: 0, netAmount: -4500e6, runningBalance: -4500e6, timestamp: new Date("2026-02-15").getTime(), recipient: "61ro7AEx...pMPunJf", symbol: "USDC", decimals: 6, chainAnchorVerified: false, completenessVerified: false, erTransferVerified: false },
+    { txType: "withdrawal", amount: 3200e6, fee: 0, netAmount: -3200e6, runningBalance: -7700e6, timestamp: new Date("2026-03-10").getTime(), recipient: "7nYF4xZ8...De1234", symbol: "USDC", decimals: 6, chainAnchorVerified: false, completenessVerified: false, erTransferVerified: false },
+    { txType: "withdrawal", amount: 8750e6, fee: 0, netAmount: -8750e6, runningBalance: -16450e6, timestamp: new Date("2026-05-12").getTime(), recipient: "9pAG5xR8...De5678", symbol: "USDC", decimals: 6, chainAnchorVerified: false, completenessVerified: false, erTransferVerified: false },
+    { txType: "withdrawal", amount: 2400e6, fee: 0, netAmount: -2400e6, runningBalance: -18850e6, timestamp: new Date("2026-06-28").getTime(), recipient: "2qBH6yS9...Ef9012", symbol: "USDC", decimals: 6, chainAnchorVerified: false, completenessVerified: false, erTransferVerified: false },
+    { txType: "withdrawal", amount: 6100e6, fee: 0, netAmount: -6100e6, runningBalance: -24950e6, timestamp: new Date("2026-08-20").getTime(), recipient: "3rCI7zT0...Eg0123", symbol: "USDC", decimals: 6, chainAnchorVerified: false, completenessVerified: false, erTransferVerified: false },
+    { txType: "withdrawal", amount: 9500e6, fee: 0, netAmount: -9500e6, runningBalance: -34450e6, timestamp: new Date("2026-11-05").getTime(), recipient: "GxK6sHpq...RaTKT", symbol: "USDC", decimals: 6, chainAnchorVerified: false, completenessVerified: false, erTransferVerified: false },
   ];
 }
 
@@ -321,17 +349,25 @@ export function useAuditorEngine(): AuditorEngineResult {
     async (
       accessToken: string,
       auditorPrivateKeyPkcs8?: string,
-      customL1RpcUrl?: string
+      customL1RpcUrl?: string,
+      expectedTreasuryPubkeysInput?: string
     ) => {
       if (executingRef.current) return;
       executingRef.current = true;
       setStatus("loading_data");
       setError(null);
       setReconciliation(null);
-      const isDemo = accessToken === "demo-token";
+      const isDemoRequest = accessToken === "demo-token";
+      const isDemo = isDemoTokenAllowed(accessToken);
       const l1RpcEndpoint = (customL1RpcUrl || "").trim() || L1_DEVNET_RPC;
 
       try {
+        if (isDemoRequest && !isDemo) {
+          throw new Error(
+            "Demo audit mode is disabled in this environment (NEXT_PUBLIC_ENABLE_DEMO_MODE is not enabled). Authenticate with a scoped viewing key JWT and auditor private key."
+          );
+        }
+
         let auditScope: AuditScope;
         if (isDemo) {
           auditScope = {
@@ -361,22 +397,27 @@ export function useAuditorEngine(): AuditorEngineResult {
 
         if (isDemo) {
           setStatus("decrypting");
-          setProgress("Loading demonstration audit ledger...");
+          setProgress("Loading unverified demonstration fixtures...");
           await new Promise((r) => setTimeout(r, 400));
           raw = generateDemoTransactions();
-          verifiedChainAnchors = 1;
-          totalBatches = 1;
-          erTransfersVerifiedCount = raw.length;
+          verifiedChainAnchors = 0;
+          totalBatches = 0;
+          erTransfersVerifiedCount = 0;
           reconReport = {
             verifiedBy: "demo",
             l1RpcEndpoint,
-            treasuryPubkeysChecked: ["DemoTreasury1111111111111111111111111111111"],
-            totalL1AnchorsInWindow: 1,
-            deliveredMatchedCount: 1,
+            treasuryPubkeysChecked: [],
+            auditorEnteredTreasuryPubkeys: [],
+            serverOmittedTreasuryPubkeys: [],
+            serverTreasuryListWasSubset: false,
+            scannedSignatureCount: 0,
+            scanTruncated: false,
+            totalL1AnchorsInWindow: 0,
+            deliveredMatchedCount: 0,
             undisclosedAnchors: [],
             unanchoredDeliveredRunIds: [],
-            completeZeroOmissions: true,
-            erTransfersVerifiedCount,
+            completeZeroOmissions: false,
+            erTransfersVerifiedCount: 0,
           };
         } else {
           if (!auditorPrivateKeyPkcs8?.trim()) {
@@ -384,6 +425,11 @@ export function useAuditorEngine(): AuditorEngineResult {
               "Auditor RSA-OAEP private key is required to decrypt E2EE audit envelopes locally in your browser."
             );
           }
+
+          // Validate any auditor-supplied treasury wallet pubkeys up front
+          const auditorEnteredPubkeys = parseExpectedTreasuryPubkeys(
+            expectedTreasuryPubkeysInput
+          );
 
           // Treat /api/audit/decrypt strictly as an UNTRUSTED ciphertext & pointer courier
           setProgress("Fetching encrypted audit envelopes from /api/audit/decrypt...");
@@ -416,6 +462,7 @@ export function useAuditorEngine(): AuditorEngineResult {
             merkle_root: string;
             anchor_verified: boolean;
           }> = [];
+          const manifestInitiatedByPubkeys: string[] = [];
 
           let cumulativeOutflow = 0;
 
@@ -487,6 +534,22 @@ export function useAuditorEngine(): AuditorEngineResult {
             );
             const manifest = JSON.parse(plaintextJson) as DecryptedBatchManifest;
 
+            // Bind decrypted manifest's `initiatedBy` to actual Solana L1 anchor tx signers
+            if (!manifest.initiatedBy) {
+              throw new Error(
+                `Batch ${batch.payroll_run_id} decrypted manifest is missing initiatedBy treasury wallet.`
+              );
+            }
+            if (
+              browserAnchorCheck.signers &&
+              !browserAnchorCheck.signers.includes(manifest.initiatedBy)
+            ) {
+              throw new Error(
+                `Batch ${batch.payroll_run_id} manifest initiatedBy (${manifest.initiatedBy}) did not sign the Solana L1 anchor transaction.`
+              );
+            }
+            manifestInitiatedByPubkeys.push(manifest.initiatedBy);
+
             // 3. Verify FULL Binary Merkle Sum Tree completeness against BROWSER-FETCHED L1 ROOT & COUNT
             const completeness = verifyBatchCompleteness(
               manifest.entries,
@@ -501,7 +564,7 @@ export function useAuditorEngine(): AuditorEngineResult {
               );
             }
 
-            const expectedSender = manifest.initiatedBy || batch.initiated_by;
+            const expectedSender = manifest.initiatedBy;
             const settledMs = new Date(batch.settled_at).getTime();
 
             for (const entry of manifest.entries) {
@@ -575,37 +638,50 @@ export function useAuditorEngine(): AuditorEngineResult {
             }
           }
 
-          // 5. Mandatory Direct Browser-Side Solana L1 Enumeration ("Proof Nothing Was Withheld")
-          //    NEVER falls back silently to Aegis server reports — fails loud if L1 RPC fails.
-          const treasuryPubkeys: string[] = Array.isArray(data.audit?.treasury_pubkeys)
+          // 5. Zero-Trust Direct Browser-Side Solana L1 Enumeration ("Proof Nothing Was Withheld")
+          //    Derives the treasury enumeration set strictly from
+          //      auditorEnteredPubkeys ∪ decryptedManifests.initiatedBy
+          //    (NEVER trusts server-supplied data.audit.treasury_pubkeys as authoritative)
+          //    and flags whenever the server list is a strict subset or the L1 scan truncates.
+          const serverAdvisoryTreasuryPubkeys: string[] = Array.isArray(
+            data.audit?.treasury_pubkeys
+          )
             ? data.audit.treasury_pubkeys
             : [];
 
-          if (treasuryPubkeys.length === 0) {
+          const treasuryResolution = resolveAuditorTreasuryEnumerationSet({
+            auditorEnteredPubkeys,
+            manifestInitiatedByPubkeys,
+            serverAdvisoryPubkeys: serverAdvisoryTreasuryPubkeys,
+          });
+
+          if (treasuryResolution.enumerationPubkeys.length === 0) {
             throw new Error(
-              "No treasury public keys available to enumerate Solana L1 anchors for cross-batch completeness."
+              "No authoritative treasury public keys available for Solana L1 enumeration (0 batches delivered and no expected org treasury wallet supplied). Enter the organization's declared Solana treasury wallet(s) to verify zero withheld batches directly on Solana L1."
             );
           }
 
           setProgress(
-            `Enumerating all Solana L1 treasury anchors directly via ${l1RpcEndpoint} to verify zero withheld batches...`
+            `Enumerating all Solana L1 anchors across ${treasuryResolution.enumerationPubkeys.length} treasury wallet(s) directly via ${l1RpcEndpoint}...`
           );
 
           const browserL1Anchors: EnumeratedL1Anchor[] = [];
           let scanned = 0;
+          let anyTruncated = false;
 
           try {
-            for (const pubkey of treasuryPubkeys) {
+            for (const pubkey of treasuryResolution.enumerationPubkeys) {
               const resEnum = await enumerateTreasuryAnchorsOnL1(
                 l1Connection,
                 pubkey,
                 {
                   validFromIso: auditScope.valid_from,
                   validUntilIso: auditScope.valid_until,
-                  maxSignatures: 200,
+                  maxSignatures: 5000,
                 }
               );
               scanned += resEnum.scannedSignatureCount;
+              anyTruncated = anyTruncated || resEnum.truncated;
               browserL1Anchors.push(...resEnum.anchors);
             }
           } catch (rpcErr) {
@@ -620,8 +696,11 @@ export function useAuditorEngine(): AuditorEngineResult {
             browserL1Anchors,
             browserVerifiedBatchesForRecon,
             {
-              treasuryPubkeysChecked: treasuryPubkeys,
+              treasuryPubkeysChecked: treasuryResolution.enumerationPubkeys,
               scannedSignatureCount: scanned,
+              scanTruncated: anyTruncated,
+              serverOmittedTreasuryPubkeys:
+                treasuryResolution.serverOmittedPubkeys,
             }
           );
 
@@ -629,6 +708,14 @@ export function useAuditorEngine(): AuditorEngineResult {
             verifiedBy: "auditor_browser_l1_rpc",
             l1RpcEndpoint,
             treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
+            auditorEnteredTreasuryPubkeys:
+              treasuryResolution.auditorEnteredPubkeys,
+            serverOmittedTreasuryPubkeys:
+              browserRecon.serverOmittedTreasuryPubkeys,
+            serverTreasuryListWasSubset:
+              browserRecon.serverTreasuryListWasSubset,
+            scannedSignatureCount: browserRecon.scannedSignatureCount,
+            scanTruncated: browserRecon.scanTruncated,
             totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,
             deliveredMatchedCount: browserRecon.deliveredMatchedCount,
             undisclosedAnchors: browserRecon.undisclosedAnchors,
