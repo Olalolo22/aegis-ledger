@@ -101,6 +101,7 @@ export interface AuditorReconciliationReport {
   auditorEnteredTreasuryPubkeys: string[];
   serverOmittedTreasuryPubkeys: string[];
   serverTreasuryListWasSubset: boolean;
+  missingAuditorDeclaredTreasury: boolean;
   scannedSignatureCount: number;
   scanTruncated: boolean;
   totalL1AnchorsInWindow: number;
@@ -410,6 +411,7 @@ export function useAuditorEngine(): AuditorEngineResult {
             auditorEnteredTreasuryPubkeys: [],
             serverOmittedTreasuryPubkeys: [],
             serverTreasuryListWasSubset: false,
+            missingAuditorDeclaredTreasury: true,
             scannedSignatureCount: 0,
             scanTruncated: false,
             totalL1AnchorsInWindow: 0,
@@ -703,6 +705,9 @@ export function useAuditorEngine(): AuditorEngineResult {
               scanTruncated: anyTruncated,
               serverOmittedTreasuryPubkeys:
                 treasuryResolution.serverOmittedPubkeys,
+              requireAuditorDeclaredTreasury: true,
+              auditorDeclaredTreasuryPubkeys:
+                treasuryResolution.auditorEnteredPubkeys,
             }
           );
 
@@ -716,6 +721,8 @@ export function useAuditorEngine(): AuditorEngineResult {
               browserRecon.serverOmittedTreasuryPubkeys,
             serverTreasuryListWasSubset:
               browserRecon.serverTreasuryListWasSubset,
+            missingAuditorDeclaredTreasury:
+              browserRecon.missingAuditorDeclaredTreasury,
             scannedSignatureCount: browserRecon.scannedSignatureCount,
             scanTruncated: browserRecon.scanTruncated,
             totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,

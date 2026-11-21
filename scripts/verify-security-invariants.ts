@@ -627,6 +627,47 @@ async function run() {
   assert.equal(truncatedRecon.scannedSignatureCount, 5000);
   assert.equal(truncatedRecon.completeZeroOmissions, false);
 
+  // Requiring auditor-declared treasury wallet MUST block green completeZeroOmissions when blank
+  const partialScopeRecon = reconcileAuditedBatchesAgainstL1(
+    l1Anchors,
+    [
+      { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+    ],
+    {
+      treasuryPubkeysChecked: [payer.publicKey.toBase58()],
+      scannedSignatureCount: 15,
+      scanTruncated: false,
+      requireAuditorDeclaredTreasury: true,
+      auditorDeclaredTreasuryPubkeys: [],
+    }
+  );
+  assert.equal(partialScopeRecon.missingAuditorDeclaredTreasury, true);
+  assert.equal(
+    partialScopeRecon.completeZeroOmissions,
+    false,
+    "Missing auditor-declared treasury wallet MUST prevent green completeZeroOmissions"
+  );
+
+  const declaredScopeRecon = reconcileAuditedBatchesAgainstL1(
+    l1Anchors,
+    [
+      { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+    ],
+    {
+      treasuryPubkeysChecked: [payer.publicKey.toBase58()],
+      scannedSignatureCount: 15,
+      scanTruncated: false,
+      requireAuditorDeclaredTreasury: true,
+      auditorDeclaredTreasuryPubkeys: [payer.publicKey.toBase58()],
+    }
+  );
+  assert.equal(declaredScopeRecon.missingAuditorDeclaredTreasury, false);
+  assert.equal(declaredScopeRecon.completeZeroOmissions, true);
+
   // Direct test of enumerateTreasuryAnchorsOnL1 pagination + truncation detection
   const mockSigHistory = [
     { signature: "sig-5", slot: 500, err: null, blockTime: 1760500000, memo: "unrelated" },

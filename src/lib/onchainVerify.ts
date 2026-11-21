@@ -108,6 +108,7 @@ export interface CrossBatchReconciliation {
   scanTruncated: boolean;
   serverOmittedTreasuryPubkeys: string[];
   serverTreasuryListWasSubset: boolean;
+  missingAuditorDeclaredTreasury: boolean;
   totalL1AnchorsInWindow: number;
   deliveredMatchedCount: number;
   undisclosedAnchors: EnumeratedL1Anchor[];
@@ -821,6 +822,8 @@ export async function enumerateTreasuryAnchorsOnL1(
  * 3. L1 signature scanning hit its cap before reaching `validFromIso` (`scanTruncated`).
  * 4. The server's advisory treasury list omitted an authoritative treasury wallet
  *    (`serverOmittedTreasuryPubkeys.length > 0`).
+ * 5. `requireAuditorDeclaredTreasury` is enabled and the auditor did not supply
+ *    at least one out-of-band treasury wallet (`missingAuditorDeclaredTreasury`).
  */
 export function reconcileAuditedBatchesAgainstL1(
   l1Anchors: EnumeratedL1Anchor[],
@@ -835,6 +838,8 @@ export function reconcileAuditedBatchesAgainstL1(
     scannedSignatureCount?: number;
     scanTruncated?: boolean;
     serverOmittedTreasuryPubkeys?: string[];
+    requireAuditorDeclaredTreasury?: boolean;
+    auditorDeclaredTreasuryPubkeys?: string[];
   }
 ): CrossBatchReconciliation {
   const deliveredAnchorKeys = new Set<string>();
@@ -873,6 +878,11 @@ export function reconcileAuditedBatchesAgainstL1(
   const scanTruncated = Boolean(meta?.scanTruncated);
   const serverOmittedTreasuryPubkeys = meta?.serverOmittedTreasuryPubkeys ?? [];
   const serverTreasuryListWasSubset = serverOmittedTreasuryPubkeys.length > 0;
+  const missingAuditorDeclaredTreasury = Boolean(
+    meta?.requireAuditorDeclaredTreasury &&
+      (!meta?.auditorDeclaredTreasuryPubkeys ||
+        meta.auditorDeclaredTreasuryPubkeys.length === 0)
+  );
 
   return {
     treasuryPubkeysChecked:
@@ -882,6 +892,7 @@ export function reconcileAuditedBatchesAgainstL1(
     scanTruncated,
     serverOmittedTreasuryPubkeys,
     serverTreasuryListWasSubset,
+    missingAuditorDeclaredTreasury,
     totalL1AnchorsInWindow: uniqueL1Anchors.size,
     deliveredMatchedCount,
     undisclosedAnchors,
@@ -889,6 +900,7 @@ export function reconcileAuditedBatchesAgainstL1(
     completeZeroOmissions:
       !scanTruncated &&
       !serverTreasuryListWasSubset &&
+      !missingAuditorDeclaredTreasury &&
       undisclosedAnchors.length === 0 &&
       unanchoredDeliveredRunIds.length === 0,
   };
