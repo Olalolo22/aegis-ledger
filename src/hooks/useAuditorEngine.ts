@@ -505,13 +505,6 @@ export function useAuditorEngine(): AuditorEngineResult {
             const authoritativeL1LeafCount = browserAnchorCheck.onChainLeafCount;
             verifiedChainAnchors += 1;
 
-            browserVerifiedBatchesForRecon.push({
-              payroll_run_id: batch.payroll_run_id,
-              anchor_tx_signature: batch.anchor_tx_signature,
-              merkle_root: authoritativeL1Root,
-              anchor_verified: true,
-            });
-
             // 2. Decrypt strictly client-side binding GCM AAD to the BROWSER-FETCHED L1 root
             const expectedAad = buildEnvelopeAad({
               orgId: auditScope.org_id,
@@ -534,14 +527,16 @@ export function useAuditorEngine(): AuditorEngineResult {
             );
             const manifest = JSON.parse(plaintextJson) as DecryptedBatchManifest;
 
-            // Bind decrypted manifest's `initiatedBy` to actual Solana L1 anchor tx signers
+            // Fail-closed per-batch binding: decrypted manifest.initiatedBy MUST have
+            // directly signed THIS batch's Solana L1 anchor transaction (not merely appear
+            // in an aggregate wallet list across batches).
             if (!manifest.initiatedBy) {
               throw new Error(
                 `Batch ${batch.payroll_run_id} decrypted manifest is missing initiatedBy treasury wallet.`
               );
             }
             if (
-              browserAnchorCheck.signers &&
+              !browserAnchorCheck.signers?.length ||
               !browserAnchorCheck.signers.includes(manifest.initiatedBy)
             ) {
               throw new Error(
@@ -549,6 +544,13 @@ export function useAuditorEngine(): AuditorEngineResult {
               );
             }
             manifestInitiatedByPubkeys.push(manifest.initiatedBy);
+
+            browserVerifiedBatchesForRecon.push({
+              payroll_run_id: batch.payroll_run_id,
+              anchor_tx_signature: batch.anchor_tx_signature,
+              merkle_root: authoritativeL1Root,
+              anchor_verified: true,
+            });
 
             // 3. Verify FULL Binary Merkle Sum Tree completeness against BROWSER-FETCHED L1 ROOT & COUNT
             const completeness = verifyBatchCompleteness(
