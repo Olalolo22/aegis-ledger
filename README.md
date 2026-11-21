@@ -70,10 +70,12 @@
 
 | Security Property | Enforcement Mechanism | Honest Scope & Limits |
 | :--- | :--- | :--- |
+| **Org API & Key-Vault Authorization** | **Solana Wallet-Native SIWS + Per-Mutation Ed25519 Signatures (`src/lib/auth.ts`).** Every org route requires a verified HttpOnly `aegis_admin_session` JWT + live `org_admins` DB check and derives `org_id` strictly from `session.orgId` (caller-supplied `org_id` is rejected by `.strict()` schemas). `POST`/`PATCH /api/org/key-vault` additionally require a fresh Ed25519 signature from an already-registered admin wallet over an atomic single-use Postgres nonce (`auth_challenges`) bound to `(org_id, action, target_fingerprint)`. | All Postgres tables lock out `anon` via RLS (`service_role` only). Wallet-native SIWS is used rather than Web2 Supabase Auth `auth.users` so organization identity stays rooted in Solana treasury/admin wallets. |
 | **Can Aegis servers read on-chain payroll or stored manifests?** | **Cryptographic (NO).** Blind `.strict()` schemas on `/api/payroll` and `/api/payroll/confirm` accept zero individual salaries, employee wallets, salts, Merkle sum proofs, or employee ER transfer signatures; all manifests & proofs stay inside multi-admin `RSA-OAEP-256 + AES-256-GCM` envelopes. | Applies end-to-end for on-chain shielded payroll and all persisted batch manifests. Optional fiat off-ramp dispatch (`/api/payroll/dispatch-offramp`) necessarily passes payout instructions to the fiat rail partner (Kotani Pay / Yellow Card) in transit and does not persist plaintext payroll in Postgres. |
-| **Organization key custody & continuity** | **Passphrase-encrypted vault + 2+ admin wrapping.** `PBKDF2-SHA256` (600k iter) + `AES-256-GCM`, volatile memory-only unlock, offline Recovery Kit JSON, multi-admin `orgWrappedDeks`, and rotation API. | Full operational policy documented in [`docs/KEY_MANAGEMENT_POLICY.md`](docs/KEY_MANAGEMENT_POLICY.md). |
-| **Cross-batch completeness (withheld batches)** | **Solana L1 RPC enumeration.** Reconciles all `aegis:merkle:v1` memos signed by the treasury on L1 inside `[valid_from, valid_until]` against delivered batches. | Any L1-anchored batch missing from the audit package triggers an explicit `undisclosed_anchors` finding. |
-| **Settled on-chain amounts match manifest** | **Client-side MagicBlock ER `0x10` wire decoding + strict 64-hex leaf memo.** Auditor browser decodes settled bytes and recomputes each Merkle leaf against the L1-anchored root. | Stripping or truncating the transfer memo or underpaying (`300` vs `3,800`) fails audit verification unconditionally. |
+| **Organization key custody & continuity** | **Passphrase-encrypted vault + 2+ admin wrapping.** `PBKDF2-SHA256` (600k iter) + `AES-256-GCM`, volatile memory-only unlock, offline Recovery Kit JSON, multi-admin `orgWrappedDeks`, and wallet-signed rotation API. | Full operational policy documented in [`docs/KEY_MANAGEMENT_POLICY.md`](docs/KEY_MANAGEMENT_POLICY.md). |
+| **Cross-batch completeness (withheld batches)** | **Direct Auditor Solana L1 RPC enumeration.** Reconciles all `aegis:merkle:v1` memos signed by the treasury on L1 inside `[valid_from, valid_until]` against delivered batches directly inside the auditor's browser (`src/hooks/useAuditorEngine.ts`). | Any L1-anchored batch missing from the audit package triggers an explicit `undisclosed_anchors` finding. |
+| **Settled on-chain amounts match manifest** | **Client-side MagicBlock ER `0x10` wire decoding + strict 64-hex leaf memo.** Auditor browser decodes settled bytes and recomputes each Merkle leaf against the browser-fetched L1 root. | Stripping or truncating the transfer memo or underpaying (`300` vs `3,800`) fails audit verification unconditionally. |
+| **Fiat off-ramp settlement verification (`ngn_bank` / `kes_mpesa`)** | **Known Limitation (Honest Boundary).** Fiat leaves commit into the same L1-anchored Merkle Sum Tree and receive receipts stamped with the partner's applied FX rate + mid-market sanity guardrail, **but have no MagicBlock ER settlement transaction**. | Today, an auditor cryptographically proves the on-chain crypto half of a batch against Solana L1 + ER bytes, while the fiat half relies on partner disbursement receipts / bank statement reconciliation. **Planned closure:** partner-signed receipts binding `(batchRoot, noteCommitment, appliedRate, fiatAmount, railReference)` verified directly against Kotani Pay's published signing key inside the auditor's browser. |
 | **Auditor batch & token scope isolation** | **Cryptographic.** Only DEKs for batches inside `[valid_from, valid_until]` and `allowed_tokens` are wrapped to `auditor_public_key`. | Expiry/revocation is an API delivery policy that blocks future ciphertext fetches (cannot un-read plaintext already decrypted locally). |
 
 ---
@@ -84,11 +86,12 @@
 git checkout feature/zero-trust-refactor
 npm ci
 
-# Run cryptographic, blind-server schema, multi-admin key vault, strict 64-hex memo,
-# live MagicBlock SPL wire decoder, cross-batch L1 reconciliation, and partner FX checks
+# Run cryptographic, blind-server schema, wallet-native SIWS & vault signature,
+# multi-admin key vault, strict 64-hex memo, live MagicBlock SPL wire decoder,
+# cross-batch L1 reconciliation, and partner FX checks
 bun run scripts/verify-security-invariants.ts
 
-# Apply migrations 001..005 in Supabase, populate .env.local, then run:
+# Apply migrations 001..006 in Supabase, populate .env.local, then run:
 npm run dev
 ```
 
@@ -98,6 +101,7 @@ Apply SQL migrations in order:
 3. `supabase/migrations/003_merkle_audit_manifests.sql`
 4. `supabase/migrations/004_chain_anchor_and_e2ee_audits.sql`
 5. `supabase/migrations/005_org_key_vaults_and_blind_confirm.sql`
+6. `supabase/migrations/006_wallet_auth_and_org_admins.sql`
 
 ---
 

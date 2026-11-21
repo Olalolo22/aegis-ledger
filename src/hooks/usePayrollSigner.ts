@@ -151,31 +151,32 @@ export function usePayrollSigner(): PayrollSignerResult {
         );
 
         // 0. Preflight: resolve ALL active org admin public keys (Primary + Backup Controller)
-        // Never fall back to raw localStorage private keys.
+        // Server derives org_id strictly from the authenticated wallet session cookie.
         const activeAdminPubKeys: string[] = [];
         const unlockedAdminKey = getUnlockedOrgKeyFromMemory(request.org_id);
         if (unlockedAdminKey?.publicKeySpkiBase64) {
           activeAdminPubKeys.push(unlockedAdminKey.publicKeySpkiBase64);
         }
 
-        try {
-          const vaultRes = await fetch(
-            `/api/org/key-vault?org_id=${encodeURIComponent(request.org_id)}`
+        const vaultRes = await fetch("/api/org/key-vault", {
+          credentials: "same-origin",
+        });
+        if (vaultRes.status === 401 || vaultRes.status === 403) {
+          throw new Error(
+            "Organization wallet session required. Click 'Sign In with Wallet' in the Compliance panel before running payroll."
           );
-          if (vaultRes.ok) {
-            const vaultData = await vaultRes.json();
-            for (const v of vaultData.vaults || []) {
-              if (
-                v.status === "active" &&
-                v.public_key_spki &&
-                !activeAdminPubKeys.includes(v.public_key_spki)
-              ) {
-                activeAdminPubKeys.push(v.public_key_spki);
-              }
+        }
+        if (vaultRes.ok) {
+          const vaultData = await vaultRes.json();
+          for (const v of vaultData.vaults || []) {
+            if (
+              v.status === "active" &&
+              v.public_key_spki &&
+              !activeAdminPubKeys.includes(v.public_key_spki)
+            ) {
+              activeAdminPubKeys.push(v.public_key_spki);
             }
           }
-        } catch {
-          // If vault API is unreachable, unlockedAdminKey in memory can still wrap
         }
 
         if (activeAdminPubKeys.length === 0) {
@@ -184,7 +185,7 @@ export function usePayrollSigner(): PayrollSignerResult {
           );
         }
 
-        // 1. Compute ONLY aggregate batch totals client-side (zero per-recipient data sent to /api/payroll)
+        // 1. Compute ONLY aggregate batch totals client-side (zero per-recipient data & zero caller org_id)
         const totalAmountBaseUnits = request.recipients.reduce(
           (sum, r) => sum + BigInt(r.amount),
           0n
@@ -200,8 +201,8 @@ export function usePayrollSigner(): PayrollSignerResult {
         const prepareRes = await fetch("/api/payroll", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
-            org_id: request.org_id,
             token_symbol: request.token_symbol,
             token_mint: request.token_mint,
             initiated_by: publicKey.toBase58(),
@@ -222,6 +223,7 @@ export function usePayrollSigner(): PayrollSignerResult {
         }
 
         const runId: string = prepareData.payroll_run_id;
+        const sessionOrgId: string = prepareData.org_id || request.org_id;
         const params: SigningParams = prepareData.signing_params;
         const cluster: string =
           prepareData.magicblock?.cluster || MAGICBLOCK_CLUSTER;
@@ -435,7 +437,7 @@ export function usePayrollSigner(): PayrollSignerResult {
         const manifestPayload = JSON.stringify({
           version: 2,
           payrollRunId: runId,
-          orgId: request.org_id,
+          orgId: sessionOrgId,
           initiatedBy: publicKey.toBase58(),
           tokenSymbol: params.token_symbol,
           merkleRoot: plan.merkleTree.root,
@@ -452,7 +454,7 @@ export function usePayrollSigner(): PayrollSignerResult {
           manifestPayload,
           activeAdminPubKeys,
           {
-            orgId: request.org_id,
+            orgId: sessionOrgId,
             payrollRunId: runId,
             merkleRoot: plan.merkleTree.root,
             tokenSymbol: params.token_symbol,
@@ -467,6 +469,7 @@ export function usePayrollSigner(): PayrollSignerResult {
         const confirmRes = await fetch("/api/payroll/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
             payroll_run_id: runId,
             anchor_tx_signature: anchorSig,
@@ -507,6 +510,7 @@ export function usePayrollSigner(): PayrollSignerResult {
           const dispatchRes = await fetch("/api/payroll/dispatch-offramp", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({
               batch_root: plan.merkleTree.root,
               recipients: offrampPayload,

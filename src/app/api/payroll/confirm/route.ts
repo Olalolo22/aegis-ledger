@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Connection } from "@solana/web3.js";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { payrollConfirmSchema } from "@/lib/validation";
 import { buildEnvelopeAad } from "@/lib/e2ee";
 import { L1_DEVNET_RPC } from "@/lib/magicblock";
@@ -9,29 +10,22 @@ import { verifyAnchorTransactionOnChain } from "@/lib/onchainVerify";
 /**
  * POST /api/payroll/confirm
  *
- * Blind, Zero-Knowledge Batch Sealing & Solana L1 Root Anchor Verifier.
+ * Authenticated, Blind, Zero-Knowledge Batch Sealing & Solana L1 Root Anchor Verifier.
  *
- * Security Invariants ("Can Aegis servers read customer payroll?"):
- *   NO — `payrollConfirmSchema` is `.strict()` and REJECTS `leaf_proofs`,
+ * Security Invariants:
+ * - Requires verified `aegis_admin_session` (`requireOrgAdminSession`) and scopes
+ *   the pending `payroll_runs` record strictly to `session.orgId`.
+ * - `payrollConfirmSchema` is `.strict()` and REJECTS `leaf_proofs`,
  *   `amountBaseUnits`, `saltHex`, `onchain_settlements`, and per-employee
- *   MagicBlock ER transfer signatures. All individual salaries, wallets,
- *   salts, Merkle sum-tree proofs, and ER transfer signatures stay exclusively
- *   inside the client-encrypted `e2ee_envelope` and are verified directly
- *   against Solana L1 + MagicBlock ER RPC by the auditor's browser.
- *
- * Before sealing a batch `completed`, this endpoint verifies:
- * 1. `commitment_hashes` length equals `payroll_runs.recipient_count` and all
- *    blinded 64-hex leaf commitments are unique.
- * 2. Pulls `anchor_tx_signature` directly off Solana L1 RPC and proves:
- *      - tx succeeded (`meta.err === null`)
- *      - signer matches `payroll_runs.initiated_by`
- *      - L1 Memo parses to `aegis:merkle:v1:<merkle_root>:<recipient_count>`
- * 3. Verifies `e2ee_envelope.aad` binds the exact org, run, L1-anchored root,
- *    and token symbol, and verifies multi-admin wrapping consistency.
- * 4. Persists ONLY `e2ee_envelope` ciphertext + blinded `commitment_hash` rows
- *    (`merkle_proof: null` — zero amounts or sibling sums stored in Postgres).
+ *   MagicBlock ER transfer signatures.
+ * - Returns truthful blind-server flags (`anchor_verified: true`, `aad_verified: true`,
+ *   `auditor_verifiable: true`, `server_verified_completeness: false`,
+ *   `server_verified_settlement_bytes: false`).
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -70,6 +64,7 @@ export async function POST(request: NextRequest) {
       "id, org_id, status, recipient_count, total_amount_lamports, token_symbol, initiated_by"
     )
     .eq("id", payroll_run_id)
+    .eq("org_id", auth.session.orgId)
     .single();
 
   if (fetchError || !payrollRun) {

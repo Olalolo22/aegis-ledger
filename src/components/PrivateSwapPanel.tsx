@@ -149,10 +149,9 @@ function ZKSwapModal({
   );
 }
 
-export default function PrivateSwapPanel({ 
-  orgId = "b91a045c-27eb-44c1-8409-f62506b328a6",
+export default function PrivateSwapPanel({
   onClose,
-}: { 
+}: {
   orgId?: string;
   onClose?: () => void;
 }) {
@@ -202,7 +201,6 @@ export default function PrivateSwapPanel({
     const slippageBps = parseFloat(slippage) * 100;
     
     await execute({
-      org_id: orgId,
       amount_lamports: amountLamports,
       slippage_bps: slippageBps,
     });

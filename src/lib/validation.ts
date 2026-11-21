@@ -2,9 +2,15 @@ import { z } from "zod";
 
 /**
  * Validation schemas for all API inputs.
- * Every route MUST validate request bodies through `.strict()` schemas
- * before processing — no plaintext individual salaries, employee wallets,
- * leaf salts, or Merkle sum-tree proofs are ever accepted by blind payroll routes.
+ *
+ * Security invariants:
+ * 1. Every route validates request bodies through `.strict()` schemas.
+ * 2. Caller-supplied `org_id` is REMOVED from all organization-scoped schemas;
+ *    routes derive `org_id` strictly from the verified wallet session cookie.
+ * 3. Blind payroll schemas reject individual salaries, employee wallets, leaf
+ *    salts, Merkle sum-tree proofs, and per-employee ER transfer signatures.
+ * 4. Key-vault mutations require per-action Ed25519 wallet signatures (`auth_nonce`
+ *    + `wallet_signature`) bound to `(org_id, action, target_fingerprint)`.
  */
 
 const solanaPubkeySchema = z
@@ -22,6 +28,15 @@ const solanaSignatureSchema = z
   .max(100, "Transaction signature too long")
   .regex(/^[1-9A-HJ-NP-Za-km-z]+$/, "Transaction signature must be base58");
 
+const walletMessageSignatureSchema = z
+  .string()
+  .min(64, "Wallet Ed25519 signature too short")
+  .max(128, "Wallet Ed25519 signature too long");
+
+const authNonceSchema = z
+  .string()
+  .regex(/^[0-9a-fA-F]{32,64}$/, "auth_nonce must be a 32-64 char hex nonce");
+
 const hexSha256Schema = z
   .string()
   .regex(/^[0-9a-fA-F]{64}$/, "Must be a 64-character hex SHA-256 digest");
@@ -33,12 +48,32 @@ const keyFingerprintSchema = z
 const supportedTokenSymbols = ["USDC", "USDT", "SOL"] as const;
 
 // ═══════════════════════════════════════════════════════════════
-// BLIND PAYROLL INITIATION Schema (Aggregate Totals Only — ZERO Per-Recipient Data)
+// WALLET AUTHENTICATION Schemas (SIWS + Per-Mutation Nonces)
+// ═══════════════════════════════════════════════════════════════
+
+export const authChallengeRequestSchema = z
+  .object({
+    purpose: z.enum(["session_login", "vault_register", "vault_rotate"]),
+    wallet_pubkey: solanaPubkeySchema,
+    target_fingerprint: keyFingerprintSchema.optional(),
+  })
+  .strict();
+
+export const authVerifyRequestSchema = z
+  .object({
+    wallet_pubkey: solanaPubkeySchema,
+    nonce: authNonceSchema,
+    signature: walletMessageSignatureSchema,
+  })
+  .strict();
+
+// ═══════════════════════════════════════════════════════════════
+// BLIND PAYROLL INITIATION Schema
+// (org_id derived from session; Aggregate Totals Only — ZERO Per-Recipient Data)
 // ═══════════════════════════════════════════════════════════════
 
 export const payrollRequestSchema = z
   .object({
-    org_id: z.string().uuid("org_id must be a valid UUID"),
     token_symbol: z.enum(supportedTokenSymbols, {
       message: `token_symbol must be one of: ${supportedTokenSymbols.join(", ")}`,
     }),
@@ -83,12 +118,11 @@ export const ALLOWED_TOKEN_MINTS: Record<string, string[]> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// AUDIT API Schemas (Client-Side Zero-Knowledge Public-Key Wrapping)
+// AUDIT API Schemas (org_id derived from verified admin session)
 // ═══════════════════════════════════════════════════════════════
 
 export const generateKeyRequestSchema = z
   .object({
-    org_id: z.string().uuid("org_id must be a valid UUID"),
     auditor_identity: z
       .string()
       .min(3, "Auditor identity must be at least 3 characters")
@@ -141,12 +175,6 @@ export type DecryptRequest = z.infer<typeof decryptRequestSchema>;
 
 // ═══════════════════════════════════════════════════════════════
 // BLIND PAYROLL CONFIRM Schema (L1 Anchor + Blinded Leaf Hashes + E2EE Envelope ONLY)
-//
-// SECURITY INVARIANT:
-// `.strict()` rejects `leaf_proofs`, `amountBaseUnits`, `saltHex`,
-// `onchain_settlements`, or any per-employee fields. All individual salaries,
-// wallets, salts, Merkle sum proofs, and ER transfer signatures live
-// exclusively inside `e2ee_envelope` (undecryptable by Aegis servers).
 // ═══════════════════════════════════════════════════════════════
 
 export const e2eeEnvelopeSchema = z
@@ -189,7 +217,8 @@ export const payrollConfirmSchema = z
 export type PayrollConfirmRequest = z.infer<typeof payrollConfirmSchema>;
 
 // ═══════════════════════════════════════════════════════════════
-// ORG KEY VAULT Schemas (Passphrase-Encrypted Multi-Admin Custody)
+// ORG KEY VAULT Schemas
+// (org_id derived strictly from session; per-mutation Ed25519 signature required)
 // ═══════════════════════════════════════════════════════════════
 
 export const orgAdminRoleSchema = z.enum([
@@ -219,19 +248,21 @@ export const encryptedPrivateKeyVaultSchema = z
 
 export const registerOrgKeyVaultSchema = z
   .object({
-    org_id: z.string().uuid(),
     admin_label: z.string().min(2).max(128),
     role: orgAdminRoleSchema,
     public_key_spki: z.string().min(128).max(2048),
     fingerprint: keyFingerprintSchema,
     /** Optional passphrase-encrypted vault blob (server NEVER sees passphrase or plaintext key) */
     encrypted_vault: encryptedPrivateKeyVaultSchema.nullable().optional(),
+    /** Single-use nonce from POST /api/auth/challenge (purpose: vault_register) */
+    auth_nonce: authNonceSchema,
+    /** Ed25519 signature from already-registered admin wallet authorizing this registration */
+    wallet_signature: walletMessageSignatureSchema,
   })
   .strict();
 
 export const rotateOrgKeyVaultSchema = z
   .object({
-    org_id: z.string().uuid(),
     revoke_fingerprint: keyFingerprintSchema,
     new_admin_fingerprint: keyFingerprintSchema.optional(),
     /** Client-side re-wrapped DEKs keyed by payroll_run_id for the newly added admin */
@@ -239,16 +270,19 @@ export const rotateOrgKeyVaultSchema = z
       .record(z.string().uuid(), z.string().min(64).max(2048))
       .optional()
       .default({}),
+    /** Single-use nonce from POST /api/auth/challenge (purpose: vault_rotate) */
+    auth_nonce: authNonceSchema,
+    /** Ed25519 signature from already-registered admin wallet authorizing this rotation/revocation */
+    wallet_signature: walletMessageSignatureSchema,
   })
   .strict();
 
 // ═══════════════════════════════════════════════════════════════
-// TREASURY SWAP Schemas
+// TREASURY SWAP Schemas (org_id derived strictly from session)
 // ═══════════════════════════════════════════════════════════════
 
 export const swapQuoteRequestSchema = z
   .object({
-    org_id: z.string().uuid("org_id must be a valid UUID"),
     amount_lamports: z
       .string()
       .regex(/^\d+$/, "amount_lamports must be a non-negative integer string")

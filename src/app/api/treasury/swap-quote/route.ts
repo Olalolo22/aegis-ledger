@@ -9,19 +9,21 @@ import {
   queryMagicBlockSplBalance,
 } from "@/lib/magicblock";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { swapQuoteRequestSchema, TOKEN_MINTS } from "@/lib/validation";
 
 /**
  * POST /api/treasury/swap-quote
  *
- * Non-custodial coordinator for SOL -> USDC treasury runway top-ups via
- * Jupiter quote + MagicBlock Private SPL balance verification.
- *
- * Invariants:
- * - Never fabricates mock quotes, mock UTXOs, or mock Merkle roots.
- * - Fails loud with HTTP 503 if Jupiter quote or MagicBlock API is unreachable.
+ * Authenticated, non-custodial coordinator for SOL -> USDC treasury runway
+ * top-ups scoped strictly to `session.orgId`.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const org_id = auth.session.orgId;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -43,7 +45,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { org_id, amount_lamports, slippage_bps, initiated_by } = parsed.data;
+  const { amount_lamports, slippage_bps, initiated_by } = parsed.data;
+
+  if (initiated_by !== auth.session.walletPubkey) {
+    return NextResponse.json(
+      {
+        error: "initiated_by wallet must match authenticated admin session wallet.",
+        code: "INITIATOR_WALLET_MISMATCH",
+      },
+      { status: 403 }
+    );
+  }
 
   try {
     new PublicKey(initiated_by);
@@ -55,18 +67,6 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceClient();
-  const { data: org, error: orgError } = await supabase
-    .from("organizations")
-    .select("id, treasury_pubkey")
-    .eq("id", org_id)
-    .single();
-
-  if (orgError || !org) {
-    return NextResponse.json(
-      { error: "Organization not found" },
-      { status: 404 }
-    );
-  }
 
   const mutex = await acquireMutex(`treasury-swap:${org_id}`, 60);
   if (!mutex.acquired) {

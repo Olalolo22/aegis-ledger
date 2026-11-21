@@ -17,6 +17,31 @@ export interface Organization {
   updated_at: string;
 }
 
+export type OrgAdminMemberRole = "owner" | "admin" | "backup_controller";
+export type OrgAdminMemberStatus = "active" | "revoked";
+
+export interface OrgAdmin {
+  id: string;
+  org_id: string;
+  wallet_pubkey: string;
+  role: OrgAdminMemberRole;
+  status: OrgAdminMemberStatus;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface AuthChallenge {
+  nonce: string;
+  purpose: "session_login" | "vault_register" | "vault_rotate" | "admin_add" | "admin_revoke";
+  wallet_pubkey: string;
+  org_id: string | null;
+  target_fingerprint: string | null;
+  message: string;
+  expires_at: string;
+  consumed_at: string | null;
+  created_at: string;
+}
+
 export type OrgKeyVaultStatus = "active" | "rotated" | "revoked";
 
 export interface OrgKeyVault {

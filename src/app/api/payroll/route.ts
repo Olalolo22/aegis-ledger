@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { acquireMutex, releaseMutex } from "@/lib/redis";
 import {
   MAGICBLOCK_API_URL,
@@ -11,28 +10,23 @@ import {
   type MagicBlockBalanceResponse,
 } from "@/lib/magicblock";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { ALLOWED_TOKEN_MINTS, payrollRequestSchema } from "@/lib/validation";
 
 /**
- * GET /api/payroll?org_id=<uuid>&valid_from=<iso>&valid_until=<iso>&tokens=USDC,SOL
+ * GET /api/payroll?valid_from=<iso>&valid_until=<iso>&tokens=USDC,SOL
  *
- * Returns completed payroll run metadata + `orgWrappedDek` / `orgWrappedDeks`
- * (RSA-OAEP-256 ciphertexts — never plaintext) for an organization within a
- * date/token window so any active org admin's browser can unwrap and re-wrap
- * ONLY in-scope batch DEKs to an auditor's public key (or a newly rotated admin).
+ * Authenticated org admin endpoint. Derives `org_id` STRICTLY from the verified
+ * `aegis_admin_session` cookie + live `org_admins` check (never query string).
  */
 export async function GET(request: NextRequest) {
-  const orgId = request.nextUrl.searchParams.get("org_id");
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const orgId = auth.session.orgId;
   const validFrom = request.nextUrl.searchParams.get("valid_from");
   const validUntil = request.nextUrl.searchParams.get("valid_until");
   const tokensParam = request.nextUrl.searchParams.get("tokens");
-
-  if (!orgId || !z.string().uuid().safeParse(orgId).success) {
-    return NextResponse.json(
-      { error: "Valid org_id query parameter is required" },
-      { status: 400 }
-    );
-  }
 
   try {
     const supabase = createServiceClient();
@@ -95,19 +89,23 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/payroll
  *
- * BLIND, NON-CUSTODIAL coordinator for MagicBlock Private Ephemeral Rollup
- * (PER / TEE) batch payroll disbursements.
+ * AUTHENTICATED, BLIND, NON-CUSTODIAL coordinator for MagicBlock Private
+ * Ephemeral Rollup (PER / TEE) batch payroll disbursements.
  *
- * Zero-Knowledge Server Invariants:
+ * Security Invariants:
+ * - Requires verified wallet session (`requireOrgAdminSession`); derives `org_id`
+ *   strictly from `session.orgId` and enforces `initiated_by === session.walletPubkey`.
  * - Accepts ONLY aggregate batch metadata (`recipient_count`,
  *   `total_amount_base_units`, `onchain_total_base_units`). Individual employee
  *   wallets, individual salaries, and destination accounts NEVER touch this route.
- * - Never touches private keys or signs transactions.
- * - Never returns HTTP 200 with fabricated/mock fallback parameters when
- *   upstream MagicBlock PER or database persistence is unavailable.
- * - Acquires a per-organization Redis mutex to prevent concurrent batch races.
+ * - Fails loud with HTTP 503 when MagicBlock PER or Postgres is unavailable.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const orgId = auth.session.orgId;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -130,7 +128,6 @@ export async function POST(request: NextRequest) {
   }
 
   const {
-    org_id,
     token_symbol,
     token_mint,
     initiated_by,
@@ -138,6 +135,18 @@ export async function POST(request: NextRequest) {
     total_amount_base_units,
     onchain_total_base_units,
   } = parsed.data;
+
+  // Enforce signer matches authenticated wallet session
+  if (initiated_by !== auth.session.walletPubkey) {
+    return NextResponse.json(
+      {
+        error:
+          "initiated_by wallet must match the authenticated organization admin wallet.",
+        code: "INITIATOR_WALLET_MISMATCH",
+      },
+      { status: 403 }
+    );
+  }
 
   // Cross-validate token_mint against known devnet/mainnet mints
   const allowedMints = ALLOWED_TOKEN_MINTS[token_symbol];
@@ -162,7 +171,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Acquire per-org distributed mutex before coordinating batch state
-  const mutex = await acquireMutex(`payroll-batch:${org_id}`, 60);
+  const mutex = await acquireMutex(`payroll-batch:${orgId}`, 60);
   if (!mutex.acquired) {
     return NextResponse.json(
       {
@@ -217,31 +226,15 @@ export async function POST(request: NextRequest) {
     const requiresDeposit =
       onChainTotal > 0n && currentEphemeralBalance < onChainTotal;
 
-    // 2. Verify organization & persist pending aggregate run in Supabase (fail loud on DB error)
+    // 2. Persist pending aggregate run scoped strictly to session.orgId (fail loud on DB error)
     let payrollRunId: string;
     try {
       const supabase = createServiceClient();
 
-      const { data: org, error: orgError } = await supabase
-        .from("organizations")
-        .select("id, treasury_pubkey")
-        .eq("id", org_id)
-        .single();
-
-      if (orgError || !org) {
-        return NextResponse.json(
-          {
-            error: "Organization not found",
-            code: "ORGANIZATION_NOT_FOUND",
-          },
-          { status: 404 }
-        );
-      }
-
       const { data: payrollRun, error: insertError } = await supabase
         .from("payroll_runs")
         .insert({
-          org_id,
+          org_id: orgId,
           status: "pending" as const,
           execution_rail: "magicblock_per",
           token_mint,
@@ -268,13 +261,14 @@ export async function POST(request: NextRequest) {
 
       await supabase.from("audit_log").insert({
         event_type: "payroll_initiated",
-        org_id,
+        org_id: orgId,
         metadata: {
           payroll_run_id: payrollRunId,
           execution_rail: "magicblock_per",
           recipient_count,
           token_symbol,
           blind_server_mode: true,
+          initiated_by_wallet: initiated_by,
           delegation_status: balanceInfo.delegation?.status || "unknown",
           requires_deposit: requiresDeposit,
         },
@@ -298,6 +292,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         payroll_run_id: payrollRunId,
+        org_id: orgId,
         status: "pending_signature",
         execution_rail: "magicblock_per",
         blind_server_mode: true,

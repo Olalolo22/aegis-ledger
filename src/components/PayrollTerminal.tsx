@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import styles from "./PayrollTerminal.module.css";
 import { usePayrollSigner, type PayrollSignerStatus } from "@/hooks/usePayrollSigner";
+import { useOrgSession } from "@/hooks/useOrgSession";
 import PrivateSwapPanel from "./PrivateSwapPanel";
 import CsvImporter, { type ParsedRecipient } from "./CsvImporter";
 import { useLiveFx } from "@/hooks/useLiveFx";
@@ -28,8 +29,6 @@ export interface Recipient {
   settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
   destinationAccount?: string;
 }
-
-const DEMO_ORG_ID = "b91a045c-27eb-44c1-8409-f62506b328a6";
 
 const MOCK_RECIPIENTS: Recipient[] = [
   {
@@ -274,6 +273,14 @@ export default function PayrollTerminal() {
     batchRoot,
     offrampReceipts,
   } = usePayrollSigner();
+  const {
+    session: orgSession,
+    loading: authLoading,
+    error: authError,
+    signIn: signInOrgWallet,
+    signOut: signOutOrgWallet,
+    signVaultAction,
+  } = useOrgSession();
   const { rates: liveFx, isLive, lastUpdated } = useLiveFx();
   const [recipients, setRecipients] = useState<Recipient[]>(MOCK_RECIPIENTS);
   const [showZK, setShowZK] = useState(false);
@@ -414,7 +421,7 @@ export default function PayrollTerminal() {
     const onChainRecipients = recipients.filter(r => r.settlementRail === "onchain_shielded");
     const isSolBatch = onChainRecipients.length > 0 && onChainRecipients.every(r => r.token === "SOL");
     await execute({
-      org_id: DEMO_ORG_ID,
+      org_id: orgSession.orgId || "",
       token_symbol: isSolBatch ? "SOL" : "USDC",
       token_mint: isSolBatch 
         ? "So11111111111111111111111111111111111111112" 
@@ -439,7 +446,13 @@ export default function PayrollTerminal() {
   const [auditKeyError, setAuditKeyError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/org/key-vault?org_id=${encodeURIComponent(DEMO_ORG_ID)}`)
+    if (!orgSession.authenticated || !orgSession.orgId) {
+      setVaultActiveAdmins(0);
+      setVaultUnlockedFp(null);
+      setLatestEncryptedVault(null);
+      return;
+    }
+    fetch("/api/org/key-vault", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d) {
@@ -453,16 +466,21 @@ export default function PayrollTerminal() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [orgSession.authenticated, orgSession.orgId]);
 
   const handleUnlockOrInitVault = async (role: "primary" | "backup_controller" = "primary") => {
     setVaultError(null);
     setVaultStatusMsg(null);
+    if (!orgSession.authenticated || !orgSession.orgId) {
+      setVaultError("Sign in with your organization Solana wallet first (SIWS).");
+      return;
+    }
     if (vaultPassphrase.length < 12) {
       setVaultError("Passphrase must be at least 12 characters (PBKDF2-SHA256 600k iterations).");
       return;
     }
 
+    const activeOrgId = orgSession.orgId;
     setVaultBusy(true);
     try {
       const {
@@ -472,8 +490,11 @@ export default function PayrollTerminal() {
         generateAuditKeyPair,
       } = await import("@/lib/e2ee");
 
-      // Check existing encrypted vaults on server (server holds ciphertext only)
-      const existingRes = await fetch(`/api/org/key-vault?org_id=${encodeURIComponent(DEMO_ORG_ID)}`);
+      // Check existing encrypted vaults on server (org_id derived strictly from session cookie)
+      const existingRes = await fetch("/api/org/key-vault", { credentials: "same-origin" });
+      if (existingRes.status === 401 || existingRes.status === 403) {
+        throw new Error("Organization wallet session expired. Please sign in again.");
+      }
       const existingData = existingRes.ok ? await existingRes.json() : { vaults: [] };
       const existingActive = (existingData.vaults || []).filter((v: any) => v.status === "active");
 
@@ -494,7 +515,7 @@ export default function PayrollTerminal() {
         if (!unlocked) {
           throw new Error("Incorrect vault passphrase for this organization's active admin vaults.");
         }
-        cacheUnlockedOrgKeyInMemory(DEMO_ORG_ID, unlocked);
+        cacheUnlockedOrgKeyInMemory(activeOrgId, unlocked);
         setVaultUnlockedFp(unlocked.fingerprint);
         setLatestEncryptedVault(matchedVault);
         setVaultActiveAdmins(existingActive.length);
@@ -510,46 +531,51 @@ export default function PayrollTerminal() {
           ? `Backup Controller #${existingActive.length + 1}`
           : "Primary Finance Admin";
       const encryptedVault = await encryptPrivateKeyWithPassphrase(keyPair, vaultPassphrase, {
-        orgId: DEMO_ORG_ID,
+        orgId: activeOrgId,
         adminLabel,
         role,
       });
 
+      // Require fresh per-mutation Ed25519 signature from already-registered admin wallet
+      const { auth_nonce, wallet_signature } = await signVaultAction(
+        "vault_register",
+        keyPair.fingerprint
+      );
+
       const saveRes = await fetch("/api/org/key-vault", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
-          org_id: DEMO_ORG_ID,
           admin_label: adminLabel,
           role,
           public_key_spki: keyPair.publicKeySpkiBase64,
           fingerprint: keyPair.fingerprint,
           encrypted_vault: encryptedVault,
+          auth_nonce,
+          wallet_signature,
         }),
       });
 
-      // Even if DB migration 005 isn't applied yet, hold unlocked key in volatile memory & allow Recovery Kit export
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) {
+        throw new Error(saveData.error || `Failed to register key vault (HTTP ${saveRes.status})`);
+      }
+
       if (role === "primary" || !vaultUnlockedFp) {
-        cacheUnlockedOrgKeyInMemory(DEMO_ORG_ID, keyPair);
+        cacheUnlockedOrgKeyInMemory(activeOrgId, keyPair);
         setVaultUnlockedFp(keyPair.fingerprint);
       }
       setLatestEncryptedVault(encryptedVault);
       setVaultPassphrase("");
 
-      if (saveRes.ok) {
-        const nextCount = existingActive.length + 1;
-        setVaultActiveAdmins(nextCount);
-        setVaultStatusMsg(
-          role === "backup_controller"
-            ? `Backup admin registered (${keyPair.fingerprint}) · ${nextCount} active admins wrap future batch DEKs.`
-            : `Passphrase vault initialized (${keyPair.fingerprint}) · unlocked in memory only.`
-        );
-      } else {
-        setVaultActiveAdmins(Math.max(1, existingActive.length + 1));
-        setVaultStatusMsg(
-          `Key unlocked in memory (${keyPair.fingerprint}). Download Recovery Kit JSON (run migration 005 for DB vault sync).`
-        );
-      }
+      const nextCount = existingActive.length + 1;
+      setVaultActiveAdmins(nextCount);
+      setVaultStatusMsg(
+        role === "backup_controller"
+          ? `Backup admin signed & registered (${keyPair.fingerprint}) · ${nextCount} active admins wrap future batch DEKs.`
+          : `Passphrase vault signed & initialized (${keyPair.fingerprint}) · unlocked in memory only.`
+      );
     } catch (e) {
       setVaultError(e instanceof Error ? e.message : "Key vault unlock failed");
     } finally {
@@ -572,7 +598,7 @@ export default function PayrollTerminal() {
 
   const handleLockVault = async () => {
     const { lockOrgKeyInMemory } = await import("@/lib/e2ee");
-    lockOrgKeyInMemory(DEMO_ORG_ID);
+    if (orgSession.orgId) lockOrgKeyInMemory(orgSession.orgId);
     setVaultUnlockedFp(null);
     setVaultStatusMsg("Key vault locked — private key wiped from browser memory.");
   };
@@ -583,6 +609,11 @@ export default function PayrollTerminal() {
       setGeneratedAuditorPrivKey(null);
       setAuditKeyError(null);
 
+      if (!orgSession.authenticated || !orgSession.orgId) {
+        setAuditKeyError("Sign in with your organization Solana wallet first (SIWS).");
+        return;
+      }
+
       const {
         generateAuditKeyPair,
         getUnlockedOrgKeyFromMemory,
@@ -591,7 +622,7 @@ export default function PayrollTerminal() {
       } = await import("@/lib/e2ee");
 
       // 1. Require unlocked passphrase-protected org key in memory (zero raw localStorage keys)
-      const orgKeyPair = getUnlockedOrgKeyFromMemory(DEMO_ORG_ID);
+      const orgKeyPair = getUnlockedOrgKeyFromMemory(orgSession.orgId);
       if (!orgKeyPair) {
         setAuditKeyError(
           "Unlock your passphrase-protected Organization Key Vault above before issuing an auditor key."
@@ -606,15 +637,14 @@ export default function PayrollTerminal() {
 
       const auditorKeyPair = await generateAuditKeyPair();
 
-      // 2. Fetch in-scope completed batch wrapped DEKs and re-wrap strictly in-browser
+      // 2. Fetch in-scope completed batch wrapped DEKs (org_id derived strictly from session cookie)
       const wrappedBatchKeys: Record<string, string> = {};
       const runsUrl = new URL("/api/payroll", window.location.origin);
-      runsUrl.searchParams.set("org_id", DEMO_ORG_ID);
       runsUrl.searchParams.set("valid_from", validFrom);
       runsUrl.searchParams.set("valid_until", validUntil);
       runsUrl.searchParams.set("tokens", allowedTokens.join(","));
 
-      const runsRes = await fetch(runsUrl.toString());
+      const runsRes = await fetch(runsUrl.toString(), { credentials: "same-origin" });
       if (runsRes.ok) {
         const runsData = await runsRes.json();
         for (const run of runsData.runs || []) {
@@ -636,12 +666,12 @@ export default function PayrollTerminal() {
         }
       }
 
-      // 3. Register auditor's PUBLIC key + client-wrapped batch DEKs (server never sees private keys)
+      // 3. Register auditor's PUBLIC key + client-wrapped batch DEKs (org_id derived from session)
       const keyRes = await fetch("/api/audit/generate-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
-          org_id: DEMO_ORG_ID,
           auditor_identity: auditorIdentity,
           auditor_public_key: auditorKeyPair.publicKeySpkiBase64,
           wrapped_batch_keys: wrappedBatchKeys,
@@ -662,6 +692,7 @@ export default function PayrollTerminal() {
       const linkRes = await fetch("/api/audit/magic-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           viewing_key_id: keyData.viewing_key.id,
           auditor_identity: auditorIdentity,
@@ -836,8 +867,69 @@ export default function PayrollTerminal() {
             </div>
           </div>
 
-          {/* Passphrase-Protected Multi-Admin Org Key Vault + Auditor Key Generator */}
+          {/* SIWS Wallet Session + Passphrase-Protected Multi-Admin Key Vault + Auditor Key Generator */}
           <div className={styles.complianceBox}>
+            <div style={{ paddingBottom: 8, marginBottom: 10, borderBottom: "1px solid rgba(8, 9, 11, 0.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 600, color: "#08090b", display: "block" }}>
+                    {orgSession.authenticated
+                      ? `Org Session · ${orgSession.orgName || orgSession.orgId?.slice(0, 8)} (${orgSession.role})`
+                      : "Org Admin Session · Not Authenticated"}
+                  </span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "#8e98a6" }}>
+                    {orgSession.authenticated
+                      ? `Ed25519 SIWS cookie · org_id derived server-side (${orgSession.orgId?.slice(0, 8)}...)`
+                      : "Sign a 1-time Ed25519 challenge with your Solana wallet to access org APIs"}
+                  </span>
+                </div>
+                {!orgSession.authenticated ? (
+                  <button
+                    onClick={signInOrgWallet}
+                    disabled={authLoading}
+                    style={{
+                      background: "#0066ff",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "5px 10px",
+                      fontFamily: "var(--mono)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {authLoading ? "Signing..." : "Sign In with Wallet"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      await handleLockVault();
+                      await signOutOrgWallet();
+                    }}
+                    style={{
+                      background: "transparent",
+                      color: "#64748b",
+                      border: "1px solid rgba(8, 9, 11, 0.16)",
+                      borderRadius: 6,
+                      padding: "4px 8px",
+                      fontFamily: "var(--mono)",
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Sign Out
+                  </button>
+                )}
+              </div>
+              {authError && (
+                <div style={{ marginTop: 5, fontFamily: "var(--mono)", fontSize: 9.5, color: "#dc2626" }}>
+                  [AUTH ERROR] {authError}
+                </div>
+              )}
+            </div>
+
             <div style={{ paddingBottom: 10, marginBottom: 10, borderBottom: "1px solid rgba(8, 9, 11, 0.08)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
                 <div>

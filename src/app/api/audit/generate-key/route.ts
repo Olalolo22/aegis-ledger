@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { generateKeyRequestSchema } from "@/lib/validation";
 import {
   buildViewingKeyScopeAad,
@@ -13,20 +14,16 @@ import { getPublicKeyFingerprint } from "@/lib/e2ee";
 /**
  * POST /api/audit/generate-key
  *
- * Registers an auditor's RSA-OAEP-256 public key and the organization's
- * client-side re-wrapped per-batch DEKs (`wrapped_batch_keys`) strictly for
- * payroll runs inside `[valid_from, valid_until]` and `allowed_tokens`.
- *
- * Zero-Knowledge Key Isolation (Option B):
- * - Aegis servers NEVER receive raw batch DEKs, org private keys, or auditor
- *   private keys — and CANNOT decrypt customer payroll manifests at rest.
- * - Scope isolation is enforced CRYPTOGRAPHICALLY: out-of-scope runs are never
- *   wrapped to `auditor_public_key`.
- * - `encrypted_viewing_key` stores an AES-256-GCM scope-integrity attestation
- *   bound with GCM AAD (`org_id | valid_from | valid_until | allowed_tokens`)
- *   so DB-level tampering with scope bounds is detected on `/api/audit/decrypt`.
+ * Authenticated org admin endpoint registering an auditor's RSA-OAEP-256 public
+ * key and client-side re-wrapped per-batch DEKs (`wrapped_batch_keys`) strictly
+ * for runs belonging to `session.orgId` inside `[valid_from, valid_until]`.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const org_id = auth.session.orgId;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -49,7 +46,6 @@ export async function POST(request: NextRequest) {
   }
 
   const {
-    org_id,
     auditor_identity,
     auditor_public_key,
     wrapped_batch_keys,
@@ -69,18 +65,6 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceClient();
-  const { data: org, error: orgError } = await supabase
-    .from("organizations")
-    .select("id")
-    .eq("id", org_id)
-    .single();
-
-  if (orgError || !org) {
-    return NextResponse.json(
-      { error: "Organization not found" },
-      { status: 404 }
-    );
-  }
 
   // Validate that every wrapped batch DEK corresponds to a completed in-scope run of this org
   const wrappedRunIds = Object.keys(wrapped_batch_keys);

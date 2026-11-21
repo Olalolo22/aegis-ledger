@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { z } from "zod";
 import type { PayrollRun } from "@/types/database";
 
 /**
  * GET /api/payroll/[id]
  *
- * Returns the status and details of a specific payroll run.
- * Includes associated recipient commitment hashes.
+ * Authenticated org admin endpoint returning the status and blinded commitment
+ * hashes of a payroll run belonging strictly to `session.orgId`.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
   // Validate the payroll run ID
   const idSchema = z.string().uuid("Payroll run ID must be a valid UUID");
   const parsed = idSchema.safeParse(params.id);
@@ -25,13 +29,14 @@ export async function GET(
 
   const supabase = createServiceClient();
 
-  // Fetch the payroll run — explicit public columns only (never return encrypted manifests)
+  // Fetch the payroll run scoped strictly to session.orgId (never return encrypted manifests)
   const { data: payrollRun, error: runError } = await supabase
     .from("payroll_runs")
     .select(
       "id, org_id, status, execution_rail, token_symbol, token_mint, total_amount_lamports, recipient_count, tx_signatures, anchor_tx_signature, anchor_slot, merkle_root, anchor_verified, error_message, initiated_by, created_at, completed_at"
     )
     .eq("id", params.id)
+    .eq("org_id", auth.session.orgId)
     .single();
 
   if (runError || !payrollRun) {

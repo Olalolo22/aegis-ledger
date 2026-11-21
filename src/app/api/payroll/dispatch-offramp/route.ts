@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { getOfframpProvider, DisbursementRecipient } from "@/lib/offramp";
 import {
   FxQuoteUnavailableError,
@@ -10,17 +12,19 @@ import {
 /**
  * POST /api/payroll/dispatch-offramp
  *
- * Dispatches NGN Bank / KES M-Pesa payouts via the configured off-ramp partner.
+ * Authenticated org admin endpoint dispatching NGN Bank / KES M-Pesa payouts
+ * strictly for an L1-anchored batch belonging to `session.orgId`.
  *
  * FX Accounting Invariant:
  * - Fetches live mid-market FX from `open.er-api.com` strictly as a server-side
  *   sanity-check benchmark (fails loud with HTTP 503 if unavailable).
  * - Each settlement receipt stamps the payout partner's ACTUAL applied execution
- *   rate (`fxRateSource: "partner_applied"` in live mode, or explicitly labeled
- *   `"sandbox_simulated_partner"` in sandbox mode) alongside the mid-market
- *   reference rate and `fxSpreadBps`, so receipts reconcile against partner statements.
+ *   rate alongside the mid-market reference rate and `fxSpreadBps`.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { batch_root, recipients } = body;
@@ -29,6 +33,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Missing or invalid 64-char hex batch_root" },
         { status: 400 }
+      );
+    }
+
+    // Verify batch_root belongs to a confirmed batch owned by session.orgId
+    const supabase = createServiceClient();
+    const { data: anchoredRun, error: runErr } = await supabase
+      .from("payroll_runs")
+      .select("id, org_id, merkle_root, anchor_verified")
+      .eq("org_id", auth.session.orgId)
+      .eq("merkle_root", String(batch_root).toLowerCase())
+      .eq("status", "completed")
+      .limit(1)
+      .maybeSingle();
+
+    if (runErr || !anchoredRun) {
+      return NextResponse.json(
+        {
+          error:
+            "batch_root does not match a confirmed, L1-anchored payroll run for this organization.",
+          code: "UNKNOWN_BATCH_ROOT",
+        },
+        { status: 403 }
       );
     }
 

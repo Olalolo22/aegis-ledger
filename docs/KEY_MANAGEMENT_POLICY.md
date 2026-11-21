@@ -47,11 +47,12 @@ To eliminate single-person lockout and satisfy statutory payroll retention requi
 - **Scheduled:** Annual key rotation across all active admin vaults.
 
 ### Zero-Trust Rotation Procedure (`PATCH /api/org/key-vault`)
-1. **Onboard Replacement Custodian:** The incoming admin initializes a fresh RSA-OAEP-256 keypair + passphrase-encrypted vault (`POST /api/org/key-vault`) and exports their offline Recovery Kit.
-2. **Client-Side DEK Re-Wrapping:** A remaining active admin (e.g., Backup Controller) unlocks their vault in memory, fetches historical `org_wrapped_deks` via `GET /api/payroll`, unwraps each batch DEK locally, and re-wraps it to the incoming admin's public key (`reWrapDekForNewAdmin`).
-3. **Revoke Departing Key:** Submit `PATCH /api/org/key-vault` with `revoke_fingerprint`, `new_admin_fingerprint`, and `rewrapped_batch_deks`.
+1. **Authenticated Wallet Session + Per-Mutation Ed25519 Authorization:** Every `POST /api/org/key-vault` (register) and `PATCH /api/org/key-vault` (rotate/revoke) requires BOTH an active SIWS wallet session (`requireOrgAdminSession` with live `org_admins` verification) AND a fresh Ed25519 signature from an already-registered admin wallet over an atomic single-use Postgres nonce (`auth_challenges`, 2-minute TTL) bound to `(org_id, action, target_fingerprint, signer_wallet)`. Bootstrapping an org's initial vault requires an `owner` wallet.
+2. **Onboard Replacement Custodian:** The incoming admin initializes a fresh RSA-OAEP-256 keypair + passphrase-encrypted vault (`POST /api/org/key-vault`, authorized by an existing active admin wallet) and exports their offline Recovery Kit.
+3. **Client-Side DEK Re-Wrapping:** A remaining active admin (e.g., Backup Controller) unlocks their vault in memory, fetches historical `org_wrapped_deks` via `GET /api/payroll` (scoped strictly to `session.orgId`), unwraps each batch DEK locally, and re-wraps it to the incoming admin's public key (`reWrapDekForNewAdmin`).
+4. **Revoke Departing Key:** Submit `PATCH /api/org/key-vault` with `revoke_fingerprint`, `new_admin_fingerprint`, `rewrapped_batch_deks`, `auth_nonce`, and `wallet_signature`.
    - The API enforces a **last-admin protection guard** (`HTTP 409 LAST_ADMIN_KEY_PROTECTED`) so an organization can never accidentally revoke its final active custodian and orphan historical records.
-   - The departing admin's key is marked `rotated`/`revoked`, their wrapped DEK slot is stripped from updated envelopes, and an immutable `org_admin_key_rotated` audit log event is recorded.
+   - The departing admin's key is marked `rotated`/`revoked`, their wrapped DEK slot is stripped from updated envelopes, and an immutable `org_admin_key_rotated` audit log event recording `authorized_by_wallet` is written.
 
 ---
 

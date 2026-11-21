@@ -1,24 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { swapConfirmSchema } from "@/lib/validation";
 
 /**
  * POST /api/treasury/swap-confirm
  *
- * Callback endpoint invoked by the client after successful
- * wallet signing and swap transaction broadcast.
- *
- * ⚠ NON-CUSTODIAL: This endpoint does NOT sign anything.
- * It purely records the results of client-side ZK proving + signing:
- *
- * 1. Validates the swap record exists and is in 'pending_signature' state
- * 2. Updates treasury_swaps → 'completed' with the tx signature
- * 3. Writes an audit_log entry
- *
- * If the client reports a failure, it should call this endpoint
- * with a modified payload to mark the swap as 'failed'.
+ * Authenticated org admin callback confirming a treasury swap belonging
+ * strictly to `session.orgId`.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
   // ─── Parse & Validate Input ───────────────────────────────
   let body: unknown;
   try {
@@ -46,15 +40,14 @@ export async function POST(request: NextRequest) {
 
   const { swap_id, tx_signature, commitment_hash, output_amount } = parsed.data;
 
-
-
-  // ─── Verify Swap Record Exists & Is Pending ──────────────
+  // ─── Verify Swap Record Exists, Belongs to Org & Is Pending ──
   const supabase = createServiceClient();
 
   const { data: swapRecord, error: fetchError } = await supabase
     .from("treasury_swaps")
     .select("id, org_id, status, input_amount_lamports")
     .eq("id", swap_id)
+    .eq("org_id", auth.session.orgId)
     .single();
 
   if (fetchError || !swapRecord) {

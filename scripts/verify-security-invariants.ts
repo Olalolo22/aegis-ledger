@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Keypair, Transaction, VersionedTransaction } from "@solana/web3.js";
+import bs58 from "bs58";
+import nacl from "tweetnacl";
+import { SignJWT } from "jose";
 import {
   buildBatchMerkleTree,
   computeLeafCommitment,
@@ -15,6 +18,15 @@ import {
   deriveJwtSigningKey,
   encryptViewingKey,
 } from "../src/lib/crypto";
+import {
+  buildSessionLoginMessage,
+  buildVaultActionMessage,
+  deriveAdminSessionJwtKey,
+  generateAuthNonce,
+  mintOrgAdminSessionToken,
+  verifyOrgAdminSessionToken,
+  verifySolanaWalletSignature,
+} from "../src/lib/auth";
 import {
   buildEnvelopeAad,
   decryptManifestClientSide,
@@ -59,8 +71,12 @@ import {
 } from "../src/lib/fx";
 import { SandboxOfframpProvider } from "../src/lib/offramp/sandbox";
 import {
+  generateKeyRequestSchema,
   payrollConfirmSchema,
   payrollRequestSchema,
+  registerOrgKeyVaultSchema,
+  rotateOrgKeyVaultSchema,
+  swapQuoteRequestSchema,
 } from "../src/lib/validation";
 
 async function run() {
@@ -121,16 +137,15 @@ async function run() {
   }
   console.log("   ✓ Binary Merkle Sum Tree verified across sizes 1, 2, 3, 5, 8.");
 
-  console.log("2. Testing Blind-Server .strict() Schemas (Zero Salaries/Salts/Proofs on Server)...");
+  console.log("2. Testing Blind-Server .strict() Schemas (Zero Salaries/Salts/Proofs & Zero Caller org_id)...");
   const orgId = randomUUID();
   const runId = randomUUID();
   const keyId = randomUUID();
   const payer = Keypair.generate();
   const fakeAnchorSig = "5".repeat(88);
 
-  // POST /api/payroll MUST REJECT plaintext recipients[]
-  const badInit = payrollRequestSchema.safeParse({
-    org_id: orgId,
+  // POST /api/payroll MUST REJECT plaintext recipients[] AND caller-supplied org_id
+  const badInitWithRecipients = payrollRequestSchema.safeParse({
     token_symbol: "USDC",
     token_mint: DEVNET_USDC_MINT.toBase58(),
     initiated_by: payer.publicKey.toBase58(),
@@ -138,10 +153,19 @@ async function run() {
     total_amount_base_units: "6400000000",
     recipients: [{ wallet: payer.publicKey.toBase58(), amount: "3800000000" }],
   });
-  assert.equal(badInit.success, false, "POST /api/payroll MUST reject plaintext recipients[]");
+  assert.equal(badInitWithRecipients.success, false, "POST /api/payroll MUST reject plaintext recipients[]");
+
+  const badInitWithOrgId = payrollRequestSchema.safeParse({
+    org_id: orgId,
+    token_symbol: "USDC",
+    token_mint: DEVNET_USDC_MINT.toBase58(),
+    initiated_by: payer.publicKey.toBase58(),
+    recipient_count: 2,
+    total_amount_base_units: "6400000000",
+  });
+  assert.equal(badInitWithOrgId.success, false, "POST /api/payroll MUST reject caller-supplied org_id");
 
   const goodInit = payrollRequestSchema.safeParse({
-    org_id: orgId,
     token_symbol: "USDC",
     token_mint: DEVNET_USDC_MINT.toBase58(),
     initiated_by: payer.publicKey.toBase58(),
@@ -150,7 +174,7 @@ async function run() {
     onchain_total_base_units: "3800000000",
     rail: "tee",
   });
-  assert.equal(goodInit.success, true, "Blind aggregate /api/payroll payload must pass");
+  assert.equal(goodInit.success, true, "Blind session-scoped /api/payroll payload must pass");
 
   // Prepare E2EE envelope & multi-admin key vaults
   const primaryAdminKeys = await generateAuditKeyPair();
@@ -583,7 +607,182 @@ async function run() {
     `   ✓ Partner-applied FX (${receipt.exchangeRate} KES vs mid-market ref ${receipt.referenceMidMarketRate} KES, spread=${receipt.fxSpreadBps} bps) & outlier rejection verified.`
   );
 
-  console.log("\nALL PASS 3 BLIND-SERVER, KEY VAULT, STRICT 64-HEX MEMO, L1 RECONCILIATION & FX INVARIANTS PASSED ✓");
+  console.log("7. Testing Solana Wallet-Native SIWS, Per-Mutation Vault Sigs & Org Auth Isolation...");
+  const adminWallet = Keypair.generate();
+  const attackerWallet = Keypair.generate();
+  const loginNonce = generateAuthNonce();
+  const issuedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 300_000).toISOString();
+
+  const loginMsg = buildSessionLoginMessage({
+    domain: "aegis-ledger.app",
+    walletPubkey: adminWallet.publicKey.toBase58(),
+    nonce: loginNonce,
+    issuedAt,
+    expiresAt,
+  });
+  const loginSig = bs58.encode(
+    nacl.sign.detached(new TextEncoder().encode(loginMsg), adminWallet.secretKey)
+  );
+  assert.equal(
+    verifySolanaWalletSignature({
+      walletPubkey: adminWallet.publicKey.toBase58(),
+      message: loginMsg,
+      signature: loginSig,
+    }),
+    true,
+    "Valid Ed25519 SIWS signature must pass"
+  );
+  // Wrong wallet & tampered message MUST fail
+  assert.equal(
+    verifySolanaWalletSignature({
+      walletPubkey: attackerWallet.publicKey.toBase58(),
+      message: loginMsg,
+      signature: loginSig,
+    }),
+    false,
+    "Signature from adminWallet must NOT verify under attackerWallet"
+  );
+  assert.equal(
+    verifySolanaWalletSignature({
+      walletPubkey: adminWallet.publicKey.toBase58(),
+      message: loginMsg + "\ntampered",
+      signature: loginSig,
+    }),
+    false,
+    "Tampered SIWS message must fail verification"
+  );
+
+  // Per-mutation Ed25519 vault authorization bound to (orgId, action, targetFingerprint, nonce)
+  const vaultNonce = generateAuthNonce();
+  const rotateMsg = buildVaultActionMessage({
+    domain: "aegis-ledger.app",
+    orgId,
+    action: "vault_rotate",
+    targetFingerprint: primaryAdminKeys.fingerprint,
+    signerWallet: adminWallet.publicKey.toBase58(),
+    nonce: vaultNonce,
+    issuedAt,
+    expiresAt,
+  });
+  const rotateSig = bs58.encode(
+    nacl.sign.detached(new TextEncoder().encode(rotateMsg), adminWallet.secretKey)
+  );
+  assert.equal(
+    verifySolanaWalletSignature({
+      walletPubkey: adminWallet.publicKey.toBase58(),
+      message: rotateMsg,
+      signature: rotateSig,
+    }),
+    true
+  );
+  // Replaying same signature for a different orgId, action, or fingerprint MUST fail
+  const wrongTargetMsg = buildVaultActionMessage({
+    domain: "aegis-ledger.app",
+    orgId,
+    action: "vault_rotate",
+    targetFingerprint: backupAdminKeys.fingerprint,
+    signerWallet: adminWallet.publicKey.toBase58(),
+    nonce: vaultNonce,
+    issuedAt,
+    expiresAt,
+  });
+  assert.equal(
+    verifySolanaWalletSignature({
+      walletPubkey: adminWallet.publicKey.toBase58(),
+      message: wrongTargetMsg,
+      signature: rotateSig,
+    }),
+    false,
+    "Vault signature bound to primary fingerprint must NOT verify for backup fingerprint"
+  );
+
+  // Admin session JWT domain separation (isolated from auditor JWT key)
+  assert.notEqual(
+    Buffer.from(deriveAdminSessionJwtKey()).toString("hex"),
+    Buffer.from(deriveJwtSigningKey()).toString("hex"),
+    "Admin session JWT key must be domain-separated from auditor JWT key"
+  );
+  const adminToken = await mintOrgAdminSessionToken({
+    walletPubkey: adminWallet.publicKey.toBase58(),
+    orgId,
+    role: "owner",
+  });
+  const verifiedAdmin = await verifyOrgAdminSessionToken(adminToken);
+  assert.ok(verifiedAdmin);
+  assert.equal(verifiedAdmin.orgId, orgId);
+  assert.equal(verifiedAdmin.walletPubkey, adminWallet.publicKey.toBase58());
+  assert.equal(verifiedAdmin.role, "owner");
+
+  // Forged token signed with auditor JWT key MUST fail org admin verification
+  const auditorSignedFake = await new SignJWT({ org_id: orgId, role: "owner" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(attackerWallet.publicKey.toBase58())
+    .setIssuer("aegis-ledger-admin")
+    .setAudience("aegis-org-api")
+    .setExpirationTime("1h")
+    .sign(deriveJwtSigningKey());
+  assert.equal(
+    await verifyOrgAdminSessionToken(auditorSignedFake),
+    null,
+    "Token signed with auditor JWT key must be rejected by org admin verifier"
+  );
+
+  // Verify ALL org-scoped .strict() schemas reject caller-supplied org_id and require vault signatures
+  assert.equal(
+    registerOrgKeyVaultSchema.safeParse({
+      org_id: orgId,
+      admin_label: "Rogue",
+      role: "primary",
+      public_key_spki: primaryAdminKeys.publicKeySpkiBase64,
+      fingerprint: primaryAdminKeys.fingerprint,
+      auth_nonce: vaultNonce,
+      wallet_signature: rotateSig,
+    }).success,
+    false,
+    "registerOrgKeyVaultSchema MUST reject caller-supplied org_id"
+  );
+  assert.equal(
+    registerOrgKeyVaultSchema.safeParse({
+      admin_label: "Unsigned",
+      role: "primary",
+      public_key_spki: primaryAdminKeys.publicKeySpkiBase64,
+      fingerprint: primaryAdminKeys.fingerprint,
+    }).success,
+    false,
+    "registerOrgKeyVaultSchema MUST require auth_nonce & wallet_signature"
+  );
+  assert.equal(
+    rotateOrgKeyVaultSchema.safeParse({
+      revoke_fingerprint: primaryAdminKeys.fingerprint,
+    }).success,
+    false,
+    "rotateOrgKeyVaultSchema MUST require auth_nonce & wallet_signature"
+  );
+  assert.equal(
+    generateKeyRequestSchema.safeParse({
+      org_id: orgId,
+      auditor_identity: "CPA",
+      auditor_public_key: auditorKeys.publicKeySpkiBase64,
+      valid_from: issuedAt,
+      valid_until: expiresAt,
+      allowed_tokens: ["USDC"],
+    }).success,
+    false,
+    "generateKeyRequestSchema MUST reject caller-supplied org_id"
+  );
+  assert.equal(
+    swapQuoteRequestSchema.safeParse({
+      org_id: orgId,
+      amount_lamports: "1000000",
+      initiated_by: adminWallet.publicKey.toBase58(),
+    }).success,
+    false,
+    "swapQuoteRequestSchema MUST reject caller-supplied org_id"
+  );
+  console.log("   ✓ SIWS Ed25519 auth, per-mutation vault signing, domain-separated JWTs, and zero caller org_id verified.");
+
+  console.log("\nALL 7 SECURITY, BLIND-SERVER, WALLET AUTH, KEY VAULT, L1 RECONCILIATION & FX SUITES PASSED ✓");
 }
 
 run().catch((err) => {

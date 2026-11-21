@@ -23,7 +23,6 @@ export type PrivateSwapStatus =
   | "error";
 
 interface SwapRequest {
-  org_id: string;
   amount_lamports: string;
   slippage_bps?: number;
 }
@@ -99,8 +98,10 @@ export function usePrivateSwap(): PrivateSwapResult {
         const quoteRes = await fetch("/api/treasury/swap-quote", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
-            ...request,
+            amount_lamports: request.amount_lamports,
+            slippage_bps: request.slippage_bps,
             initiated_by: publicKey.toBase58(),
           }),
         });

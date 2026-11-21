@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPublicKeyFingerprint, buildKeyVaultAad } from "@/lib/e2ee";
+import {
+  requireOrgAdminSession,
+  verifyAndConsumeWalletChallenge,
+} from "@/lib/auth";
 import {
   registerOrgKeyVaultSchema,
   rotateOrgKeyVaultSchema,
@@ -10,28 +13,25 @@ import {
 /**
  * /api/org/key-vault
  *
- * Passphrase-Encrypted Multi-Admin Key Vault & Rotation Coordinator.
+ * Authenticated, Per-Mutation Wallet-Signed Key Vault & Rotation Coordinator.
  *
- * Security invariants:
- * - Aegis servers NEVER receive passphrases or plaintext admin private keys.
- * - `encrypted_vault` stores ONLY PBKDF2-SHA256 (600,000 iter) + AES-256-GCM
- *   ciphertext encrypted client-side.
- * - Supports 2+ active organization admins (Primary Finance Admin + Backup
- *   Controller) so every payroll batch DEK is wrapped to multiple custodians,
- *   preventing single-admin key loss or employee-departure lockout.
- * - `PATCH` supports offboarding rotation: revokes a departing admin's key and
- *   persists client-side re-wrapped DEKs for the replacement admin across
- *   historical runs without exposing plaintext manifests to Aegis servers.
+ * Authorization Invariants:
+ * 1. `GET`, `POST`, and `PATCH` ALL require a verified `aegis_admin_session`
+ *    with live active membership in `org_admins`. `org_id` is derived STRICTLY
+ *    from `session.orgId` — NEVER from query string or request body.
+ * 2. `POST` (register new admin key) and `PATCH` (revoke/rotate admin key &
+ *    rewrite `orgWrappedDeks`) ADDITIONALLY require a fresh Ed25519 signature
+ *    from the authenticated, already-registered admin wallet over an atomic
+ *    single-use Postgres nonce bound to `(org_id, action, target_fingerprint)`.
+ * 3. Initial vault bootstrap on an organization with 0 active vaults requires
+ *    `role === "owner"` (the organization's treasury owner wallet).
  */
 
 export async function GET(request: NextRequest) {
-  const orgId = request.nextUrl.searchParams.get("org_id");
-  if (!orgId || !z.string().uuid().safeParse(orgId).success) {
-    return NextResponse.json(
-      { error: "Valid org_id query parameter is required" },
-      { status: 400 }
-    );
-  }
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const orgId = auth.session.orgId;
 
   try {
     const supabase = createServiceClient();
@@ -65,6 +65,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const orgId = auth.session.orgId;
+  const signerWallet = auth.session.walletPubkey;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -87,15 +93,16 @@ export async function POST(request: NextRequest) {
   }
 
   const {
-    org_id,
     admin_label,
     role,
     public_key_spki,
     fingerprint,
     encrypted_vault,
+    auth_nonce,
+    wallet_signature,
   } = parsed.data;
 
-  // Verify fingerprint cryptographically matches SPKI public key
+  // 1. Verify fingerprint cryptographically matches SPKI public key
   let computedFp: string;
   try {
     computedFp = getPublicKeyFingerprint(public_key_spki);
@@ -113,15 +120,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // If encrypted_vault is supplied, verify its metadata & AAD match
+  // 2. Verify per-mutation Ed25519 wallet signature bound to (orgId, vault_register, computedFp)
+  const challengeCheck = await verifyAndConsumeWalletChallenge({
+    nonce: auth_nonce,
+    purpose: "vault_register",
+    walletPubkey: signerWallet,
+    signature: wallet_signature,
+    expectedOrgId: orgId,
+    expectedTargetFingerprint: computedFp,
+  });
+
+  if (!challengeCheck.ok) {
+    return NextResponse.json(
+      {
+        error: challengeCheck.error,
+        code: "VAULT_SIGNATURE_REQUIRED",
+      },
+      { status: 403 }
+    );
+  }
+
+  // 3. If encrypted_vault is supplied, verify its metadata & AAD bind strictly to session.orgId
   if (encrypted_vault) {
     const expectedAad = buildKeyVaultAad({
-      orgId: org_id,
+      orgId,
       role,
       fingerprint: computedFp,
     });
     if (
-      encrypted_vault.orgId !== org_id ||
+      encrypted_vault.orgId !== orgId ||
       encrypted_vault.role !== role ||
       encrypted_vault.fingerprint !== computedFp ||
       encrypted_vault.publicKeySpkiBase64 !== public_key_spki ||
@@ -137,23 +164,30 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = createServiceClient();
 
-    const { data: org, error: orgError } = await supabase
-      .from("organizations")
+    // Enforce that bootstrapping the first vault requires an org owner
+    const { data: existingVaults, error: existErr } = await supabase
+      .from("org_key_vaults")
       .select("id")
-      .eq("id", org_id)
-      .single();
+      .eq("org_id", orgId)
+      .eq("status", "active");
 
-    if (orgError || !org) {
+    if (existErr) throw new Error(existErr.message);
+
+    if ((existingVaults || []).length === 0 && auth.session.role !== "owner") {
       return NextResponse.json(
-        { error: "Organization not found" },
-        { status: 404 }
+        {
+          error:
+            "Only an organization owner wallet may bootstrap the initial key vault.",
+          code: "OWNER_REQUIRED_FOR_BOOTSTRAP",
+        },
+        { status: 403 }
       );
     }
 
     const { data: vault, error: insertError } = await supabase
       .from("org_key_vaults")
       .insert({
-        org_id,
+        org_id: orgId,
         admin_label,
         role,
         public_key_spki,
@@ -172,12 +206,13 @@ export async function POST(request: NextRequest) {
 
     await supabase.from("audit_log").insert({
       event_type: "org_admin_key_registered",
-      org_id,
+      org_id: orgId,
       metadata: {
         vault_id: vault.id,
         admin_label,
         role,
         fingerprint: computedFp,
+        authorized_by_wallet: signerWallet,
         has_encrypted_vault_backup: Boolean(encrypted_vault),
       },
     });
@@ -193,6 +228,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
+  const orgId = auth.session.orgId;
+  const signerWallet = auth.session.walletPubkey;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -215,11 +256,32 @@ export async function PATCH(request: NextRequest) {
   }
 
   const {
-    org_id,
     revoke_fingerprint,
     new_admin_fingerprint,
     rewrapped_batch_deks,
+    auth_nonce,
+    wallet_signature,
   } = parsed.data;
+
+  // Require fresh per-mutation Ed25519 signature from already-registered admin wallet
+  const challengeCheck = await verifyAndConsumeWalletChallenge({
+    nonce: auth_nonce,
+    purpose: "vault_rotate",
+    walletPubkey: signerWallet,
+    signature: wallet_signature,
+    expectedOrgId: orgId,
+    expectedTargetFingerprint: revoke_fingerprint.toLowerCase(),
+  });
+
+  if (!challengeCheck.ok) {
+    return NextResponse.json(
+      {
+        error: challengeCheck.error,
+        code: "VAULT_SIGNATURE_REQUIRED",
+      },
+      { status: 403 }
+    );
+  }
 
   try {
     const supabase = createServiceClient();
@@ -228,7 +290,7 @@ export async function PATCH(request: NextRequest) {
     const { data: activeVaults, error: activeErr } = await supabase
       .from("org_key_vaults")
       .select("id, fingerprint")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("status", "active");
 
     if (activeErr) throw new Error(activeErr.message);
@@ -255,19 +317,19 @@ export async function PATCH(request: NextRequest) {
         rotated_at: new_admin_fingerprint ? nowIso : null,
         revoked_at: nowIso,
       })
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("fingerprint", revoke_fingerprint.toLowerCase());
 
     if (revokeErr) throw new Error(revokeErr.message);
 
-    // Update historical batch envelopes with client-side re-wrapped DEKs & strip revoked admin's slot
+    // Update historical batch envelopes scoped strictly to session.orgId
     let updatedRuns = 0;
     const runIdsToUpdate = Object.keys(rewrapped_batch_deks);
     if (runIdsToUpdate.length > 0 && new_admin_fingerprint) {
       const { data: runs, error: runsErr } = await supabase
         .from("payroll_runs")
         .select("id, e2ee_envelope")
-        .eq("org_id", org_id)
+        .eq("org_id", orgId)
         .in("id", runIdsToUpdate);
 
       if (runsErr) throw new Error(runsErr.message);
@@ -276,7 +338,8 @@ export async function PATCH(request: NextRequest) {
         if (!run.e2ee_envelope) continue;
         const nextWrappedMap: Record<string, string> = {
           ...(run.e2ee_envelope.orgWrappedDeks || {
-            [run.e2ee_envelope.orgPublicKeyFingerprint]: run.e2ee_envelope.orgWrappedDek,
+            [run.e2ee_envelope.orgPublicKeyFingerprint]:
+              run.e2ee_envelope.orgWrappedDek,
           }),
         };
         delete nextWrappedMap[revoke_fingerprint.toLowerCase()];
@@ -284,7 +347,8 @@ export async function PATCH(request: NextRequest) {
           rewrapped_batch_deks[run.id];
 
         const nextPrimaryFp =
-          run.e2ee_envelope.orgPublicKeyFingerprint === revoke_fingerprint.toLowerCase()
+          run.e2ee_envelope.orgPublicKeyFingerprint ===
+          revoke_fingerprint.toLowerCase()
             ? new_admin_fingerprint.toLowerCase()
             : run.e2ee_envelope.orgPublicKeyFingerprint;
         const nextPrimaryWrapped =
@@ -300,7 +364,8 @@ export async function PATCH(request: NextRequest) {
               orgWrappedDeks: nextWrappedMap,
             },
           })
-          .eq("id", run.id);
+          .eq("id", run.id)
+          .eq("org_id", orgId);
 
         if (!updErr) updatedRuns += 1;
       }
@@ -308,10 +373,11 @@ export async function PATCH(request: NextRequest) {
 
     await supabase.from("audit_log").insert({
       event_type: "org_admin_key_rotated",
-      org_id,
+      org_id: orgId,
       metadata: {
         revoked_fingerprint: revoke_fingerprint.toLowerCase(),
         new_admin_fingerprint: new_admin_fingerprint?.toLowerCase() ?? null,
+        authorized_by_wallet: signerWallet,
         rewrapped_batch_count: updatedRuns,
       },
     });

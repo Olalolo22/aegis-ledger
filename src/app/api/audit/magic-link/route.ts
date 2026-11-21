@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { SignJWT } from "jose";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireOrgAdminSession } from "@/lib/auth";
 import { getRedis } from "@/lib/redis";
 import { magicLinkRequestSchema } from "@/lib/validation";
 import { deriveJwtSigningKey, hashAuditorIdentity } from "@/lib/crypto";
@@ -9,25 +10,13 @@ import { deriveJwtSigningKey, hashAuditorIdentity } from "@/lib/crypto";
 /**
  * POST /api/audit/magic-link
  *
- * Creates a single-use magic link for an auditor to access the audit portal.
- *
- * Flow:
- * 1. Validate inputs (viewing_key_id, auditor_identity)
- * 2. Fetch the viewing key record from Supabase
- * 3. Verify auditor identity by re-hashing with stored salt and comparing
- * 4. Check temporal validity (not expired, not revoked)
- * 5. Create a signed JWT with scope claims (auditor_identity_hash, vk_id, org_id, temporal bounds)
- * 6. Store the JWT in Redis under an opaque token key with 15-min TTL (single-use)
- * 7. Return the magic link URL containing the opaque token
- *
- * Security:
- * - The JWT is signed with AEGIS_MASTER_SECRET (HMAC-SHA256)
- * - The magic link token is a random UUID (opaque, not predictable)
- * - Redis entry is single-use: deleted after the auditor verifies it
- * - JWT exp is set to the viewing key's valid_until (not infinite)
- * - No auditor plaintext stored in Redis or JWT — only the identity hash
+ * Authenticated org admin endpoint creating a single-use magic link for a
+ * viewing key owned strictly by `session.orgId`.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireOrgAdminSession(request);
+  if (!auth.ok) return auth.response;
+
   // ─── Parse & Validate ─────────────────────────────────────
   let body: unknown;
   try {
@@ -55,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const { viewing_key_id, auditor_identity } = parsed.data;
 
-  // ─── Fetch Viewing Key ────────────────────────────────────
+  // ─── Fetch Viewing Key (scoped strictly to session.orgId) ─
   const supabase = createServiceClient();
   const { data: vk, error: vkError } = await supabase
     .from("viewing_keys")
@@ -63,6 +52,7 @@ export async function POST(request: NextRequest) {
       "id, org_id, key_id, valid_from, valid_until, allowed_tokens, auditor_identity_hash, auditor_identity_salt, revoked"
     )
     .eq("id", viewing_key_id)
+    .eq("org_id", auth.session.orgId)
     .single();
 
   if (vkError || !vk) {
