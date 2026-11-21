@@ -25,11 +25,11 @@ export async function GET(
 
   const supabase = createServiceClient();
 
-  // Fetch the payroll run — use explicit column selection for type safety
+  // Fetch the payroll run — explicit public columns only (never return encrypted_manifest here)
   const { data: payrollRun, error: runError } = await supabase
     .from("payroll_runs")
     .select(
-      "id, org_id, status, token_symbol, token_mint, total_amount_lamports, recipient_count, tx_signatures, error_message, initiated_by, created_at, completed_at"
+      "id, org_id, status, execution_rail, token_symbol, token_mint, total_amount_lamports, recipient_count, tx_signatures, merkle_root, error_message, initiated_by, created_at, completed_at"
     )
     .eq("id", params.id)
     .single();
@@ -41,10 +41,10 @@ export async function GET(
     );
   }
 
-  // Fetch associated recipient records
+  // Fetch associated recipient commitments + O(log N) Merkle inclusion proofs
   const { data: recipients, error: recipError } = await supabase
     .from("payroll_recipients")
-    .select("recipient_index, commitment_hash, created_at")
+    .select("recipient_index, commitment_hash, merkle_proof, created_at")
     .eq("payroll_run_id", params.id)
     .order("recipient_index", { ascending: true });
 

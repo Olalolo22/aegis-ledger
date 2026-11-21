@@ -1,32 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
-import { CLOAK_PROGRAM_ID, NATIVE_SOL_MINT } from "@cloak.dev/sdk-devnet";
 import { acquireMutex, releaseMutex } from "@/lib/redis";
 import {
-  getConnection,
-  getProgramId,
-  getRelayUrl,
-  fetchMerkleProofs,
-  fetchAvailableUtxos,
-} from "@/lib/cloak";
+  ER_RPC,
+  MAGICBLOCK_CLUSTER,
+  NATIVE_SOL_MINT,
+  TEE_VALIDATOR,
+  queryMagicBlockSplBalance,
+} from "@/lib/magicblock";
 import { createServiceClient } from "@/lib/supabase/server";
 import { swapQuoteRequestSchema, TOKEN_MINTS } from "@/lib/validation";
 
 /**
  * POST /api/treasury/swap-quote
  *
- * NON-CUSTODIAL data coordinator for private SOL→USDC swaps
+ * Non-custodial coordinator for SOL -> USDC treasury runway top-ups via
+ * Jupiter quote + MagicBlock Private SPL balance verification.
+ *
+ * Invariants:
+ * - Never fabricates mock quotes, mock UTXOs, or mock Merkle roots.
+ * - Fails loud with HTTP 503 if Jupiter quote or MagicBlock API is unreachable.
  */
 export async function POST(request: NextRequest) {
-  //  Parse & Validate Input 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON body" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   const parsed = swapQuoteRequestSchema.safeParse(body);
@@ -54,7 +54,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Verify Organization Exists 
   const supabase = createServiceClient();
   const { data: org, error: orgError } = await supabase
     .from("organizations")
@@ -69,12 +68,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  //  Acquire Redis Mutex 
-  const mutex = await acquireMutex(`swap-utxo:${org_id}`, 60);
+  const mutex = await acquireMutex(`treasury-swap:${org_id}`, 60);
   if (!mutex.acquired) {
     return NextResponse.json(
       {
-        error: "A swap operation is already in progress. Please retry shortly.",
+        error: "A treasury top-up is already in progress. Please retry shortly.",
         code: "MUTEX_CONTENTION",
       },
       { status: 409 }
@@ -82,116 +80,56 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    //  Fetch Public Inputs from Cloak 
-    const treasuryPubkey = new PublicKey(org.treasury_pubkey);
     const usdcMint = TOKEN_MINTS.USDC;
     const swapAmount = BigInt(amount_lamports);
 
-    let merkleData: { root: string; proofs: Array<{ leaf: string; pathElements: string[]; pathIndices: number[] }>; leafCount: number };
-    let selectedUtxos: Array<{ commitment: string; amount: string; mint: string; leafIndex: number; nullifier: string }>;
-    let orcaQuote: {
+    // Fetch live Jupiter quote & MagicBlock USDC delegation state in parallel
+    let quote: {
       estimatedOutputAmount: string;
       minOutputAmount: string;
       priceImpactPct: number;
       routePlan: string;
     };
-    let relayFallback = false;
+    let balanceInfo;
 
     try {
-      // ─── Attempt Real Cloak Relay First ─────────────────────
-      const [md, availableUtxos] = await Promise.all([
-        fetchMerkleProofs(NATIVE_SOL_MINT),
-        fetchAvailableUtxos(treasuryPubkey, NATIVE_SOL_MINT),
+      const [quoteRes, bal] = await Promise.all([
+        fetch(
+          `https://quote-api.jup.ag/v6/quote?` +
+            `inputMint=${NATIVE_SOL_MINT.toBase58()}` +
+            `&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` +
+            `&amount=${amount_lamports}` +
+            `&slippageBps=${slippage_bps}`,
+          { signal: AbortSignal.timeout(10_000) }
+        ),
+        queryMagicBlockSplBalance(initiated_by, usdcMint, MAGICBLOCK_CLUSTER),
       ]);
 
-      merkleData = md;
-
-      const availableBalance = availableUtxos.reduce(
-        (sum, u) => sum + BigInt(u.amount),
-        0n
-      );
-
-      if (availableBalance < swapAmount) {
-        return NextResponse.json(
-          {
-            error: "Insufficient shielded SOL balance",
-            required: swapAmount.toString(),
-            available: availableBalance.toString(),
-          },
-          { status: 400 }
-        );
+      if (!quoteRes.ok) {
+        throw new Error(`Jupiter quote API returned ${quoteRes.status}`);
       }
 
-      // Fetch Orca DEX Quote (via Jupiter)
-      const quoteRes = await fetch(
-        `https://quote-api.jup.ag/v6/quote?` +
-        `inputMint=So11111111111111111111111111111111111111112` +
-        `&outputMint=${usdcMint}` +
-        `&amount=${amount_lamports}` +
-        `&slippageBps=${slippage_bps}`,
-        { signal: AbortSignal.timeout(10_000) }
-      );
-
-      if (!quoteRes.ok) throw new Error("Jupiter API unreachable");
-
       const quoteData = await quoteRes.json();
-      orcaQuote = {
+      quote = {
         estimatedOutputAmount: quoteData.outAmount || "0",
         minOutputAmount: quoteData.otherAmountThreshold || quoteData.outAmount || "0",
         priceImpactPct: parseFloat(quoteData.priceImpactPct || "0"),
         routePlan: JSON.stringify(quoteData.routePlan || []),
       };
-
-      selectedUtxos = selectUtxosForSwap(availableUtxos, swapAmount);
-
-      for (const utxo of selectedUtxos) {
-        const utxoLock = await acquireMutex(`utxo:${utxo.commitment}`, 60);
-        if (!utxoLock.acquired) {
-          return NextResponse.json(
-            { error: "UTXO locked by another operation", code: "UTXO_CONTENTION" },
-            { status: 409 }
-          );
-        }
-      }
-    } catch (relayError) {
-      // ─── Fallback to Mock Data on Relay Failure ─────────────
-      console.warn(
-        "[Aegis Ledger] Relay/DEX unavailable, using mock swap params:",
-        relayError instanceof Error ? relayError.message : relayError
+      balanceInfo = bal;
+    } catch (upstreamErr) {
+      const detail = upstreamErr instanceof Error ? upstreamErr.message : String(upstreamErr);
+      console.error("[Aegis Treasury Swap] Upstream quote/enclave unavailable:", detail);
+      return NextResponse.json(
+        {
+          error: "Swap quote or MagicBlock enclave service is unavailable.",
+          code: "UPSTREAM_UNAVAILABLE",
+          detail,
+        },
+        { status: 503 }
       );
-      relayFallback = true;
-
-      const mockEstimatedOutput = Math.round(
-        (Number(amount_lamports) / 1e9) * 160 * 1e6
-      ).toString();
-
-      merkleData = {
-        root: "mock_merkle_root_" + Date.now(),
-        proofs: [{
-          leaf: "mock_leaf_" + Date.now(),
-          pathElements: Array(20).fill("0x0"),
-          pathIndices: Array(20).fill(0),
-        }],
-        leafCount: 2048,
-      };
-
-      selectedUtxos = [{
-        commitment: "mock_swap_commitment_" + Date.now(),
-        amount: amount_lamports,
-        mint: "So11111111111111111111111111111111111111112",
-        leafIndex: 500,
-        nullifier: "mock_swap_nullifier_" + Date.now(),
-      }];
-
-      orcaQuote = {
-        estimatedOutputAmount: mockEstimatedOutput,
-        minOutputAmount: Math.round(Number(mockEstimatedOutput) * 0.99).toString(),
-        priceImpactPct: 0.02,
-        routePlan: JSON.stringify([{ label: "Orca CLMM SOL/USDC", percent: 100 }]),
-      };
     }
 
-    // ─── 5. Create Swap Record ───────────────────────────────
     const { data: swapRecord, error: insertError } = await supabase
       .from("treasury_swaps")
       .insert({
@@ -200,7 +138,7 @@ export async function POST(request: NextRequest) {
         input_token: "SOL",
         output_token: "USDC",
         input_amount_lamports: Number(swapAmount),
-        estimated_output_amount: Number(orcaQuote.estimatedOutputAmount),
+        estimated_output_amount: Number(quote.estimatedOutputAmount),
         slippage_bps,
         initiated_by,
         tx_signature: null,
@@ -211,45 +149,39 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError || !swapRecord) {
-      return NextResponse.json({ error: "Failed to create swap record" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to create swap record" },
+        { status: 500 }
+      );
     }
 
-    // ─── 6. Audit Log ────────────────────────────────────────
     await supabase.from("audit_log").insert({
       event_type: "swap_initiated",
       org_id,
       metadata: {
         swap_id: swapRecord.id,
+        execution_rail: "magicblock_per",
         input_amount: amount_lamports,
-        estimated_output: orcaQuote.estimatedOutputAmount,
-        relay_fallback: relayFallback,
+        estimated_output: quote.estimatedOutputAmount,
       },
     });
 
-    // ─── 7. Return Swap Parameters ──────────────────────────
     const mutexExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
     return NextResponse.json(
       {
         swap_id: swapRecord.id,
         status: "pending_signature",
-        relay_fallback: relayFallback,
+        execution_rail: "magicblock_per",
         swap_params: {
-          merkle_root: merkleData.root,
-          merkle_proofs: merkleData.proofs,
-          merkle_leaf_count: merkleData.leafCount,
-          selected_utxos: selectedUtxos,
-          input_mint: "So11111111111111111111111111111111111111112",
+          input_mint: NATIVE_SOL_MINT.toBase58(),
           output_mint: usdcMint,
           swap_amount_lamports: amount_lamports,
           slippage_bps,
-          quote: orcaQuote,
-          program_id: relayFallback
-            ? "CLoaKcdPMsPKBmQVMbUHqXqhV4BXJYJQEfBJFU7xB7VE"
-            : getProgramId().toBase58(),
-          relay_url: relayFallback
-            ? process.env.CLOAK_RELAY_URL
-            : getRelayUrl(),
+          quote,
+          delegation_status: balanceInfo.delegation?.status || "undelegated",
+          program_id: TEE_VALIDATOR.toBase58(),
+          relay_url: ER_RPC,
           rpc_url: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
         },
         mutex_expires_at: mutexExpiresAt,
@@ -262,22 +194,4 @@ export async function POST(request: NextRequest) {
   } finally {
     await releaseMutex(mutex.key, mutex.lockValue);
   }
-}
-
-// UTXO Selection Helper 
-import type { UtxoDescriptor } from "@/lib/cloak";
-
-function selectUtxosForSwap(
-  utxos: UtxoDescriptor[],
-  targetAmount: bigint
-): UtxoDescriptor[] {
-  const sorted = [...utxos].sort((a, b) => Number(BigInt(b.amount) - BigInt(a.amount)));
-  const selected: UtxoDescriptor[] = [];
-  let accumulated = 0n;
-  for (const utxo of sorted) {
-    if (accumulated >= targetAmount) break;
-    selected.push(utxo);
-    accumulated += BigInt(utxo.amount);
-  }
-  return selected;
 }

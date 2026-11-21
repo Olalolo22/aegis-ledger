@@ -4,7 +4,7 @@ import { SignJWT } from "jose";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getRedis } from "@/lib/redis";
 import { magicLinkRequestSchema } from "@/lib/validation";
-import { hashAuditorIdentity } from "@/lib/crypto";
+import { deriveJwtSigningKey, hashAuditorIdentity } from "@/lib/crypto";
 
 /**
  * POST /api/audit/magic-link
@@ -103,15 +103,16 @@ export async function POST(request: NextRequest) {
   }
 
   // ─── Create Signed JWT ────────────────────────────────────
-  const masterSecret = process.env.AEGIS_MASTER_SECRET;
-  if (!masterSecret || masterSecret.length !== 64) {
+  let jwtSecret: Uint8Array;
+  try {
+    jwtSecret = deriveJwtSigningKey();
+  } catch {
     return NextResponse.json(
       { error: "Server configuration error" },
       { status: 500 }
     );
   }
 
-  const jwtSecret = new TextEncoder().encode(masterSecret);
   const jwt = await new SignJWT({
     sub: vk.auditor_identity_hash,
     vk_id: vk.id,

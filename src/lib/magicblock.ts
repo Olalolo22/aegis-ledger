@@ -3,68 +3,41 @@ import {
   PublicKey,
   Transaction,
   TransactionInstruction,
-  SystemProgram,
+  VersionedTransaction,
 } from "@solana/web3.js";
-import * as splToken from "@solana/spl-token";
-import { sha256 } from "@noble/hashes/sha256";
-import { bytesToHex } from "@noble/hashes/utils";
 import { Buffer } from "buffer";
-
-export const TOKEN_PROGRAM_ID = splToken.TOKEN_PROGRAM_ID;
-export const ASSOCIATED_TOKEN_PROGRAM_ID = splToken.ASSOCIATED_TOKEN_PROGRAM_ID;
-
-// Typed wrappers around @solana/spl-token runtime exports
-// (spl-token v0.4.14 published empty .d.ts files for transfer/associated instructions)
-const getAssociatedTokenAddressSync = (
-  splToken as unknown as {
-    getAssociatedTokenAddressSync: (
-      mint: PublicKey,
-      owner: PublicKey,
-      allowOwnerOffCurve?: boolean,
-      programId?: PublicKey,
-      associatedTokenProgramId?: PublicKey
-    ) => PublicKey;
-  }
-).getAssociatedTokenAddressSync;
-
-const createAssociatedTokenAccountIdempotentInstruction = (
-  splToken as unknown as {
-    createAssociatedTokenAccountIdempotentInstruction: (
-      payer: PublicKey,
-      associatedToken: PublicKey,
-      owner: PublicKey,
-      mint: PublicKey,
-      programId?: PublicKey,
-      associatedTokenProgramId?: PublicKey
-    ) => TransactionInstruction;
-  }
-).createAssociatedTokenAccountIdempotentInstruction;
-
-const createTransferInstruction = (
-  splToken as unknown as {
-    createTransferInstruction: (
-      source: PublicKey,
-      destination: PublicKey,
-      owner: PublicKey,
-      amount: bigint | number,
-      multiSigners?: unknown[],
-      programId?: PublicKey
-    ) => TransactionInstruction;
-  }
-).createTransferInstruction;
+import {
+  buildBatchMerkleTree,
+  computeLeafCommitment,
+  generateNoteSalt,
+  verifyBatchCompleteness,
+  verifyMerkleInclusionProof,
+  type BatchMerkleTree,
+  type MerkleInclusionProof,
+  type MerkleLeafInput,
+} from "./merkle";
+import { computeMagicBlockSplitPlan, type MagicBlockSplitPlan } from "./denominate";
 
 /**
- * MagicBlock Private Ephemeral Rollups (TEE) Client & Helpers.
+ * MagicBlock Private Ephemeral Rollups (PER / Intel TDX TEE) Client.
  *
- * Architecture:
- * - MagicBlock Ephemeral Rollups provide sub-50ms execution inside Intel TDX hardware enclaves.
- * - For batch payroll, executing inside the TEE enclave eliminates client-side
- *   Groth16 WASM proving bottlenecks (which take 30s/payment).
- * - Real SPL USDC or native SOL token transfers are packaged with cryptographic
- *   SHA-256 note commitments and anchored with a single enclave batch attestation.
+ * Execution Architecture:
+ * - On-chain shielded payouts NEVER emit plaintext L1 SPL/SOL transfers from
+ *   the treasury to employees.
+ * - Instead, treasury funds are delegated into MagicBlock's Private Ephemeral
+ *   Rollup (`POST /v1/spl/deposit` with `private: true`) and disbursed via
+ *   `POST /v1/spl/transfer` with `visibility: "private"`, `fromBalance: "ephemeral"`,
+ *   randomized sub-transfer `split`, and `minDelayMs`/`maxDelayMs` timing jitter.
+ * - Every batch (both on-chain shielded and fiat off-ramp recipients) is committed
+ *   into a domain-separated Binary SHA-256 Merkle Sum Tree (`src/lib/merkle.ts`)
+ *   so recipients can verify inclusion and auditors can verify full completeness.
  */
 
-export const MAGICBLOCK_API_URL = "https://api.magicblock.app";
+export const MAGICBLOCK_API_URL =
+  process.env.NEXT_PUBLIC_MAGICBLOCK_API_URL || "https://api.magicblock.app";
+
+export const MAGICBLOCK_CLUSTER =
+  process.env.NEXT_PUBLIC_MAGICBLOCK_CLUSTER || "devnet-private";
 
 export const ER_RPC =
   process.env.NEXT_PUBLIC_ER_RPC || "https://devnet-tee.magicblock.app";
@@ -92,146 +65,244 @@ export const MEMO_PROGRAM_ID = new PublicKey(
   "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
 );
 
+export {
+  buildBatchMerkleTree,
+  computeLeafCommitment,
+  generateNoteSalt,
+  verifyBatchCompleteness,
+  verifyMerkleInclusionProof,
+  type BatchMerkleTree,
+  type MerkleInclusionProof,
+  type MerkleLeafInput,
+};
+
 let _erConnection: Connection | null = null;
 
-export function getErConnection(): Connection {
+export function getErConnection(endpoint: string = ER_RPC): Connection {
+  if (endpoint !== ER_RPC) {
+    return new Connection(endpoint, "confirmed");
+  }
   if (!_erConnection) {
     _erConnection = new Connection(ER_RPC, "confirmed");
   }
   return _erConnection;
 }
 
+export interface MagicBlockBalanceResponse {
+  address: string;
+  mint: string;
+  ata: string;
+  location: "base" | "ephemeral" | string;
+  balance: string;
+  delegation: {
+    status: "delegated" | "undelegated" | string;
+    validator?: string;
+  };
+}
+
+export interface MagicBlockTxResponse {
+  kind: "deposit" | "transfer" | "withdraw" | string;
+  version: "legacy" | "v0";
+  transactionBase64: string;
+  sendTo: "base" | "ephemeral";
+  sendRpcEndpoint?: string;
+  from?: string;
+  recentBlockhash: string;
+  lastValidBlockHeight: number;
+  instructionCount: number;
+  requiredSigners: string[];
+  validator: string;
+  fees?: {
+    lamports: string;
+    tokens: string;
+  };
+}
+
 export interface TeeBatchRecipient {
   wallet: string;
   amountLamports: bigint;
-  notes: number[];
-  memo?: string;
   token?: "USDC" | "USDT" | "SOL";
+  tokenMint?: string;
   settlementRail?: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+  destinationAccount?: string;
+  memo?: string;
 }
 
-export interface TeeBatchResult {
-  signature: string;
-  slot: number;
-  commitmentHashes: string[];
-  executionTimeMs: number;
+export interface BatchManifestEntry {
+  index: number;
+  recipient: string;
+  amountBaseUnits: string;
+  tokenSymbol: "USDC" | "USDT" | "SOL";
+  tokenMint: string;
+  settlementRail: "onchain_shielded" | "ngn_bank" | "kes_mpesa";
+  saltHex: string;
+  runNonce: string;
+  commitmentHash: string;
+  splitPlan?: MagicBlockSplitPlan;
+  merkleProof: MerkleInclusionProof;
+}
+
+export interface PrivateBatchPlan {
+  merkleTree: BatchMerkleTree;
+  manifestEntries: BatchManifestEntry[];
+  onChainTransfers: Array<{
+    recipientIndex: number;
+    recipient: string;
+    mint: string;
+    amountBaseUnits: bigint;
+    splitPlan: MagicBlockSplitPlan;
+    commitmentHash: string;
+  }>;
+  offRampRecipients: Array<{
+    recipientIndex: number;
+    recipient: string;
+    amountBaseUnits: bigint;
+    tokenSymbol: "USDC" | "USDT" | "SOL";
+    settlementRail: "ngn_bank" | "kes_mpesa";
+    destinationAccount?: string;
+    commitmentHash: string;
+    merkleProof: MerkleInclusionProof;
+  }>;
+  totalsByMint: Record<string, bigint>;
 }
 
 /**
- * Computes a cryptographically sound SHA-256 note commitment.
- * Formula: SHA256(recipientPubkey || amount || salt || runNonce)
+ * Resolves the SPL mint address for a recipient row.
  */
-export function computeNoteCommitment(
-  recipientPubkey: PublicKey,
-  amount: bigint,
-  saltHex?: string,
-  runNonce?: string
+export function resolveMintForToken(
+  token: "USDC" | "USDT" | "SOL" | undefined,
+  defaultMint: string
 ): string {
-  const salt =
-    saltHex ||
-    (typeof crypto !== "undefined" && crypto.getRandomValues
-      ? bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
-      : bytesToHex(sha256(new TextEncoder().encode(`${Date.now()}:${Math.random()}`))));
-
-  const input = new TextEncoder().encode(
-    `${recipientPubkey.toBase58()}:${amount.toString()}:${salt}:${runNonce || "aegis"}`
-  );
-  return bytesToHex(sha256(input));
+  if (token === "SOL") return NATIVE_SOL_MINT.toBase58();
+  if (token === "USDC") return defaultMint || DEVNET_USDC_MINT.toBase58();
+  return defaultMint || DEVNET_USDC_MINT.toBase58();
 }
 
 /**
- * Computes an aggregated batch commitment root from individual note commitments.
+ * Plans a confidential payroll batch:
+ * 1. Generates per-recipient random 16-byte salts.
+ * 2. Builds a real Binary SHA-256 Merkle Sum Tree over ALL recipients
+ *    (on-chain shielded + fiat off-ramp) for inclusion & completeness proofs.
+ * 3. Computes MagicBlock PER split/delay parameters for each on-chain transfer.
  */
-export function computeBatchMerkleRoot(commitments: string[]): string {
-  const input = new TextEncoder().encode(commitments.join(":"));
-  return bytesToHex(sha256(input));
-}
-
-/**
- * Builds a batch payroll execution payload meant for the MagicBlock TEE enclave.
- * Supports real SPL USDC token transfers or native SOL transfers, pairs each note
- * with a SHA-256 cryptographic commitment, and anchors the transaction with a
- * privacy-preserving batch attestation.
- */
-export function buildTeeBatchPayload(
-  payer: PublicKey,
+export function planPrivatePayrollBatch(
   recipients: TeeBatchRecipient[],
-  recentBlockhash: string,
-  tokenMint?: PublicKey
-): { transaction: Transaction; commitmentHashes: string[]; batchRoot: string } {
-  const tx = new Transaction({ recentBlockhash, feePayer: payer });
-  const commitmentHashes: string[] = [];
+  defaultTokenMint: string,
+  runNonce: string
+): PrivateBatchPlan {
+  if (recipients.length === 0) {
+    throw new Error("Payroll batch must contain at least one recipient.");
+  }
 
-  const isSplToken =
-    tokenMint && !tokenMint.equals(NATIVE_SOL_MINT);
+  const leafInputs: MerkleLeafInput[] = [];
+  const salts: string[] = [];
+  const resolvedMints: string[] = [];
+  const resolvedRails: Array<"onchain_shielded" | "ngn_bank" | "kes_mpesa"> = [];
+  const resolvedSymbols: Array<"USDC" | "USDT" | "SOL"> = [];
 
-  const senderAta = isSplToken
-    ? getAssociatedTokenAddressSync(tokenMint, payer, true)
-    : null;
+  for (const r of recipients) {
+    // Validate recipient pubkey eagerly before building any tree/tx
+    new PublicKey(r.wallet);
 
-  recipients.forEach((r) => {
-    const recipientPubkey = new PublicKey(r.wallet);
+    const tokenSymbol = r.token || (defaultTokenMint === NATIVE_SOL_MINT.toBase58() ? "SOL" : "USDC");
+    const tokenMint = r.tokenMint || resolveMintForToken(tokenSymbol, defaultTokenMint);
+    const rail = r.settlementRail || "onchain_shielded";
+    const saltHex = generateNoteSalt();
 
-    // Compute cryptographic commitment hash for the recipient note
-    const commitment = computeNoteCommitment(recipientPubkey, r.amountLamports);
-    commitmentHashes.push(commitment);
+    salts.push(saltHex);
+    resolvedMints.push(tokenMint);
+    resolvedRails.push(rail);
+    resolvedSymbols.push(tokenSymbol);
 
-    // Off-ramp fiat rails (NGN bank, KES M-Pesa) settle off-chain via payment partner webhooks
-    // and are attested cryptographically via the batch root memo. They do not debit tokens on L1.
-    const isOffRamp = r.settlementRail === "ngn_bank" || r.settlementRail === "kes_mpesa";
+    leafInputs.push({
+      recipient: r.wallet,
+      amountBaseUnits: r.amountLamports,
+      tokenMint,
+      settlementRail: rail,
+      saltHex,
+      runNonce,
+    });
+  }
+
+  const merkleTree = buildBatchMerkleTree(leafInputs);
+  const manifestEntries: BatchManifestEntry[] = [];
+  const onChainTransfers: PrivateBatchPlan["onChainTransfers"] = [];
+  const offRampRecipients: PrivateBatchPlan["offRampRecipients"] = [];
+  const totalsByMint: Record<string, bigint> = {};
+
+  recipients.forEach((r, index) => {
+    const tokenSymbol = resolvedSymbols[index];
+    const tokenMint = resolvedMints[index];
+    const rail = resolvedRails[index];
+    const decimals = tokenSymbol === "SOL" ? 9 : 6;
+    const commitmentHash = merkleTree.leaves[index];
+    const merkleProof = merkleTree.getProof(index);
+
+    const isOffRamp = rail === "ngn_bank" || rail === "kes_mpesa";
+    const splitPlan = isOffRamp
+      ? undefined
+      : computeMagicBlockSplitPlan(r.amountLamports, decimals);
+
+    manifestEntries.push({
+      index,
+      recipient: r.wallet,
+      amountBaseUnits: r.amountLamports.toString(),
+      tokenSymbol,
+      tokenMint,
+      settlementRail: rail,
+      saltHex: salts[index],
+      runNonce,
+      commitmentHash,
+      splitPlan,
+      merkleProof,
+    });
+
     if (isOffRamp) {
-      return;
-    }
-
-    const isRecipientSol = r.token === "SOL" || !isSplToken;
-
-    if (!isRecipientSol && tokenMint && senderAta) {
-      // Real SPL USDC transfer inside TEE Ephemeral Rollup
-      const recipientAta = getAssociatedTokenAddressSync(
-        tokenMint,
-        recipientPubkey,
-        true
-      );
-
-      // Ensure recipient ATA exists (idempotent)
-      tx.add(
-        createAssociatedTokenAccountIdempotentInstruction(
-          payer,
-          recipientAta,
-          recipientPubkey,
-          tokenMint,
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      );
-
-      // Real token transfer instruction with actual salary amount
-      tx.add(
-        createTransferInstruction(
-          senderAta,
-          recipientAta,
-          payer,
-          r.amountLamports,
-          [],
-          TOKEN_PROGRAM_ID
-        )
-      );
+      offRampRecipients.push({
+        recipientIndex: index,
+        recipient: r.wallet,
+        amountBaseUnits: r.amountLamports,
+        tokenSymbol,
+        settlementRail: rail,
+        destinationAccount: r.destinationAccount,
+        commitmentHash,
+        merkleProof,
+      });
     } else {
-      // Real SOL transfer with actual salary lamports
-      tx.add(
-        SystemProgram.transfer({
-          fromPubkey: payer,
-          toPubkey: recipientPubkey,
-          lamports: r.amountLamports,
-        })
-      );
+      onChainTransfers.push({
+        recipientIndex: index,
+        recipient: r.wallet,
+        mint: tokenMint,
+        amountBaseUnits: r.amountLamports,
+        splitPlan: splitPlan!,
+        commitmentHash,
+      });
+      totalsByMint[tokenMint] = (totalsByMint[tokenMint] ?? 0n) + r.amountLamports;
     }
   });
 
-  // Attach a single TEE Enclave Batch Attestation (Intel TDX / MagicBlock PER)
-  // Preserves privacy by anchoring the aggregate root without leaking recipient indices or note counts
-  const batchRoot = computeBatchMerkleRoot(commitmentHashes);
-  const memoData = `aegis:tee:batch:${batchRoot.slice(0, 32)}`;
+  return {
+    merkleTree,
+    manifestEntries,
+    onChainTransfers,
+    offRampRecipients,
+    totalsByMint,
+  };
+}
+
+/**
+ * Anchors a pure Merkle Sum Tree root attestation on the MagicBlock TEE
+ * (used for 100% off-ramp fiat batches where no on-chain SPL transfers occur).
+ * Contains zero recipient addresses and zero individual salary amounts.
+ */
+export function buildBatchRootAttestationTx(
+  payer: PublicKey,
+  merkleRoot: string,
+  leafCount: number,
+  recentBlockhash: string
+): Transaction {
+  const tx = new Transaction({ recentBlockhash, feePayer: payer });
+  const memoData = `aegis:merkle:v1:${merkleRoot}:${leafCount}`;
   tx.add(
     new TransactionInstruction({
       keys: [{ pubkey: payer, isSigner: true, isWritable: false }],
@@ -239,8 +310,67 @@ export function buildTeeBatchPayload(
       data: Buffer.from(memoData, "utf-8"),
     })
   );
+  return tx;
+}
 
-  return { transaction: tx, commitmentHashes, batchRoot };
+/**
+ * Deserializes a base64 transaction returned by the MagicBlock Private SPL API
+ * into a Solana Legacy Transaction or VersionedTransaction.
+ */
+export function deserializeMagicBlockTx(
+  txResponse: MagicBlockTxResponse
+): Transaction | VersionedTransaction {
+  if (!txResponse.transactionBase64) {
+    throw new Error("MagicBlock API response is missing transactionBase64.");
+  }
+  const rawBytes = Buffer.from(txResponse.transactionBase64, "base64");
+  if (txResponse.version === "v0") {
+    return VersionedTransaction.deserialize(rawBytes);
+  }
+  return Transaction.from(rawBytes);
+}
+
+/**
+ * Broadcasts a signed MagicBlock Private SPL transaction strictly to the RPC
+ * designated by `txResponse.sendTo`.
+ *
+ * SECURITY INVARIANT:
+ * - Ephemeral private transfers (`sendTo === "ephemeral"`) are broadcast ONLY
+ *   to the MagicBlock TEE validator (`sendRpcEndpoint || ER_RPC`).
+ * - NEVER silently fall back to public L1 Solana RPC if the TEE validator fails.
+ */
+export async function broadcastMagicBlockTx(
+  signedTx: Transaction | VersionedTransaction,
+  txResponse: MagicBlockTxResponse,
+  baseConnection: Connection
+): Promise<string> {
+  const serialized = signedTx.serialize();
+
+  if (txResponse.sendTo === "ephemeral") {
+    const erConn = getErConnection(txResponse.sendRpcEndpoint || ER_RPC);
+    return erConn.sendRawTransaction(serialized, {
+      skipPreflight: false,
+      maxRetries: 3,
+    });
+  }
+
+  return baseConnection.sendRawTransaction(serialized, {
+    skipPreflight: false,
+    maxRetries: 3,
+  });
+}
+
+/**
+ * Checks MagicBlock Private SPL API health.
+ */
+export async function checkMagicBlockHealth(): Promise<{ status: string }> {
+  const res = await fetch(`${MAGICBLOCK_API_URL}/health`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    throw new Error(`MagicBlock API health check failed (${res.status})`);
+  }
+  return res.json();
 }
 
 /**
@@ -249,60 +379,80 @@ export function buildTeeBatchPayload(
 export async function queryMagicBlockSplBalance(
   address: string,
   mint: string = DEVNET_USDC_MINT.toBase58(),
-  cluster: string = "devnet-private"
-) {
+  cluster: string = MAGICBLOCK_CLUSTER
+): Promise<MagicBlockBalanceResponse> {
   const url = new URL(`${MAGICBLOCK_API_URL}/v1/spl/balance`);
   url.searchParams.set("address", address);
   url.searchParams.set("mint", mint);
   url.searchParams.set("cluster", cluster);
 
   const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`MagicBlock balance query failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`MagicBlock balance query failed (${res.status}): ${body || res.statusText}`);
+  }
   return res.json();
 }
 
 /**
- * MagicBlock Private SPL API: Builds a delegated TEE deposit transaction.
+ * MagicBlock Private SPL API: Builds a delegated private TEE deposit transaction
+ * (Base L1 -> MagicBlock Ephemeral Rollup enclave).
  */
 export async function buildMagicBlockSplDeposit(
   owner: string,
-  amount: number,
+  amount: number | bigint,
   mint: string = DEVNET_USDC_MINT.toBase58(),
-  cluster: string = "devnet-private"
-) {
+  cluster: string = MAGICBLOCK_CLUSTER
+): Promise<MagicBlockTxResponse> {
+  const numericAmount = typeof amount === "bigint" ? Number(amount) : amount;
+  if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+    throw new Error(`Invalid MagicBlock deposit amount: ${amount.toString()}`);
+  }
+
   const res = await fetch(`${MAGICBLOCK_API_URL}/v1/spl/deposit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       owner,
-      amount,
+      amount: numericAmount,
       cluster,
       mint,
       initIfMissing: true,
       initAtasIfMissing: true,
       private: true,
     }),
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
 
-  if (!res.ok) throw new Error(`MagicBlock deposit builder failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`MagicBlock deposit builder failed (${res.status}): ${body || res.statusText}`);
+  }
   return res.json();
 }
 
 /**
- * MagicBlock Private SPL API: Builds a private batch transfer inside TEE with anti-clustering splits.
+ * MagicBlock Private SPL API: Builds a private transfer executed inside the
+ * MagicBlock TEE enclave with randomized splits and timing delays.
  */
 export async function buildMagicBlockSplTransfer(params: {
   from: string;
   to: string;
-  amount: number;
+  amount: number | bigint;
   mint?: string;
+  fromBalance?: "ephemeral" | "base";
+  toBalance?: "base" | "ephemeral";
   split?: number;
   minDelayMs?: string;
   maxDelayMs?: string;
   memo?: string;
   cluster?: string;
-}) {
+}): Promise<MagicBlockTxResponse> {
+  const numericAmount = typeof params.amount === "bigint" ? Number(params.amount) : params.amount;
+  if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+    throw new Error(`Invalid MagicBlock transfer amount: ${params.amount.toString()}`);
+  }
+
   const res = await fetch(`${MAGICBLOCK_API_URL}/v1/spl/transfer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -310,19 +460,22 @@ export async function buildMagicBlockSplTransfer(params: {
       from: params.from,
       to: params.to,
       mint: params.mint || DEVNET_USDC_MINT.toBase58(),
-      amount: params.amount,
-      cluster: params.cluster || "devnet-private",
+      amount: numericAmount,
+      cluster: params.cluster || MAGICBLOCK_CLUSTER,
       visibility: "private",
-      fromBalance: "ephemeral",
-      toBalance: "base",
+      fromBalance: params.fromBalance || "ephemeral",
+      toBalance: params.toBalance || "base",
       split: params.split || 1,
       minDelayMs: params.minDelayMs || "500",
-      maxDelayMs: params.maxDelayMs || "2000",
-      memo: params.memo || "Aegis Confidential Payroll",
+      maxDelayMs: params.maxDelayMs || "2500",
+      memo: params.memo || "aegis:per:payroll",
     }),
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
 
-  if (!res.ok) throw new Error(`MagicBlock transfer builder failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`MagicBlock transfer builder failed (${res.status}): ${body || res.statusText}`);
+  }
   return res.json();
 }

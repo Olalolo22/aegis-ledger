@@ -224,30 +224,23 @@ export function useAuditorEngine(): AuditorEngineResult {
       await new Promise(r => setTimeout(r, 600));
 
       let raw: DecryptedTransaction[] = [];
-      if (!isDemo) {
-        try {
-          const res = await fetch("/api/audit/decrypt", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.audit?.transactions && data.audit.transactions.length > 0) {
-              raw = data.audit.transactions;
-            }
-          }
-        } catch (apiErr) {
-          console.warn("[AuditorEngine] Server decrypt query fallback to demo data:", apiErr);
+      if (isDemo) {
+        raw = generateDemoTransactions();
+      } else {
+        const res = await fetch("/api/audit/decrypt", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `Audit decryption failed (HTTP ${res.status})`);
         }
+        raw = Array.isArray(data.audit?.transactions) ? data.audit.transactions : [];
       }
 
-      if (raw.length === 0) {
-        raw = generateDemoTransactions();
-      }
-      
       setStatus("formatting");
       setTransactions(raw);
       const { nodes: rfNodes, edges: rfEdges } = buildReactFlowData(raw);

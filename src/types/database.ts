@@ -25,11 +25,14 @@ export interface PayrollRun {
   id: string;
   org_id: string;
   status: PayrollRunStatus;
+  execution_rail?: string;
   token_mint: string;
   token_symbol: string;
   total_amount_lamports: number;
   recipient_count: number;
   tx_signatures: string[] | null;
+  merkle_root: string | null;
+  encrypted_manifest: string | null;
   error_message: string | null;
   initiated_by: string;
   created_at: string;
@@ -41,6 +44,7 @@ export interface PayrollRecipient {
   payroll_run_id: string;
   recipient_index: number;
   commitment_hash: string;
+  merkle_proof: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -97,11 +101,14 @@ export interface Database {
           id?: string;
           org_id: string;
           status?: PayrollRunStatus;
+          execution_rail?: string;
           token_mint: string;
           token_symbol: string;
           total_amount_lamports: number;
           recipient_count: number;
           tx_signatures?: string[] | null;
+          merkle_root?: string | null;
+          encrypted_manifest?: string | null;
           error_message?: string | null;
           initiated_by: string;
           created_at?: string;
@@ -111,11 +118,14 @@ export interface Database {
           id?: string;
           org_id?: string;
           status?: PayrollRunStatus;
+          execution_rail?: string;
           token_mint?: string;
           token_symbol?: string;
           total_amount_lamports?: number;
           recipient_count?: number;
           tx_signatures?: string[] | null;
+          merkle_root?: string | null;
+          encrypted_manifest?: string | null;
           error_message?: string | null;
           initiated_by?: string;
           created_at?: string;
@@ -138,6 +148,7 @@ export interface Database {
           payroll_run_id: string;
           recipient_index: number;
           commitment_hash: string;
+          merkle_proof?: Record<string, unknown> | null;
           created_at?: string;
         };
         Update: {
@@ -145,6 +156,7 @@ export interface Database {
           payroll_run_id?: string;
           recipient_index?: number;
           commitment_hash?: string;
+          merkle_proof?: Record<string, unknown> | null;
           created_at?: string;
         };
         Relationships: [

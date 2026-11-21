@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { PublicKey } from "@solana/web3.js";
 import styles from "./CsvImporter.module.css";
-import { denominate } from "@/lib/denominate";
+import { computeMagicBlockSplitPlan } from "@/lib/denominate";
 import { IconBolt, IconCheck } from "./Icons";
 
 export interface ParsedRecipient {
@@ -211,22 +211,26 @@ export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
     return sum + (isNaN(val) ? 0 : val);
   }, 0);
 
-  // Compute breakdown of uniform notes
-  const notesBreakdown: Record<number, number> = {};
-  let totalNotesCount = 0;
+  // Compute MagicBlock Private SPL split & timing jitter plan for on-chain rows
+  let totalPrivateSplits = 0;
+  let onChainCount = 0;
+  let offRampCount = 0;
 
-  parsed.forEach(r => {
+  parsed.forEach((r) => {
+    const isOffRamp = r.settlementRail === "ngn_bank" || r.settlementRail === "kes_mpesa";
+    if (isOffRamp) {
+      offRampCount += 1;
+      return;
+    }
+    onChainCount += 1;
     const val = parseFloat(r.amount.replace(/,/g, ""));
-    const notes = denominate(val, [1000, 500, 250, 100, 50, 25, 10, 5, 1]);
-    totalNotesCount += notes.length;
-    notes.forEach(n => {
-      notesBreakdown[n] = (notesBreakdown[n] || 0) + 1;
-    });
+    if (!isNaN(val) && val > 0) {
+      const decimals = r.token === "SOL" ? 9 : 6;
+      const baseUnits = BigInt(Math.max(1, Math.round(val * 10 ** decimals)));
+      const plan = computeMagicBlockSplitPlan(baseUnits, decimals);
+      totalPrivateSplits += plan.split;
+    }
   });
-
-  const sortedDenoms = Object.keys(notesBreakdown)
-    .map(Number)
-    .sort((a, b) => b - a);
 
   return (
     <div className={styles.importerContainer}>
@@ -329,25 +333,26 @@ export default function CsvImporter({ onImport, onCancel }: CsvImporterProps) {
               <span className={styles.metricSub}>Gross disbursement</span>
             </div>
             <div className={styles.metricBox}>
-              <span className={styles.metricLabel}>Uniform Notes</span>
-              <span className={styles.metricVal}>{totalNotesCount} notes</span>
-              <span className={styles.metricSub}>Anti-clustering defense</span>
+              <span className={styles.metricLabel}>PER Private Splits</span>
+              <span className={styles.metricVal}>{totalPrivateSplits} splits</span>
+              <span className={styles.metricSub}>MagicBlock TEE jitter</span>
             </div>
             <div className={styles.metricBox}>
-              <span className={styles.metricLabel}>Settlement Speed</span>
-              <span className={styles.metricVal} style={{ color: "var(--green)" }}>~1.2 sec</span>
-              <span className={styles.metricSub}>MagicBlock TEE Batch</span>
+              <span className={styles.metricLabel}>Merkle Leaves</span>
+              <span className={styles.metricVal} style={{ color: "var(--green)" }}>{parsed.length} leaves</span>
+              <span className={styles.metricSub}>Sum Tree completeness</span>
             </div>
           </div>
 
-          {/* Denominations breakdown */}
+          {/* Rail breakdown */}
           <div className={styles.denomsRow}>
-            <span className={styles.denomsLabel}>Note Partitioning:</span>
-            {sortedDenoms.map(denom => (
-              <span key={denom} className={styles.denomPill}>
-                ${denom.toLocaleString()}: <span className={styles.denomCount}>{notesBreakdown[denom]}x</span>
-              </span>
-            ))}
+            <span className={styles.denomsLabel}>Execution Plan:</span>
+            <span className={styles.denomPill}>
+              MagicBlock Private SPL: <span className={styles.denomCount}>{onChainCount} recipients ({totalPrivateSplits} splits)</span>
+            </span>
+            <span className={styles.denomPill}>
+              Local Fiat Off-Ramp (NGN/KES): <span className={styles.denomCount}>{offRampCount} recipients</span>
+            </span>
           </div>
 
           <div className={styles.footerRow}>

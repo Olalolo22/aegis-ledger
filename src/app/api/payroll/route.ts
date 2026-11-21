@@ -1,25 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PublicKey } from "@solana/web3.js";
-import { randomUUID } from "crypto";
-import { CLOAK_PROGRAM_ID, NATIVE_SOL_MINT } from "@cloak.dev/sdk-devnet";
 import { acquireMutex, releaseMutex } from "@/lib/redis";
 import {
-  getConnection,
-  getProgramId,
-  getRelayUrl,
-  fetchMerkleProofs,
-  fetchAvailableUtxos,
-} from "@/lib/cloak";
+  MAGICBLOCK_API_URL,
+  MAGICBLOCK_CLUSTER,
+  ER_RPC,
+  TEE_VALIDATOR,
+  checkMagicBlockHealth,
+  queryMagicBlockSplBalance,
+  type MagicBlockBalanceResponse,
+} from "@/lib/magicblock";
 import { createServiceClient } from "@/lib/supabase/server";
-import { payrollRequestSchema, TOKEN_MINTS } from "@/lib/validation";
+import { ALLOWED_TOKEN_MINTS, payrollRequestSchema } from "@/lib/validation";
 
 /**
  * POST /api/payroll
  *
- * NON-CUSTODIAL data coordinator for batch private payroll disbursements.
+ * NON-CUSTODIAL coordinator for MagicBlock Private Ephemeral Rollup (PER / TEE)
+ * batch payroll disbursements.
+ *
+ * Invariants:
+ * - Never touches private keys or signs transactions.
+ * - Never returns HTTP 200 with fabricated/mock fallback parameters when
+ *   upstream MagicBlock PER or database persistence is unavailable.
+ * - Acquires a per-organization Redis mutex to prevent concurrent batch races.
  */
 export async function POST(request: NextRequest) {
-  // we first Parse & Validate Input 
   let body: unknown;
   try {
     body = await request.json();
@@ -44,43 +49,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { org_id, token_symbol, token_mint, initiated_by, recipients } =
-    parsed.data;
+  const { org_id, token_symbol, token_mint, initiated_by, recipients } = parsed.data;
 
-  // Cross-validate token_mint against known mints
-  const expectedMint = TOKEN_MINTS[token_symbol];
-  if (expectedMint && token_mint !== expectedMint) {
+  // Cross-validate token_mint against known devnet/mainnet mints
+  const allowedMints = ALLOWED_TOKEN_MINTS[token_symbol];
+  if (allowedMints && !allowedMints.includes(token_mint)) {
     return NextResponse.json(
       {
-        error: `token_mint mismatch: expected ${expectedMint} for ${token_symbol}`,
+        error: `token_mint mismatch: expected one of [${allowedMints.join(", ")}] for ${token_symbol}`,
       },
       { status: 400 }
     );
   }
 
-  // Verify Organization Exists (with demo fallback)
-  let orgData = { id: org_id, treasury_pubkey: "6bq9QqzvjNbQE4sJs4fLsGUpqHe4hPcJVc6oJQyq6RzC" };
-  try {
-    const supabase = createServiceClient();
-    const { data: org, error: orgError } = await supabase
-      .from("organizations")
-      .select("id, treasury_pubkey")
-      .eq("id", org_id)
-      .single();
-
-    if (org && !orgError) {
-      orgData = org;
-    }
-  } catch (err) {
-    console.warn("[Aegis] Supabase org lookup bypassed (demo mode):", err);
-  }
-
-  //  Acquire Redis Mutex 
-  const mutex = await acquireMutex(`utxo-selection:${org_id}`, 60);
+  // Acquire per-org distributed mutex before coordinating batch state
+  const mutex = await acquireMutex(`payroll-batch:${org_id}`, 60);
   if (!mutex.acquired) {
     return NextResponse.json(
       {
-        error: "A payroll operation is already in progress for this organization. Please retry shortly.",
+        error:
+          "A payroll operation is already in progress for this organization. Please retry shortly.",
         code: "MUTEX_CONTENTION",
       },
       { status: 409 }
@@ -88,163 +76,145 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    //  Public Inputs from Cloak 
-    const mintPubkey =
-      token_symbol === "SOL"
-        ? NATIVE_SOL_MINT
-        : new PublicKey(token_mint);
-
-    const treasuryPubkey = new PublicKey(orgData.treasury_pubkey);
-
-    let merkleData: { root: string; proofs: Array<{ leaf: string; pathElements: string[]; pathIndices: number[] }>; leafCount: number };
-    let selectedUtxos: Array<{ commitment: string; amount: string; mint: string; leafIndex: number; nullifier: string }>;
-    let relayFallback = false;
-
+    // 1. Verify MagicBlock Private SPL API is live and inspect payer delegation state
+    let balanceInfo: MagicBlockBalanceResponse;
     try {
-      //  Attempt Real Cloak Relay First 
-      const [md, availableUtxos] = await Promise.all([
-        fetchMerkleProofs(mintPubkey),
-        fetchAvailableUtxos(treasuryPubkey, mintPubkey),
+      const [health, bal] = await Promise.all([
+        checkMagicBlockHealth(),
+        queryMagicBlockSplBalance(initiated_by, token_mint, MAGICBLOCK_CLUSTER),
       ]);
-
-      merkleData = md;
-
-      const totalAmount = recipients.reduce(
-        (sum, r) => sum + BigInt(r.amount),
-        0n
-      );
-
-      const availableBalance = availableUtxos.reduce(
-        (sum, u) => sum + BigInt(u.amount),
-        0n
-      );
-
-      if (availableBalance < totalAmount) {
-        return NextResponse.json(
-          {
-            error: "Insufficient shielded balance",
-            required: totalAmount.toString(),
-            available: availableBalance.toString(),
-          },
-          { status: 400 }
-        );
+      if (health.status !== "ok") {
+        throw new Error(`MagicBlock API reported unhealthy status: ${health.status}`);
       }
-
-      selectedUtxos = selectUtxosForAmount(availableUtxos, totalAmount);
-
-      for (const utxo of selectedUtxos) {
-        const utxoLock = await acquireMutex(
-          `utxo:${utxo.commitment}`,
-          60
-        );
-        if (!utxoLock.acquired) {
-          return NextResponse.json(
-            {
-              error: "UTXO contention — one or more selected UTXOs are locked by another operation",
-              code: "UTXO_CONTENTION",
-            },
-            { status: 409 }
-          );
-        }
-      }
-    } catch (relayError) {
-      // ─── Fallback to Mock Data on Relay Failure ─────────────
-      console.warn(
-        "[Aegis Ledger] Cloak relay unavailable, using mock signing params:",
-        relayError instanceof Error ? relayError.message : relayError
+      balanceInfo = bal;
+    } catch (upstreamErr) {
+      const detail = upstreamErr instanceof Error ? upstreamErr.message : String(upstreamErr);
+      console.error("[Aegis Payroll] MagicBlock PER upstream unavailable:", detail);
+      return NextResponse.json(
+        {
+          error: "MagicBlock Private SPL service is unavailable. Payroll aborted safely.",
+          code: "MAGICBLOCK_UPSTREAM_UNAVAILABLE",
+          detail,
+        },
+        { status: 503 }
       );
-      relayFallback = true;
-
-      const mockUtxos = recipients.map((r, i) => ({
-        commitment: `mock_commitment_${i}_${Date.now()}`,
-        amount: r.amount,
-        mint: token_mint,
-        leafIndex: 1000 + i,
-        nullifier: `mock_nullifier_${i}_${Date.now()}`,
-      }));
-
-      merkleData = {
-        root: "mock_merkle_root_" + Date.now(),
-        proofs: mockUtxos.map((u) => ({
-          leaf: u.commitment,
-          pathElements: Array(20).fill("0x0"),
-          pathIndices: Array(20).fill(0),
-        })),
-        leafCount: 2048,
-      };
-      selectedUtxos = mockUtxos;
     }
 
-    // Create Payroll Run (with demo fallback)
-    let payrollRunId = randomUUID();
-    const totalAmount = recipients.reduce(
-      (sum, r) => sum + BigInt(r.amount),
-      0n
-    );
+    // 2. Compute aggregate batch totals
+    const totalAmount = recipients.reduce((sum, r) => sum + BigInt(r.amount), 0n);
+    const onChainTotal = recipients
+      .filter((r) => (r.settlementRail || "onchain_shielded") === "onchain_shielded")
+      .reduce((sum, r) => sum + BigInt(r.amount), 0n);
 
+    const isDelegated =
+      balanceInfo.delegation?.status === "delegated" ||
+      balanceInfo.location === "ephemeral";
+    const currentEphemeralBalance = isDelegated ? BigInt(balanceInfo.balance || "0") : 0n;
+    const requiresDeposit = onChainTotal > 0n && currentEphemeralBalance < onChainTotal;
+
+    // 3. Verify organization & persist pending payroll run in Supabase (fail loud on DB error)
+    let payrollRunId: string;
     try {
       const supabase = createServiceClient();
-      const { data: payrollRun } = await supabase
+
+      const { data: org, error: orgError } = await supabase
+        .from("organizations")
+        .select("id, treasury_pubkey")
+        .eq("id", org_id)
+        .single();
+
+      if (orgError || !org) {
+        return NextResponse.json(
+          {
+            error: "Organization not found",
+            code: "ORGANIZATION_NOT_FOUND",
+          },
+          { status: 404 }
+        );
+      }
+
+      const { data: payrollRun, error: insertError } = await supabase
         .from("payroll_runs")
         .insert({
           org_id,
           status: "pending" as const,
+          execution_rail: "magicblock_per",
           token_mint,
           token_symbol,
           total_amount_lamports: Number(totalAmount),
           recipient_count: recipients.length,
           initiated_by,
           tx_signatures: null,
+          merkle_root: null,
+          encrypted_manifest: null,
           error_message: null,
           completed_at: null,
         })
         .select("id")
         .single();
 
-      if (payrollRun?.id) {
-        payrollRunId = payrollRun.id;
+      if (insertError || !payrollRun?.id) {
+        throw new Error(insertError?.message || "Failed to insert payroll_runs record");
       }
+
+      payrollRunId = payrollRun.id;
 
       await supabase.from("audit_log").insert({
         event_type: "payroll_initiated",
         org_id,
         metadata: {
           payroll_run_id: payrollRunId,
+          execution_rail: "magicblock_per",
           recipient_count: recipients.length,
           token_symbol,
-          status: "pending_signature",
-          relay_fallback: relayFallback,
+          delegation_status: balanceInfo.delegation?.status || "unknown",
+          requires_deposit: requiresDeposit,
         },
       });
     } catch (dbErr) {
-      console.warn("[Aegis] DB insert bypassed (demo devnet mode):", dbErr);
+      const detail = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      console.error("[Aegis Payroll] Database persistence failure:", detail);
+      return NextResponse.json(
+        {
+          error: "Payroll ledger database is unavailable. Batch was not initiated.",
+          code: "DATABASE_UNAVAILABLE",
+          detail,
+        },
+        { status: 503 }
+      );
     }
 
-    // Return Signing Parameters 
     const mutexExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
     return NextResponse.json(
       {
         payroll_run_id: payrollRunId,
         status: "pending_signature",
-        relay_fallback: relayFallback,
+        execution_rail: "magicblock_per",
+        magicblock: {
+          api_url: MAGICBLOCK_API_URL,
+          er_rpc: ER_RPC,
+          validator: TEE_VALIDATOR.toBase58(),
+          cluster: MAGICBLOCK_CLUSTER,
+          ata: balanceInfo.ata,
+          location: balanceInfo.location,
+          balance: balanceInfo.balance,
+          delegation_status: balanceInfo.delegation?.status || "undelegated",
+          requires_deposit: requiresDeposit,
+          onchain_total_base_units: onChainTotal.toString(),
+        },
         signing_params: {
-          merkle_root: merkleData.root,
-          merkle_proofs: merkleData.proofs,
-          merkle_leaf_count: merkleData.leafCount,
-          selected_utxos: selectedUtxos,
           recipients: recipients.map((r) => ({
             wallet: r.wallet,
             amount: r.amount,
+            token: r.token || token_symbol,
+            settlementRail: r.settlementRail || "onchain_shielded",
+            destinationAccount: r.destinationAccount,
           })),
-          token_mint: token_mint,
-          token_symbol: token_symbol,
-          program_id: relayFallback
-            ? (process.env.NEXT_PUBLIC_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo")
-            : getProgramId().toBase58(),
-          relay_url: relayFallback
-            ? (process.env.NEXT_PUBLIC_ER_RPC || "https://devnet-tee.magicblock.app")
-            : getRelayUrl(),
+          token_mint,
+          token_symbol,
+          program_id: TEE_VALIDATOR.toBase58(),
+          relay_url: ER_RPC,
           rpc_url: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
         },
         mutex_expires_at: mutexExpiresAt,
@@ -252,39 +222,15 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    console.error("Payroll route unexpected error:", error);
+    console.error("[Aegis Payroll] Unexpected error:", error);
     return NextResponse.json(
       {
         error: "Internal server error",
-        message:
-          error instanceof Error ? error.message : "Unknown error",
+        message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
     );
   } finally {
     await releaseMutex(mutex.key, mutex.lockValue);
   }
-}
-
-// UTXO Selection Helper 
-import type { UtxoDescriptor } from "@/lib/cloak";
-
-function selectUtxosForAmount(
-  utxos: UtxoDescriptor[],
-  targetAmount: bigint
-): UtxoDescriptor[] {
-  const sorted = [...utxos].sort(
-    (a, b) => Number(BigInt(b.amount) - BigInt(a.amount))
-  );
-
-  const selected: UtxoDescriptor[] = [];
-  let accumulated = 0n;
-
-  for (const utxo of sorted) {
-    if (accumulated >= targetAmount) break;
-    selected.push(utxo);
-    accumulated += BigInt(utxo.amount);
-  }
-
-  return selected;
 }

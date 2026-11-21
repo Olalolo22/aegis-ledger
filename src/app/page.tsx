@@ -94,7 +94,7 @@ export default function LandingPage() {
                                 </div>
                             </div>
                             <div className="card-t-amount">$148,500</div>
-                            <div className="card-t-sub">Active startup payroll pool · Uniform note splitting</div>
+                            <div className="card-t-sub">Active startup payroll pool · MagicBlock Private SPL + Merkle Sum Tree</div>
                             <div className="card-t-grid">
                                 <div>
                                     <div className="card-t-stat-label">Available</div>
@@ -131,7 +131,7 @@ export default function LandingPage() {
                                 </div>
                                 <div className="recip-row">
                                     <span className="recip-addr">ZK Research Fellow · Global</span>
-                                    <span><span className="recip-amount">$3,500</span><span className="recip-token">USDC (UTXO)</span></span>
+                                    <span><span className="recip-amount">$3,500</span><span className="recip-token">USDC (PER)</span></span>
                                 </div>
                             </div>
                             <div className="card-b-footer">
@@ -189,7 +189,7 @@ export default function LandingPage() {
                 <div className="section-eyebrow reveal">The solution</div>
                 <h2 className="section-h2 serif reveal" style={{ transitionDelay: '0.1s' }}>Confidential on-chain. Accountable off-chain. Direct to local fiat.</h2>
                 <p className="section-sub reveal" style={{ transitionDelay: '0.2s' }}>
-                    Aegis Ledger runs treasury disbursements inside MagicBlock Private Ephemeral Rollups (TEE), partitions non-uniform salaries into standardized notes, and routes direct emerging-market fiat settlement.
+                    Aegis Ledger runs treasury disbursements through MagicBlock Private SPL delegated ephemeral accounts (Intel TDX TEE), commits every batch to a Binary SHA-256 Merkle Sum Tree, and routes direct emerging-market fiat settlement.
                 </p>
                 <div className="features-grid">
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.3s' }}>
@@ -197,18 +197,18 @@ export default function LandingPage() {
                         <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <IconBolt size={20} />
                         </span>
-                        <div className="feat-title">Sub-50ms TEE batch execution</div>
-                        <div className="feat-desc">Executes 50+ contributor batches inside Intel TDX hardware enclaves with sub-50ms state transitions and zero client-side WASM lag.</div>
-                        <div className="feat-tag">magicblock.perBatch()</div>
+                        <div className="feat-title">MagicBlock Private SPL execution</div>
+                        <div className="feat-desc">Delegates treasury funds into MagicBlock PER ephemeral accounts and dispatches private transfers with randomized splits and timing delays inside Intel TDX.</div>
+                        <div className="feat-tag">buildMagicBlockSplTransfer()</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.4s' }}>
                         <div className="feat-num">02</div>
                         <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <IconShield size={20} />
                         </span>
-                        <div className="feat-title">Uniform note splitting</div>
-                        <div className="feat-desc">Decomposes non-uniform salaries into standardized $1000, $500, and $100 notes. Destroys amount-clustering and balance-correlation attacks on Solscan.</div>
-                        <div className="feat-tag">denominate.ts</div>
+                        <div className="feat-title">Merkle Sum Tree completeness</div>
+                        <div className="feat-desc">Every batch builds a domain-separated Binary SHA-256 Merkle Sum Tree so employees get O(log N) inclusion proofs and auditors can mathematically prove zero omitted payouts.</div>
+                        <div className="feat-tag">merkle.ts</div>
                     </div>
                     <div className="feature-cell reveal" style={{ transitionDelay: '0.5s' }}>
                         <div className="feat-num">03</div>
@@ -224,9 +224,9 @@ export default function LandingPage() {
                         <span className="feat-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <IconKey size={20} />
                         </span>
-                        <div className="feat-title">Cryptographic audit access</div>
-                        <div className="feat-desc">Issue time-limited viewing keys to auditors via magic-link sessions. Verify tax compliance without leaking ongoing treasury activity.</div>
-                        <div className="feat-tag">AES-256-GCM + HKDF</div>
+                        <div className="feat-title">Encrypted audit manifests</div>
+                        <div className="feat-desc">Batch manifests are AES-256-GCM encrypted at rest under HKDF org audit keys and unwrapped only via time- and token-scoped single-use magic links.</div>
+                        <div className="feat-tag">AES-256-GCM + HKDF + AAD</div>
                     </div>
                 </div>
             </section>
@@ -244,18 +244,18 @@ export default function LandingPage() {
                         </div>
                         <div className="how-step reveal" style={{ transitionDelay: '0.3s' }}>
                             <div className="how-num serif">02</div>
-                            <div className="how-title">Uniform note splitting</div>
-                            <div className="how-desc">Standardized note denomination splitting breaks salaries into uniform amounts so on-chain observers cannot link deposits to withdrawals.</div>
+                            <div className="how-title">Merkle Sum Tree &amp; split plan</div>
+                            <div className="how-desc">Each batch builds a salted Binary Merkle Sum Tree for completeness proofs and plans randomized MagicBlock split counts and timing jitter windows.</div>
                         </div>
                         <div className="how-step reveal" style={{ transitionDelay: '0.4s' }}>
                             <div className="how-num serif">03</div>
-                            <div className="how-title">Sub-50ms TEE dispatch</div>
-                            <div className="how-desc">Hardware enclaves inside MagicBlock PER execute the confidential state transition in sub-seconds. Public Solscan view: 0 bytes leaked.</div>
+                            <div className="how-title">MagicBlock PER dispatch</div>
+                            <div className="how-desc">Treasury funds delegate into the Intel TDX enclave and execute via MagicBlock Private SPL (`fromBalance: ephemeral`, `visibility: private`).</div>
                         </div>
                         <div className="how-step reveal" style={{ transitionDelay: '0.5s' }}>
                             <div className="how-num serif">04</div>
-                            <div className="how-title">Direct settlement & audit keys</div>
-                            <div className="how-desc">Off-ramp triggers dispatch local fiat directly to contractors while auditors receive 24-hour cryptographic viewing keys.</div>
+                            <div className="how-title">Local settlement &amp; scoped audits</div>
+                            <div className="how-desc">Off-ramp triggers settle local fiat while the encrypted batch manifest is sealed for time-scoped auditor decryption and completeness verification.</div>
                         </div>
                     </div>
                 </section>
@@ -303,8 +303,8 @@ export default function LandingPage() {
                                 <td><span className="cross">✗</span></td>
                             </tr>
                             <tr>
-                                <td className="feat-label">Amount-clustering defense</td>
-                                <td className="aegis-col"><span className="check">✓</span> Uniform notes</td>
+                                <td className="feat-label">Private split + completeness</td>
+                                <td className="aegis-col"><span className="check">✓</span> PER + Merkle Sum</td>
                                 <td><span className="cross">✗</span></td>
                                 <td><span className="cross">✗</span></td>
                                 <td><span className="cross">✗</span></td>

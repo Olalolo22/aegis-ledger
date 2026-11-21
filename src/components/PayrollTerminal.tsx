@@ -72,36 +72,20 @@ const MOCK_RECIPIENTS: Recipient[] = [
 ];
 
 const TEE_LOG_STEPS = [
-  { msg: "› Splitting salaries into uniform notes to hide exact compensation...", col: "var(--dim)" },
-  { msg: " ✓ Note splitting active ($1000, $500, $100 notes protect salary privacy).", col: "var(--green)" },
-  { msg: "› Connecting to MagicBlock TEE validator (devnet-tee.magicblock.app)...", col: "var(--dim)" },
-  { msg: " [!] Hardware enclave execution: zero client WASM lag.", col: "var(--amber)" },
-  { msg: "› Delegating batch account state to Ephemeral Rollup enclave...", col: "var(--dim)" },
-  { msg: " ✓ Account delegation verified inside Intel TDX hardware.", col: "var(--green)" },
-  { msg: "› Requesting authority signature for batch proposal...", col: "var(--dim)" },
-  { msg: " ✓ Signature verified. Submitting to TEE sub-block engine...", col: "var(--green)" },
-  { msg: "› Executing batch state transition in sub-50ms slot...", col: "var(--dim)" },
-  { msg: " ✓ Sub-second TEE settlement confirmed on Solana.", col: "var(--green)" },
-  { msg: "› Dispatching confidential off-ramp webhooks (NGN / KES local rails)...", col: "var(--dim)" },
-  { msg: " ✓ ₦9,900,000 Providus/Kuda + KSh 338,000 M-Pesa off-ramp triggers dispatched.", col: "var(--green)" },
-  { msg: " ✓ On-chain explorer view: [CONFIDENTIAL · RECIPIENTS & AMOUNTS REDACTED]", col: "var(--blue)" },
-  { msg: " ✓ Scoped Merkle viewing keys registered for tax & audit compliance.", col: "var(--green)" },
-];
-
-const ZK_LOG_STEPS = [
-  { msg: "› Loading Groth16 WASM prover circuit...", col: "var(--dim)" },
-  { msg: "› Initialising Poseidon hash state (t=5)...", col: "var(--dim)" },
-  { msg: "› Generating witness from private inputs...", col: "var(--dim)" },
-  { msg: " [!] Spending key never serialised. Browser-only.", col: "var(--amber)" },
-  { msg: "› Running R1CS constraint satisfaction check...", col: "var(--dim)" },
-  { msg: " ✓ 128,480 constraints satisfied.", col: "var(--green)" },
-  { msg: "› Building Groth16 proof (π_a, π_b, π_c)...", col: "var(--dim)" },
-  { msg: " ✓ Proof generated. Size: 192 bytes.", col: "var(--green)" },
-  { msg: "› Serialising to Solana transaction format...", col: "var(--dim)" },
-  { msg: " ✓ ZK proof verified on-chain.", col: "var(--green)" },
-  { msg: "› Submitting shielded batch to MagicBlock TEE enclave...", col: "var(--dim)" },
-  { msg: " ✓ Transaction confirmed. Slot 312,847,201.", col: "var(--green)" },
-  { msg: " ✓ On-chain view: [REDACTED]", col: "var(--blue)" },
+  { msg: "› Coordinating batch run & checking MagicBlock PER delegation state...", col: "var(--dim)" },
+  { msg: " ✓ Binary SHA-256 Merkle Sum Tree built (inclusion + completeness proofs ready).", col: "var(--green)" },
+  { msg: "› Connecting to MagicBlock Private SPL API (api.magicblock.app / devnet-tee)...", col: "var(--dim)" },
+  { msg: " [!] Hardware enclave execution inside Intel TDX: zero client WASM lag.", col: "var(--amber)" },
+  { msg: "› Verifying ephemeral balance & delegating treasury funds if required...", col: "var(--dim)" },
+  { msg: " ✓ Ephemeral delegation confirmed on MagicBlock validator.", col: "var(--green)" },
+  { msg: "› Requesting wallet signature for Private SPL transfers (split + randomized delays)...", col: "var(--dim)" },
+  { msg: " ✓ Signatures authorized. Submitting strictly to TEE validator RPC...", col: "var(--green)" },
+  { msg: "› Executing private state transitions inside Intel TDX enclave...", col: "var(--dim)" },
+  { msg: " ✓ On-chain Private SPL transfers broadcast to MagicBlock PER.", col: "var(--green)" },
+  { msg: "› Verifying Merkle Sum Tree completeness & sealing AES-256-GCM audit manifest...", col: "var(--dim)" },
+  { msg: " ✓ Encrypted audit manifest sealed under HKDF org viewing key.", col: "var(--green)" },
+  { msg: "› Dispatching off-ramp settlement hooks (NGN / KES local rails)...", col: "var(--dim)" },
+  { msg: " ✓ Batch confirmed and verifiable via scoped auditor viewing keys.", col: "var(--green)" },
 ];
 
 function ExecutionModal({
@@ -118,10 +102,10 @@ function ExecutionModal({
   proofProgress: string | null;
   error: string | null;
   recipientProgress: { current: number; total: number } | null;
-  rail?: "tee" | "cloak";
+  rail?: "tee";
   txSignatures?: string[];
 }) {
-  const activeSteps = rail === "tee" ? TEE_LOG_STEPS : ZK_LOG_STEPS;
+  const activeSteps = TEE_LOG_STEPS;
   const [log, setLog] = useState<{ msg: string; col: string }[]>([]);
   const maxPhaseRef = useRef(0);
   const maxPctRef = useRef(0);
@@ -378,16 +362,13 @@ export default function PayrollTerminal() {
   const currentBalance = BASE_BALANCE - (batchTotal * completedRuns);
   const runwayMonths = batchTotal > 0 ? (currentBalance / batchTotal).toFixed(1) : "12.0";
   const balance = `$${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-  const utxos = String(48 - (completedRuns * recipients.length));
-  const utxoSum = signingParams?.selected_utxos 
-    ? signingParams.selected_utxos.reduce((sum, u) => sum + parseInt(u.amount), 0) / 1e6
-    : 0;
+  const utxos = String(Math.max(0, 48 - (completedRuns * recipients.length)));
 
   const isRunning = status !== "idle" && status !== "completed" && status !== "error";
   const lockedAmount = status === "completed"
     ? 0
     : isRunning
-      ? (utxoSum > 0 ? utxoSum : batchTotal)
+      ? batchTotal
       : completedRuns > 0 ? 0 : batchTotal;
   const locked = lockedAmount === 0 ? "$0" : `$${lockedAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const available = `$${(currentBalance - lockedAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -433,42 +414,50 @@ export default function PayrollTerminal() {
   };
 
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [auditKeyError, setAuditKeyError] = useState<string | null>(null);
 
   const handleGenerateAuditorKey = async () => {
     try {
       setGeneratedKey(null);
-      const res = await fetch("/api/audit/generate-key", {
+      setAuditKeyError(null);
+
+      const auditorIdentity = "Internal Compliance";
+      const keyRes = await fetch("/api/audit/generate-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           org_id: DEMO_ORG_ID,
-          auditor_identity: "Internal Compliance",
+          auditor_identity: auditorIdentity,
           valid_from: new Date().toISOString(),
           valid_until: new Date(Date.now() + 86400000).toISOString(),
-          allowed_tokens: ["USDC", "SOL"]
-        })
+          allowed_tokens: ["USDC", "SOL"],
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        console.warn("[Aegis] generate-key API error, generating local demo key:", data.error);
-        const demoBytes = new Uint8Array(32);
-        crypto.getRandomValues(demoBytes);
-        const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-        setGeneratedKey(demoHex);
-      } else if (data.viewing_key?.raw_nk_hex) {
-        setGeneratedKey(data.viewing_key.raw_nk_hex);
-      } else {
-        const demoBytes = new Uint8Array(32);
-        crypto.getRandomValues(demoBytes);
-        const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-        setGeneratedKey(demoHex);
+      const keyData = await keyRes.json().catch(() => ({}));
+      if (!keyRes.ok || !keyData.viewing_key?.id) {
+        setAuditKeyError(keyData.error || `Failed to create viewing key (HTTP ${keyRes.status})`);
+        return;
       }
+
+      const linkRes = await fetch("/api/audit/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          viewing_key_id: keyData.viewing_key.id,
+          auditor_identity: auditorIdentity,
+        }),
+      });
+      const linkData = await linkRes.json().catch(() => ({}));
+      if (!linkRes.ok || !linkData.magic_link) {
+        setAuditKeyError(linkData.error || `Viewing key created (${keyData.viewing_key.id}), but magic-link issuance failed.`);
+        return;
+      }
+
+      setGeneratedKey(linkData.magic_link);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to issue auditor magic link";
       console.error("Failed to generate key:", e);
-      const demoBytes = new Uint8Array(32);
-      crypto.getRandomValues(demoBytes);
-      const demoHex = Array.from(demoBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-      setGeneratedKey(demoHex);
+      setAuditKeyError(msg);
     }
   };
 
@@ -652,11 +641,17 @@ export default function PayrollTerminal() {
               </button>
             </div>
 
+            {auditKeyError && (
+              <div style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: 8, padding: "8px 12px", fontFamily: "var(--mono)", fontSize: 10, color: "#dc2626" }}>
+                [ERROR] {auditKeyError}
+              </div>
+            )}
+
             {generatedKey && (
               <div style={{ background: "#ffffff", border: "1px solid #10b981", borderRadius: 8, padding: "8px 12px", animation: "ae-fade-up 0.25s ease" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "#10b981", fontWeight: 700, textTransform: "uppercase" }}>
-                    ✓ Active 32-Byte Viewing Key
+                    ✓ Single-Use Scoped Audit Magic Link
                   </span>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <button
@@ -671,7 +666,7 @@ export default function PayrollTerminal() {
                     >
                       Copy
                     </button>
-                    <a href="/audit" style={{ color: "#0066ff", fontSize: 10, fontFamily: "var(--mono)", textDecoration: "underline" }}>
+                    <a href={generatedKey} style={{ color: "#0066ff", fontSize: 10, fontFamily: "var(--mono)", textDecoration: "underline" }}>
                       Open /audit →
                     </a>
                   </div>
