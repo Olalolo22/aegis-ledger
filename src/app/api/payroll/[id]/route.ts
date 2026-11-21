@@ -41,10 +41,10 @@ export async function GET(
     );
   }
 
-  // Fetch associated recipient commitments + O(log N) Merkle inclusion proofs
+  // Fetch associated blinded recipient commitment hashes only (zero amounts/proofs)
   const { data: recipients, error: recipError } = await supabase
     .from("payroll_recipients")
-    .select("recipient_index, commitment_hash, merkle_proof, created_at")
+    .select("recipient_index, commitment_hash, created_at")
     .eq("payroll_run_id", params.id)
     .order("recipient_index", { ascending: true });
 

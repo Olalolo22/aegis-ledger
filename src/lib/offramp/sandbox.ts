@@ -3,9 +3,11 @@ import { bytesToHex } from "@noble/hashes/utils";
 import {
   DisbursementRecipient,
   DisbursementReceipt,
+  FxRateSource,
   OfframpProvider,
   PrivacyProofDetails,
 } from "./types";
+import { validatePartnerAppliedRate } from "../fx";
 
 function maskDestination(dest: string): string {
   if (dest.includes("·")) {
@@ -40,29 +42,39 @@ function generateRailReference(
 
 /**
  * Computes a cryptographic receipt digest binding the off-ramp disbursement,
- * server-quoted FX rate, FX provider, quote timestamp, and L1-anchored Merkle root.
+ * partner-applied execution rate, rate source, mid-market sanity spread,
+ * quote timestamp, and L1-anchored Merkle root.
  */
-function computePrivacyProof(
-  batchRoot: string,
-  noteCommitment: string,
-  fiatAmount: number,
-  exchangeRate: number,
-  fxProvider: string,
-  fxQuotedAt: string,
-  fxQuoteId: string
-): PrivacyProofDetails {
+export function computeSettlementReceiptProof(params: {
+  batchRoot: string;
+  noteCommitment: string;
+  fiatAmount: number;
+  appliedRate: number;
+  fxRateSource: FxRateSource;
+  referenceMidMarketRate?: number;
+  fxSpreadBps?: number;
+  fxProvider: string;
+  fxQuotedAt: string;
+  fxQuoteId: string;
+}): PrivacyProofDetails {
   const payload = new TextEncoder().encode(
-    `aegis:settlement:v2:${batchRoot}:${noteCommitment}:${fiatAmount}:${exchangeRate}:${fxProvider}:${fxQuotedAt}:${fxQuoteId}`
+    `aegis:settlement:v3:${params.batchRoot}:${params.noteCommitment}:${params.fiatAmount}:${params.appliedRate}:${params.fxRateSource}:${params.referenceMidMarketRate ?? "none"}:${params.fxSpreadBps ?? 0}:${params.fxProvider}:${params.fxQuotedAt}:${params.fxQuoteId}`
   );
   const hashSignature = bytesToHex(sha256(payload));
 
   return {
-    teeAttestation: `aegis:merkle:v1:${batchRoot}`,
+    teeAttestation: `aegis:merkle:v1:${params.batchRoot}`,
     onChainTrace: "NONE (Attested in TEE Merkle Root)",
     solscanStatus: "CONFIDENTIAL",
     hashSignature,
   };
 }
+
+/** Simulated institutional partner spread in bps for sandbox mode (never pretends mid-market is bank execution). */
+const SANDBOX_PARTNER_SPREAD_BPS: Record<"NGN" | "KES", number> = {
+  NGN: -45, // -0.45% institutional off-ramp spread vs mid-market benchmark
+  KES: -35, // -0.35% M-Pesa B2C spread vs mid-market benchmark
+};
 
 export class SandboxOfframpProvider implements OfframpProvider {
   name = "Aegis Sandbox Gateway (Kotani / YellowCard Protocol)";
@@ -75,24 +87,50 @@ export class SandboxOfframpProvider implements OfframpProvider {
     const disbursementId = `disb_${Date.now()}_${recipient.noteCommitment.slice(0, 8)}`;
     const railRef = generateRailReference(recipient.rail, recipient.noteCommitment);
     const maskedAccount = maskDestination(recipient.destinationAccount);
-    const exchangeRate =
-      recipient.exchangeRate ??
-      (recipient.amountUsd > 0
-        ? Math.round((recipient.amountLocal / recipient.amountUsd) * 100) / 100
-        : 0);
-    const fxProvider = recipient.fxProvider || "Server-Quoted Live Spot FX";
-    const fxQuotedAt = recipient.fxQuotedAt || new Date().toISOString();
-    const fxQuoteId = recipient.fxQuoteId || `fx_local_${Date.now()}`;
 
-    const privacyProof = computePrivacyProof(
+    const referenceMidMarketRate =
+      recipient.referenceMidMarketRate ??
+      recipient.exchangeRate ??
+      (recipient.amountUsd > 0 ? recipient.amountLocal / recipient.amountUsd : 0);
+
+    // Derive transparent simulated partner applied rate with realistic spread vs mid-market reference
+    const spreadBpsTarget = SANDBOX_PARTNER_SPREAD_BPS[recipient.currency];
+    const simulatedPartnerRate = Number(
+      (referenceMidMarketRate * (1 + spreadBpsTarget / 10_000)).toFixed(4)
+    );
+
+    const sanity = validatePartnerAppliedRate({
+      appliedRate: simulatedPartnerRate,
+      referenceMidMarketRate,
+      currency: recipient.currency,
+    });
+
+    const settledFiatAmount =
+      Math.round(recipient.amountUsd * sanity.appliedRate * 100) / 100;
+
+    const fxProvider =
+      recipient.rail === "kes_mpesa"
+        ? "Kotani Pay Partner Quote (Sandbox Simulated)"
+        : "Yellow Card / NIBSS Partner Quote (Sandbox Simulated)";
+    const referenceFxProvider =
+      recipient.referenceFxProvider ||
+      recipient.fxProvider ||
+      "ExchangeRate-API Mid-Market Reference (open.er-api.com)";
+    const fxQuotedAt = recipient.fxQuotedAt || new Date().toISOString();
+    const fxQuoteId = recipient.fxQuoteId || `fx_sbx_${Date.now()}`;
+
+    const privacyProof = computeSettlementReceiptProof({
       batchRoot,
-      recipient.noteCommitment,
-      recipient.amountLocal,
-      exchangeRate,
+      noteCommitment: recipient.noteCommitment,
+      fiatAmount: settledFiatAmount,
+      appliedRate: sanity.appliedRate,
+      fxRateSource: "sandbox_simulated_partner",
+      referenceMidMarketRate: sanity.referenceMidMarketRate,
+      fxSpreadBps: sanity.spreadBps,
       fxProvider,
       fxQuotedAt,
-      fxQuoteId
-    );
+      fxQuoteId,
+    });
 
     return {
       disbursementId,
@@ -100,10 +138,15 @@ export class SandboxOfframpProvider implements OfframpProvider {
       noteCommitment: recipient.noteCommitment,
       recipientWallet: recipient.wallet,
       maskedAccount,
-      fiatAmount: recipient.amountLocal,
+      fiatAmount: settledFiatAmount,
       fiatCurrency: recipient.currency,
       usdAmount: recipient.amountUsd,
-      exchangeRate,
+      exchangeRate: sanity.appliedRate,
+      fxRateSource: "sandbox_simulated_partner",
+      referenceMidMarketRate: sanity.referenceMidMarketRate,
+      referenceFxProvider,
+      fxSpreadBps: sanity.spreadBps,
+      fxSanityCheckPassed: sanity.withinGuardrail,
       fxProvider,
       fxQuotedAt,
       fxQuoteId,

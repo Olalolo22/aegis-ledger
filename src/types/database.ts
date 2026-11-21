@@ -1,9 +1,13 @@
 /**
  * TypeScript types mirroring the PostgreSQL schema.
- * Maintained to match supabase/migrations/001..004_*.sql exactly.
+ * Maintained to match supabase/migrations/001..005_*.sql exactly.
  */
 
-import type { EncryptedAuditEnvelope } from "@/lib/e2ee";
+import type {
+  EncryptedAuditEnvelope,
+  EncryptedPrivateKeyVault,
+  OrgAdminRole,
+} from "@/lib/e2ee";
 
 export interface Organization {
   id: string;
@@ -11,6 +15,22 @@ export interface Organization {
   treasury_pubkey: string;
   created_at: string;
   updated_at: string;
+}
+
+export type OrgKeyVaultStatus = "active" | "rotated" | "revoked";
+
+export interface OrgKeyVault {
+  id: string;
+  org_id: string;
+  admin_label: string;
+  role: OrgAdminRole;
+  public_key_spki: string;
+  fingerprint: string;
+  encrypted_vault: EncryptedPrivateKeyVault | null;
+  status: OrgKeyVaultStatus;
+  created_at: string;
+  rotated_at: string | null;
+  revoked_at: string | null;
 }
 
 export type PayrollRunStatus =
@@ -96,6 +116,44 @@ export interface Database {
         };
         Relationships: [];
       };
+      org_key_vaults: {
+        Row: OrgKeyVault;
+        Insert: {
+          id?: string;
+          org_id: string;
+          admin_label: string;
+          role: OrgAdminRole;
+          public_key_spki: string;
+          fingerprint: string;
+          encrypted_vault?: EncryptedPrivateKeyVault | null;
+          status?: OrgKeyVaultStatus;
+          created_at?: string;
+          rotated_at?: string | null;
+          revoked_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          admin_label?: string;
+          role?: OrgAdminRole;
+          public_key_spki?: string;
+          fingerprint?: string;
+          encrypted_vault?: EncryptedPrivateKeyVault | null;
+          status?: OrgKeyVaultStatus;
+          created_at?: string;
+          rotated_at?: string | null;
+          revoked_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "org_key_vaults_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       payroll_runs: {
         Row: PayrollRun;
         Insert: {
@@ -124,8 +182,8 @@ export interface Database {
           org_id?: string;
           status?: PayrollRunStatus;
           execution_rail?: string;
-          token_mint?: string;
-          token_symbol?: string;
+          token_mint: string;
+          token_symbol: string;
           total_amount_lamports?: number;
           recipient_count?: number;
           tx_signatures?: string[] | null;

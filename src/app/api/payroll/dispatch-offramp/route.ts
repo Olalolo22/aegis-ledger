@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOfframpProvider, DisbursementRecipient } from "@/lib/offramp";
 import {
   FxQuoteUnavailableError,
+  FxSanityCheckError,
   computeFiatPayoutFromQuote,
   fetchLiveFxQuote,
 } from "@/lib/fx";
@@ -9,9 +10,15 @@ import {
 /**
  * POST /api/payroll/dispatch-offramp
  *
- * Dispatches NGN Bank / KES M-Pesa payouts using a live server-side FX quote
- * fetched at dispatch time. Never trusts client-computed local fiat amounts
- * or hardcoded React exchange rates.
+ * Dispatches NGN Bank / KES M-Pesa payouts via the configured off-ramp partner.
+ *
+ * FX Accounting Invariant:
+ * - Fetches live mid-market FX from `open.er-api.com` strictly as a server-side
+ *   sanity-check benchmark (fails loud with HTTP 503 if unavailable).
+ * - Each settlement receipt stamps the payout partner's ACTUAL applied execution
+ *   rate (`fxRateSource: "partner_applied"` in live mode, or explicitly labeled
+ *   `"sandbox_simulated_partner"` in sandbox mode) alongside the mid-market
+ *   reference rate and `fxSpreadBps`, so receipts reconcile against partner statements.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -43,24 +50,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch live FX quote strictly server-side at dispatch time (bypass cache for locked execution quote)
-    let liveQuote;
+    // Fetch live mid-market reference benchmark strictly server-side (sanity-check guardrail)
+    let referenceBenchmark;
     try {
-      liveQuote = await fetchLiveFxQuote({ bypassCache: true });
+      referenceBenchmark = await fetchLiveFxQuote({ bypassCache: true });
     } catch (fxErr) {
       const detail = fxErr instanceof Error ? fxErr.message : String(fxErr);
-      console.error("[Aegis Offramp API] Live FX quote failed:", detail);
+      console.error("[Aegis Offramp API] Mid-market FX sanity benchmark failed:", detail);
       return NextResponse.json(
         {
-          error: "Live FX quote feed unavailable. Off-ramp disbursement aborted safely.",
-          code: fxErr instanceof FxQuoteUnavailableError ? "FX_UPSTREAM_UNAVAILABLE" : "FX_ERROR",
+          error:
+            "Live FX reference sanity-check feed unavailable. Off-ramp disbursement aborted safely.",
+          code:
+            fxErr instanceof FxQuoteUnavailableError
+              ? "FX_UPSTREAM_UNAVAILABLE"
+              : "FX_ERROR",
           detail,
         },
         { status: 503 }
       );
     }
 
-    // Compute local currency amounts strictly server-side from the locked live quote
     const validRecipients: DisbursementRecipient[] = [];
     for (const r of offrampRows) {
       const amountUsd = Number(r.amountUsd);
@@ -72,38 +82,58 @@ export async function POST(request: NextRequest) {
       }
 
       const currency: "NGN" | "KES" = r.rail === "kes_mpesa" ? "KES" : "NGN";
-      const stamped = computeFiatPayoutFromQuote(amountUsd, currency, liveQuote);
+      const refEstimate = computeFiatPayoutFromQuote(
+        amountUsd,
+        currency,
+        referenceBenchmark
+      );
 
       validRecipients.push({
         recipientId: r.recipientId || r.wallet,
         wallet: r.wallet,
-        amountUsd: stamped.amountUsd,
-        amountLocal: stamped.amountLocal,
-        currency: stamped.currency,
+        amountUsd: refEstimate.amountUsd,
+        amountLocal: refEstimate.amountLocal,
+        currency: refEstimate.currency,
         rail: r.rail,
         destinationAccount: r.destinationAccount || "Bank Account",
         noteCommitment: r.noteCommitment || "0".repeat(64),
-        exchangeRate: stamped.exchangeRate,
-        fxProvider: stamped.fxProvider,
-        fxQuotedAt: stamped.fxQuotedAt,
-        fxQuoteId: stamped.quoteId,
+        referenceMidMarketRate: refEstimate.exchangeRate,
+        referenceFxProvider: refEstimate.fxProvider,
+        fxQuotedAt: refEstimate.fxQuotedAt,
+        fxQuoteId: refEstimate.quoteId,
       });
     }
 
     const provider = getOfframpProvider();
-    const receipts = await provider.disburseBatch(validRecipients, batch_root);
+    let receipts;
+    try {
+      receipts = await provider.disburseBatch(validRecipients, batch_root);
+    } catch (disburseErr) {
+      if (disburseErr instanceof FxSanityCheckError) {
+        return NextResponse.json(
+          {
+            error: "Partner applied FX rate failed mid-market sanity guardrail.",
+            code: "FX_SANITY_CHECK_FAILED",
+            detail: disburseErr.message,
+          },
+          { status: 422 }
+        );
+      }
+      throw disburseErr;
+    }
 
     return NextResponse.json({
       success: true,
       provider: provider.name,
       isSandbox: provider.isSandbox,
       batch_root,
-      fx_quote: {
-        quote_id: liveQuote.quoteId,
-        provider: liveQuote.provider,
-        quoted_at: liveQuote.quotedAt,
-        source_updated_at: liveQuote.sourceUpdatedAt,
-        rates: liveQuote.rates,
+      fx_reference_benchmark: {
+        quote_id: referenceBenchmark.quoteId,
+        provider: referenceBenchmark.provider,
+        role: "sanity_check_only",
+        quoted_at: referenceBenchmark.quotedAt,
+        source_updated_at: referenceBenchmark.sourceUpdatedAt,
+        rates: referenceBenchmark.rates,
       },
       count: receipts.length,
       receipts,

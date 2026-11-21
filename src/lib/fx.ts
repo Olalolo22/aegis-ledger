@@ -1,18 +1,21 @@
 import { randomUUID } from "crypto";
 
 /**
- * Live Server-Side FX Quote Service.
+ * Live Server-Side FX Reference Benchmark & Partner Rate Sanity Guardrail.
  *
- * Commercial invariant:
+ * Commercial & Accounting Invariant:
  * - Never hardcode exchange rates inside React hooks or silently fall back to
  *   stale static numbers during payroll disbursement.
- * - Every off-ramp payout is quoted server-side at dispatch time, stamped with
- *   `quoteId`, `provider`, `quotedAt`, and `sourceUpdatedAt`, and fails loud
- *   with HTTP 503 if the live FX feed is unavailable.
+ * - `open.er-api.com` is used STRICTLY as a live mid-market reference benchmark
+ *   and sanity-check guardrail — NOT as an authoritative bank execution rate.
+ * - Payout receipts stamp the payout partner's actual `appliedRate` (e.g.
+ *   Kotani Pay applied execution rate) alongside `referenceMidMarketRate` and
+ *   `fxSpreadBps` so every receipt reconciles 1:1 against the partner statement.
  */
 
-export const FX_PROVIDER_NAME = "ExchangeRate-API (open.er-api.com)";
+export const FX_PROVIDER_NAME = "ExchangeRate-API Mid-Market Reference (open.er-api.com)";
 export const FX_UPSTREAM_URL = "https://open.er-api.com/v6/latest/USD";
+export const DEFAULT_MAX_FX_DEVIATION_BPS = 500; // 5.00% max deviation vs. mid-market sanity check
 
 interface UpstreamFxResponse {
   result: string;
@@ -48,10 +51,25 @@ export interface FiatPayoutQuote {
   fxSourceUpdatedAt: string;
 }
 
+export interface PartnerRateSanityResult {
+  appliedRate: number;
+  referenceMidMarketRate: number;
+  spreadBps: number;
+  maxDeviationBps: number;
+  withinGuardrail: boolean;
+}
+
 export class FxQuoteUnavailableError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "FxQuoteUnavailableError";
+  }
+}
+
+export class FxSanityCheckError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FxSanityCheckError";
   }
 }
 
@@ -62,10 +80,11 @@ let cachedFeed: {
   fetchedAtMs: number;
 } | null = null;
 
-const CACHE_TTL_MS = 30_000; // 30s live quote cache
+const CACHE_TTL_MS = 30_000; // 30s reference cache
 
 /**
- * Fetches live USD -> NGN / KES rates from ExchangeRate-API.
+ * Fetches live USD -> NGN / KES mid-market reference rates from ExchangeRate-API.
+ * Used as the pre-dispatch estimate and partner-rate sanity-check benchmark.
  * Throws `FxQuoteUnavailableError` on timeout, non-200 response, or malformed payload.
  */
 export async function fetchLiveFxQuote(options?: {
@@ -80,7 +99,7 @@ export async function fetchLiveFxQuote(options?: {
     nowMs - cachedFeed.fetchedAtMs < CACHE_TTL_MS
   ) {
     return {
-      quoteId: `fx_${randomUUID()}`,
+      quoteId: `fx_ref_${randomUUID()}`,
       provider: FX_PROVIDER_NAME,
       providerUrl: cachedFeed.providerUrl,
       quotedAt,
@@ -98,13 +117,13 @@ export async function fetchLiveFxQuote(options?: {
     });
   } catch (err) {
     throw new FxQuoteUnavailableError(
-      `Live FX feed unreachable: ${err instanceof Error ? err.message : String(err)}`
+      `Live FX reference feed unreachable: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
   if (!res.ok) {
     throw new FxQuoteUnavailableError(
-      `Live FX provider returned HTTP ${res.status}`
+      `Live FX reference provider returned HTTP ${res.status}`
     );
   }
 
@@ -120,7 +139,7 @@ export async function fetchLiveFxQuote(options?: {
     kesRaw <= 0
   ) {
     throw new FxQuoteUnavailableError(
-      "Live FX provider returned invalid NGN/KES quote payload."
+      "Live FX reference provider returned invalid NGN/KES payload."
     );
   }
 
@@ -141,7 +160,7 @@ export async function fetchLiveFxQuote(options?: {
   };
 
   return {
-    quoteId: `fx_${randomUUID()}`,
+    quoteId: `fx_ref_${randomUUID()}`,
     provider: FX_PROVIDER_NAME,
     providerUrl,
     quotedAt,
@@ -152,7 +171,55 @@ export async function fetchLiveFxQuote(options?: {
 }
 
 /**
- * Computes a stamped server-side local fiat payout from a live FX quote.
+ * Validates a payout partner's applied execution rate against the live
+ * mid-market reference benchmark. Rejects corrupted or predatory spreads
+ * exceeding `maxDeviationBps` (default 500 bps / 5.0%).
+ */
+export function validatePartnerAppliedRate(params: {
+  appliedRate: number;
+  referenceMidMarketRate: number;
+  currency: "NGN" | "KES";
+  maxDeviationBps?: number;
+}): PartnerRateSanityResult {
+  const maxDeviationBps = params.maxDeviationBps ?? DEFAULT_MAX_FX_DEVIATION_BPS;
+  if (!Number.isFinite(params.appliedRate) || params.appliedRate <= 0) {
+    throw new FxSanityCheckError(
+      `Invalid partner applied ${params.currency} rate: ${params.appliedRate}`
+    );
+  }
+  if (
+    !Number.isFinite(params.referenceMidMarketRate) ||
+    params.referenceMidMarketRate <= 0
+  ) {
+    throw new FxSanityCheckError(
+      `Invalid mid-market reference ${params.currency} rate: ${params.referenceMidMarketRate}`
+    );
+  }
+
+  const spreadBps = Math.round(
+    ((params.appliedRate - params.referenceMidMarketRate) /
+      params.referenceMidMarketRate) *
+      10_000
+  );
+  const withinGuardrail = Math.abs(spreadBps) <= maxDeviationBps;
+
+  if (!withinGuardrail) {
+    throw new FxSanityCheckError(
+      `Partner applied ${params.currency} rate (${params.appliedRate}) deviates by ${spreadBps} bps from mid-market reference (${params.referenceMidMarketRate}), exceeding ${maxDeviationBps} bps guardrail.`
+    );
+  }
+
+  return {
+    appliedRate: Number(params.appliedRate.toFixed(4)),
+    referenceMidMarketRate: Number(params.referenceMidMarketRate.toFixed(4)),
+    spreadBps,
+    maxDeviationBps,
+    withinGuardrail: true,
+  };
+}
+
+/**
+ * Computes a reference local currency estimate from the mid-market benchmark.
  */
 export function computeFiatPayoutFromQuote(
   amountUsd: number,

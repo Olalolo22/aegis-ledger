@@ -18,9 +18,15 @@ import {
 import {
   buildEnvelopeAad,
   decryptManifestClientSide,
+  decryptPrivateKeyWithPassphrase,
   encryptManifestClientSide,
+  encryptPrivateKeyWithPassphrase,
   generateAuditKeyPair,
+  parseRecoveryKit,
   reWrapDekForAuditor,
+  reWrapDekForNewAdmin,
+  resolveAdminWrappedDek,
+  serializeRecoveryKit,
 } from "../src/lib/e2ee";
 import { computeMagicBlockSplitPlan } from "../src/lib/denominate";
 import {
@@ -39,9 +45,23 @@ import {
   MAGICBLOCK_PRIVATE_TRANSFER_DISCRIMINANT,
   decodeAnchorMemoFromTransaction,
   decodeMagicBlockTransferFromTransaction,
+  formatLeafMemo,
+  parseLeafMemo,
+  reconcileAuditedBatchesAgainstL1,
+  verifyDecodedMagicBlockTransfer,
+  type EnumeratedL1Anchor,
 } from "../src/lib/onchainVerify";
-import { computeFiatPayoutFromQuote, fetchLiveFxQuote } from "../src/lib/fx";
+import {
+  FxSanityCheckError,
+  computeFiatPayoutFromQuote,
+  fetchLiveFxQuote,
+  validatePartnerAppliedRate,
+} from "../src/lib/fx";
 import { SandboxOfframpProvider } from "../src/lib/offramp/sandbox";
+import {
+  payrollConfirmSchema,
+  payrollRequestSchema,
+} from "../src/lib/validation";
 
 async function run() {
   process.env.AEGIS_MASTER_SECRET = randomBytes(32).toString("hex");
@@ -101,37 +121,41 @@ async function run() {
   }
   console.log("   ✓ Binary Merkle Sum Tree verified across sizes 1, 2, 3, 5, 8.");
 
-  console.log("2. Testing Zero-Knowledge Client-Side E2EE Audit Envelopes (Option B)...");
+  console.log("2. Testing Blind-Server .strict() Schemas (Zero Salaries/Salts/Proofs on Server)...");
   const orgId = randomUUID();
   const runId = randomUUID();
   const keyId = randomUUID();
+  const payer = Keypair.generate();
+  const fakeAnchorSig = "5".repeat(88);
 
-  // Verify GCM scope AAD tamper rejection + domain-separated JWT key
-  const jwtKey = deriveJwtSigningKey();
-  assert.notEqual(Buffer.from(jwtKey).toString("hex"), process.env.AEGIS_MASTER_SECRET);
-  const scopeAad = buildViewingKeyScopeAad({
-    orgId,
-    validFrom: "2026-01-01T00:00:00.000Z",
-    validUntil: "2026-12-31T23:59:59.000Z",
-    allowedTokens: ["USDC", "SOL"],
+  // POST /api/payroll MUST REJECT plaintext recipients[]
+  const badInit = payrollRequestSchema.safeParse({
+    org_id: orgId,
+    token_symbol: "USDC",
+    token_mint: DEVNET_USDC_MINT.toBase58(),
+    initiated_by: payer.publicKey.toBase58(),
+    recipient_count: 2,
+    total_amount_base_units: "6400000000",
+    recipients: [{ wallet: payer.publicKey.toBase58(), amount: "3800000000" }],
   });
-  const sealedScope = encryptViewingKey(Buffer.from("scope-attestation"), keyId, scopeAad);
-  assert.equal(decryptViewingKey(sealedScope, keyId, scopeAad).toString(), "scope-attestation");
-  assert.throws(() =>
-    decryptViewingKey(
-      sealedScope,
-      keyId,
-      buildViewingKeyScopeAad({
-        orgId,
-        validFrom: "2026-01-01T00:00:00.000Z",
-        validUntil: "2028-01-01T00:00:00.000Z",
-        allowedTokens: ["USDC", "SOL"],
-      })
-    )
-  );
+  assert.equal(badInit.success, false, "POST /api/payroll MUST reject plaintext recipients[]");
 
-  // Client-side org & auditor RSA-OAEP-256 keypairs (server never sees private keys)
-  const orgKeys = await generateAuditKeyPair();
+  const goodInit = payrollRequestSchema.safeParse({
+    org_id: orgId,
+    token_symbol: "USDC",
+    token_mint: DEVNET_USDC_MINT.toBase58(),
+    initiated_by: payer.publicKey.toBase58(),
+    recipient_count: 2,
+    total_amount_base_units: "6400000000",
+    onchain_total_base_units: "3800000000",
+    rail: "tee",
+  });
+  assert.equal(goodInit.success, true, "Blind aggregate /api/payroll payload must pass");
+
+  // Prepare E2EE envelope & multi-admin key vaults
+  const primaryAdminKeys = await generateAuditKeyPair();
+  const backupAdminKeys = await generateAuditKeyPair();
+  const replacementAdminKeys = await generateAuditKeyPair();
   const auditorKeys = await generateAuditKeyPair();
   const attackerServerKeys = await generateAuditKeyPair();
 
@@ -161,13 +185,14 @@ async function run() {
     version: 2,
     payrollRunId: runId,
     orgId,
+    initiatedBy: payer.publicKey.toBase58(),
     merkleRoot: plan.merkleTree.root,
     entries: plan.manifestEntries,
   });
 
   const { envelope } = await encryptManifestClientSide(
     manifestJson,
-    orgKeys.publicKeySpkiBase64,
+    [primaryAdminKeys.publicKeySpkiBase64, backupAdminKeys.publicKeySpkiBase64],
     {
       orgId,
       payrollRunId: runId,
@@ -176,9 +201,123 @@ async function run() {
     }
   );
 
-  // Org decrypts locally
-  const orgPlaintext = await decryptManifestClientSide(envelope, orgKeys.privateKeyPkcs8Base64);
-  assert.equal(orgPlaintext, manifestJson);
+  // POST /api/payroll/confirm MUST REJECT leaf_proofs (amountBaseUnits) & onchain_settlements (saltHex)
+  const badConfirmWithProofs = payrollConfirmSchema.safeParse({
+    payroll_run_id: runId,
+    anchor_tx_signature: fakeAnchorSig,
+    commitment_hashes: plan.merkleTree.leaves,
+    merkle_root: plan.merkleTree.root,
+    leaf_proofs: plan.merkleTree.proofs,
+    e2ee_envelope: envelope,
+  });
+  assert.equal(badConfirmWithProofs.success, false, "POST /api/payroll/confirm MUST reject leaf_proofs/amountBaseUnits");
+
+  const badConfirmWithSalts = payrollConfirmSchema.safeParse({
+    payroll_run_id: runId,
+    anchor_tx_signature: fakeAnchorSig,
+    commitment_hashes: plan.merkleTree.leaves,
+    merkle_root: plan.merkleTree.root,
+    onchain_settlements: [{ leafIndex: 0, signature: fakeAnchorSig, saltHex: plan.manifestEntries[0].saltHex }],
+    e2ee_envelope: envelope,
+  });
+  assert.equal(badConfirmWithSalts.success, false, "POST /api/payroll/confirm MUST reject onchain_settlements/saltHex");
+
+  const goodBlindConfirm = payrollConfirmSchema.safeParse({
+    payroll_run_id: runId,
+    anchor_tx_signature: fakeAnchorSig,
+    deposit_tx_signatures: [],
+    commitment_hashes: plan.merkleTree.leaves,
+    merkle_root: plan.merkleTree.root,
+    e2ee_envelope: envelope,
+  });
+  assert.equal(goodBlindConfirm.success, true, "Blind /api/payroll/confirm payload must pass");
+  console.log("   ✓ Blind-server .strict() schemas rejected recipients[], leaf_proofs, and saltHex.");
+
+  console.log("3. Testing Passphrase-Encrypted Multi-Admin Key Vault, Rotation & E2EE Audits...");
+  // Verify GCM scope AAD tamper rejection + domain-separated JWT key
+  const jwtKey = deriveJwtSigningKey();
+  assert.notEqual(Buffer.from(jwtKey).toString("hex"), process.env.AEGIS_MASTER_SECRET);
+  const scopeAad = buildViewingKeyScopeAad({
+    orgId,
+    validFrom: "2026-01-01T00:00:00.000Z",
+    validUntil: "2026-12-31T23:59:59.000Z",
+    allowedTokens: ["USDC", "SOL"],
+  });
+  const sealedScope = encryptViewingKey(Buffer.from("scope-attestation"), keyId, scopeAad);
+  assert.equal(decryptViewingKey(sealedScope, keyId, scopeAad).toString(), "scope-attestation");
+  assert.throws(() =>
+    decryptViewingKey(
+      sealedScope,
+      keyId,
+      buildViewingKeyScopeAad({
+        orgId,
+        validFrom: "2026-01-01T00:00:00.000Z",
+        validUntil: "2028-01-01T00:00:00.000Z",
+        allowedTokens: ["USDC", "SOL"],
+      })
+    )
+  );
+
+  // Weak passphrase rejected
+  await assert.rejects(() =>
+    encryptPrivateKeyWithPassphrase(primaryAdminKeys, "short", {
+      orgId,
+      adminLabel: "CFO",
+      role: "primary",
+    })
+  );
+
+  // Passphrase-encrypted key vault + Recovery Kit export/restore
+  const vaultPassphrase = "correct-horse-battery-staple-aegis-2026";
+  const encryptedVault = await encryptPrivateKeyWithPassphrase(
+    primaryAdminKeys,
+    vaultPassphrase,
+    { orgId, adminLabel: "Primary Finance Admin", role: "primary", iterations: 120_000 }
+  );
+  const recoveryJson = serializeRecoveryKit(encryptedVault);
+  const parsedVault = parseRecoveryKit(recoveryJson);
+  const restoredPrimary = await decryptPrivateKeyWithPassphrase(parsedVault, vaultPassphrase);
+  assert.equal(restoredPrimary.privateKeyPkcs8Base64, primaryAdminKeys.privateKeyPkcs8Base64);
+
+  // Wrong passphrase or tampered vault AAD MUST fail
+  await assert.rejects(() =>
+    decryptPrivateKeyWithPassphrase(parsedVault, "wrong-passphrase-123456")
+  );
+  await assert.rejects(() =>
+    decryptPrivateKeyWithPassphrase(
+      { ...parsedVault, role: "backup_controller" },
+      vaultPassphrase
+    )
+  );
+
+  // Multi-admin: BOTH Primary Admin AND Backup Controller decrypt the same batch envelope
+  const primaryPlaintext = await decryptManifestClientSide(
+    envelope,
+    primaryAdminKeys.privateKeyPkcs8Base64,
+    { adminFingerprint: primaryAdminKeys.fingerprint }
+  );
+  const backupPlaintext = await decryptManifestClientSide(
+    envelope,
+    backupAdminKeys.privateKeyPkcs8Base64,
+    { adminFingerprint: backupAdminKeys.fingerprint }
+  );
+  assert.equal(primaryPlaintext, manifestJson);
+  assert.equal(backupPlaintext, manifestJson);
+
+  // Admin offboarding rotation: Backup Controller re-wraps historical DEK to Replacement Admin
+  const backupWrappedDek = resolveAdminWrappedDek(envelope, backupAdminKeys.fingerprint);
+  assert.ok(backupWrappedDek);
+  const replacementWrappedDek = await reWrapDekForNewAdmin(
+    backupWrappedDek,
+    backupAdminKeys.privateKeyPkcs8Base64,
+    replacementAdminKeys.publicKeySpkiBase64
+  );
+  const replacementPlaintext = await decryptManifestClientSide(
+    envelope,
+    replacementAdminKeys.privateKeyPkcs8Base64,
+    { wrappedDekBase64: replacementWrappedDek }
+  );
+  assert.equal(replacementPlaintext, manifestJson);
 
   // Compromised server / attacker CANNOT decrypt E2EE envelope
   await assert.rejects(
@@ -188,50 +327,33 @@ async function run() {
 
   // Org re-wraps DEK strictly client-side for authorized auditor
   const auditorWrappedDek = await reWrapDekForAuditor(
-    envelope.orgWrappedDek,
-    orgKeys.privateKeyPkcs8Base64,
+    backupWrappedDek,
+    backupAdminKeys.privateKeyPkcs8Base64,
     auditorKeys.publicKeySpkiBase64
   );
-
   const expectedAad = buildEnvelopeAad({
     orgId,
     payrollRunId: runId,
     merkleRoot: plan.merkleTree.root,
     tokenSymbol: "USDC",
   });
-
   const auditorPlaintext = await decryptManifestClientSide(
     envelope,
     auditorKeys.privateKeyPkcs8Base64,
     { wrappedDekBase64: auditorWrappedDek, expectedAad }
   );
-  const parsedManifest = JSON.parse(auditorPlaintext);
   assert.equal(
     verifyBatchCompleteness(
-      parsedManifest.entries,
+      JSON.parse(auditorPlaintext).entries,
       plan.merkleTree.root,
       plan.merkleTree.totalSum,
       plan.merkleTree.leafCount
     ).valid,
     true
   );
+  console.log("   ✓ Passphrase vault, Recovery Kit, 2-admin DEK wrapping, rotation, and E2EE audits verified.");
 
-  // Mismatched L1-anchored root AAD must be rejected before decryption
-  await assert.rejects(() =>
-    decryptManifestClientSide(envelope, auditorKeys.privateKeyPkcs8Base64, {
-      wrappedDekBase64: auditorWrappedDek,
-      expectedAad: buildEnvelopeAad({
-        orgId,
-        payrollRunId: runId,
-        merkleRoot: "0".repeat(64),
-        tokenSymbol: "USDC",
-      }),
-    })
-  );
-  console.log("   ✓ Client-side RSA-OAEP-256 + AES-256-GCM E2EE, re-wrapping, and attacker rejection verified.");
-
-  console.log("3. Testing Solana L1 Root Anchor & MagicBlock Private SPL Wire Decoder...");
-  const payer = Keypair.generate();
+  console.log("4. Testing Full 64-Hex Leaf Memo, Missing-Memo Rejection & Live MagicBlock Wire Decoder...");
   const anchorTx = buildBatchRootAttestationTx(
     payer.publicKey,
     plan.merkleTree.root,
@@ -244,7 +366,6 @@ async function run() {
   assert.equal(decodedAnchor.anchor.leafCount, plan.merkleTree.leafCount);
   assert.ok(decodedAnchor.signers.includes(payer.publicKey.toBase58()));
 
-  // Live MagicBlock Private SPL API + Wire Decoder + Settlement-to-Leaf Binding
   const health = await checkMagicBlockHealth();
   assert.equal(health.status, "ok");
 
@@ -265,6 +386,11 @@ async function run() {
   assert.ok(depTx instanceof Transaction || depTx instanceof VersionedTransaction);
 
   const onChainEntry = plan.manifestEntries[0];
+  const fullLeafMemo = formatLeafMemo(onChainEntry.commitmentHash);
+  assert.equal(fullLeafMemo.length, 75); // "aegis:leaf:" (11) + 64 hex
+  assert.equal(parseLeafMemo(fullLeafMemo), onChainEntry.commitmentHash);
+  assert.equal(parseLeafMemo(`aegis:leaf:${onChainEntry.commitmentHash.slice(0, 16)}`), null);
+
   const splitPlan = computeMagicBlockSplitPlan(BigInt(onChainEntry.amountBaseUnits), 6);
   const xferResp = await buildMagicBlockSplTransfer({
     from: payer.publicKey.toBase58(),
@@ -276,7 +402,7 @@ async function run() {
     split: splitPlan.split,
     minDelayMs: splitPlan.minDelayMs,
     maxDelayMs: splitPlan.maxDelayMs,
-    memo: `aegis:leaf:${onChainEntry.commitmentHash.slice(0, 16)}`,
+    memo: fullLeafMemo,
     cluster: MAGICBLOCK_CLUSTER,
   });
   const xferTx = deserializeMagicBlockTx(xferResp);
@@ -284,93 +410,180 @@ async function run() {
   assert.ok(decodedXfer, "MagicBlock Private SPL transfer must decode");
   assert.equal(decodedXfer.programId, MAGICBLOCK_EPHEMERAL_SPL_PROGRAM_ID);
   assert.equal(decodedXfer.discriminant, MAGICBLOCK_PRIVATE_TRANSFER_DISCRIMINANT);
-  assert.equal(decodedXfer.sender, payer.publicKey.toBase58());
-  assert.equal(decodedXfer.recipient, onChainEntry.recipient);
-  assert.equal(decodedXfer.mint, onChainEntry.tokenMint);
-  assert.equal(decodedXfer.amountBaseUnits, BigInt(onChainEntry.amountBaseUnits));
-  assert.equal(decodedXfer.split, splitPlan.split);
-  assert.equal(decodedXfer.memo, `aegis:leaf:${onChainEntry.commitmentHash.slice(0, 16)}`);
+  assert.equal(decodedXfer.memo, fullLeafMemo);
 
-  // Recompute leaf strictly from ON-CHAIN DECODED transfer fields -> must match committed leaf
-  const leafFromChain = computeLeafCommitment({
-    recipient: decodedXfer.recipient,
-    amountBaseUnits: decodedXfer.amountBaseUnits,
-    tokenMint: decodedXfer.mint,
-    settlementRail: "onchain_shielded",
+  // Full valid check passes
+  const validTransferRes = verifyDecodedMagicBlockTransfer(decodedXfer, {
+    signature: fakeAnchorSig,
+    leafIndex: 0,
+    expectedSender: payer.publicKey.toBase58(),
+    expectedCommitmentHash: onChainEntry.commitmentHash,
     saltHex: onChainEntry.saltHex,
     runNonce: runId,
+    merkleProof: onChainEntry.merkleProof,
+    anchoredMerkleRoot: plan.merkleTree.root,
   });
-  assert.equal(leafFromChain, onChainEntry.commitmentHash);
+  assert.equal(validTransferRes.verified, true);
 
-  // Buggy signer paying 300 USDC while manifest claims 3,800 USDC MUST fail leaf match!
+  // Stripping the memo MUST FAIL (closes missing-memo bypass!)
+  const strippedMemoRes = verifyDecodedMagicBlockTransfer(
+    { ...decodedXfer, memo: undefined },
+    {
+      signature: fakeAnchorSig,
+      leafIndex: 0,
+      expectedSender: payer.publicKey.toBase58(),
+      expectedCommitmentHash: onChainEntry.commitmentHash,
+      saltHex: onChainEntry.saltHex,
+      runNonce: runId,
+      merkleProof: onChainEntry.merkleProof,
+      anchoredMerkleRoot: plan.merkleTree.root,
+    }
+  );
+  assert.equal(strippedMemoRes.verified, false, "Stripped memo MUST fail verification");
+
+  // Truncated 16-hex memo MUST FAIL
+  const truncatedMemoRes = verifyDecodedMagicBlockTransfer(
+    { ...decodedXfer, memo: `aegis:leaf:${onChainEntry.commitmentHash.slice(0, 16)}` },
+    {
+      signature: fakeAnchorSig,
+      leafIndex: 0,
+      expectedSender: payer.publicKey.toBase58(),
+      expectedCommitmentHash: onChainEntry.commitmentHash,
+      saltHex: onChainEntry.saltHex,
+      runNonce: runId,
+      merkleProof: onChainEntry.merkleProof,
+      anchoredMerkleRoot: plan.merkleTree.root,
+    }
+  );
+  assert.equal(truncatedMemoRes.verified, false, "16-hex truncated memo MUST fail verification");
+
+  // Underpayment (300 USDC vs 3,800 USDC) with valid full 64-hex memo MUST FAIL
   const underpaidResp = await buildMagicBlockSplTransfer({
     from: payer.publicKey.toBase58(),
     to: onChainEntry.recipient,
-    amount: 300_000_000n, // 300 USDC instead of 3,800 USDC!
+    amount: 300_000_000n,
     mint: onChainEntry.tokenMint,
     fromBalance: "ephemeral",
     toBalance: "base",
     split: 2,
     minDelayMs: "500",
     maxDelayMs: "1500",
-    memo: `aegis:leaf:${onChainEntry.commitmentHash.slice(0, 16)}`,
+    memo: fullLeafMemo,
     cluster: MAGICBLOCK_CLUSTER,
   });
   const decodedUnderpaid = decodeMagicBlockTransferFromTransaction(
     deserializeMagicBlockTx(underpaidResp)
   );
   assert.ok(decodedUnderpaid);
-  const underpaidLeaf = computeLeafCommitment({
-    recipient: decodedUnderpaid.recipient,
-    amountBaseUnits: decodedUnderpaid.amountBaseUnits,
-    tokenMint: decodedUnderpaid.mint,
-    settlementRail: "onchain_shielded",
+  const underpaidCheck = verifyDecodedMagicBlockTransfer(decodedUnderpaid, {
+    signature: fakeAnchorSig,
+    leafIndex: 0,
+    expectedSender: payer.publicKey.toBase58(),
+    expectedCommitmentHash: onChainEntry.commitmentHash,
     saltHex: onChainEntry.saltHex,
     runNonce: runId,
+    merkleProof: onChainEntry.merkleProof,
+    anchoredMerkleRoot: plan.merkleTree.root,
   });
-  assert.notEqual(
-    underpaidLeaf,
-    onChainEntry.commitmentHash,
-    "Underpaid transfer (300 vs 3,800) MUST fail Merkle leaf binding"
-  );
-  console.log("   ✓ L1 anchor decoder, live MagicBlock wire decoder, and underpayment rejection verified.");
+  assert.equal(underpaidCheck.verified, false, "Underpaid transfer (300 vs 3,800) MUST fail");
+  console.log("   ✓ Full 64-hex leaf memo, stripped/truncated rejection, and 300-vs-3,800 rejection verified.");
 
-  console.log("4. Testing Live Server-Side FX Quoting & Receipt Stamping...");
-  const liveQuote = await fetchLiveFxQuote({ bypassCache: true });
-  assert.ok(liveQuote.quoteId.startsWith("fx_"));
-  assert.ok(liveQuote.rates.NGN > 0 && liveQuote.rates.KES > 0);
-  const ngnPayout = computeFiatPayoutFromQuote(3800, "NGN", liveQuote);
-  const kesPayout = computeFiatPayoutFromQuote(2600, "KES", liveQuote);
-  assert.equal(ngnPayout.amountLocal, Math.round(3800 * liveQuote.rates.NGN * 100) / 100);
-  assert.equal(kesPayout.amountLocal, Math.round(2600 * liveQuote.rates.KES * 100) / 100);
+  console.log("5. Testing Cross-Batch Solana L1 Completeness Reconciliation ('Nothing Withheld')...");
+  const l1Anchors: EnumeratedL1Anchor[] = [
+    {
+      signature: "A".repeat(88),
+      slot: 1001,
+      blockTime: 1760000000,
+      blockTimeIso: new Date(1760000000 * 1000).toISOString(),
+      merkleRoot: "a".repeat(64),
+      leafCount: 4,
+      treasuryPubkey: payer.publicKey.toBase58(),
+    },
+    {
+      signature: "B".repeat(88),
+      slot: 1002,
+      blockTime: 1760086400,
+      blockTimeIso: new Date(1760086400 * 1000).toISOString(),
+      merkleRoot: "b".repeat(64),
+      leafCount: 6,
+      treasuryPubkey: payer.publicKey.toBase58(),
+    },
+    {
+      signature: "C".repeat(88),
+      slot: 1003,
+      blockTime: 1760172800,
+      blockTimeIso: new Date(1760172800 * 1000).toISOString(),
+      merkleRoot: "c".repeat(64),
+      leafCount: 2,
+      treasuryPubkey: payer.publicKey.toBase58(),
+    },
+  ];
 
+  const completeRecon = reconcileAuditedBatchesAgainstL1(l1Anchors, [
+    { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+    { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+    { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+  ]);
+  assert.equal(completeRecon.completeZeroOmissions, true);
+  assert.equal(completeRecon.undisclosedAnchors.length, 0);
+  assert.equal(completeRecon.deliveredMatchedCount, 3);
+
+  // Withhold batch C -> reconciliation MUST surface C as an undisclosed finding!
+  const withheldRecon = reconcileAuditedBatchesAgainstL1(l1Anchors, [
+    { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+    { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+  ]);
+  assert.equal(withheldRecon.completeZeroOmissions, false);
+  assert.equal(withheldRecon.undisclosedAnchors.length, 1);
+  assert.equal(withheldRecon.undisclosedAnchors[0].signature, "C".repeat(88));
+  assert.equal(withheldRecon.undisclosedAnchors[0].merkleRoot, "c".repeat(64));
+  console.log("   ✓ Cross-batch L1 completeness reconciliation detected withheld anchor C.");
+
+  console.log("6. Testing Partner-Applied FX Receipts & Mid-Market Sanity Guardrail...");
+  const refBenchmark = await fetchLiveFxQuote({ bypassCache: true });
+  assert.ok(refBenchmark.quoteId.startsWith("fx_ref_"));
+  assert.ok(refBenchmark.rates.NGN > 0 && refBenchmark.rates.KES > 0);
+
+  const kesRefEstimate = computeFiatPayoutFromQuote(2600, "KES", refBenchmark);
   const sandbox = new SandboxOfframpProvider();
   const receipt = await sandbox.disburse(
     {
       recipientId: recipientB,
       wallet: recipientB,
-      amountUsd: kesPayout.amountUsd,
-      amountLocal: kesPayout.amountLocal,
+      amountUsd: kesRefEstimate.amountUsd,
+      amountLocal: kesRefEstimate.amountLocal,
       currency: "KES",
       rail: "kes_mpesa",
       destinationAccount: "+254712901844",
       noteCommitment: plan.manifestEntries[1].commitmentHash,
-      exchangeRate: kesPayout.exchangeRate,
-      fxProvider: kesPayout.fxProvider,
-      fxQuotedAt: kesPayout.fxQuotedAt,
-      fxQuoteId: kesPayout.quoteId,
+      referenceMidMarketRate: refBenchmark.rates.KES,
+      referenceFxProvider: refBenchmark.provider,
+      fxQuotedAt: refBenchmark.quotedAt,
+      fxQuoteId: refBenchmark.quoteId,
     },
     plan.merkleTree.root
   );
-  assert.equal(receipt.exchangeRate, liveQuote.rates.KES);
-  assert.equal(receipt.fxProvider, liveQuote.provider);
-  assert.equal(receipt.fxQuoteId, liveQuote.quoteId);
-  assert.ok(receipt.fxQuotedAt);
+  assert.equal(receipt.fxRateSource, "sandbox_simulated_partner");
+  assert.equal(receipt.referenceMidMarketRate, refBenchmark.rates.KES);
+  assert.notEqual(receipt.exchangeRate, refBenchmark.rates.KES, "Applied partner rate must include partner spread, not blind mid-market");
+  assert.equal(receipt.fxSanityCheckPassed, true);
+  assert.ok(typeof receipt.fxSpreadBps === "number" && receipt.fxSpreadBps < 0);
+
+  // Wild partner rate (+15% off mid-market) MUST fail sanity guardrail
+  assert.throws(
+    () =>
+      validatePartnerAppliedRate({
+        appliedRate: refBenchmark.rates.NGN * 1.15,
+        referenceMidMarketRate: refBenchmark.rates.NGN,
+        currency: "NGN",
+      }),
+    FxSanityCheckError
+  );
   console.log(
-    `   ✓ Live server FX quote verified (${liveQuote.provider}: NGN=${liveQuote.rates.NGN}, KES=${liveQuote.rates.KES}, quoteId=${liveQuote.quoteId}).`
+    `   ✓ Partner-applied FX (${receipt.exchangeRate} KES vs mid-market ref ${receipt.referenceMidMarketRate} KES, spread=${receipt.fxSpreadBps} bps) & outlier rejection verified.`
   );
 
-  console.log("\nALL PASS 2 SECURITY, SETTLEMENT, E2EE & FX INVARIANTS PASSED ✓");
+  console.log("\nALL PASS 3 BLIND-SERVER, KEY VAULT, STRICT 64-HEX MEMO, L1 RECONCILIATION & FX INVARIANTS PASSED ✓");
 }
 
 run().catch((err) => {

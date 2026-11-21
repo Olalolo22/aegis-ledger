@@ -2,59 +2,80 @@ import { sha256 } from "@noble/hashes/sha256";
 import { bytesToHex } from "@noble/hashes/utils";
 
 /**
- * Client-Side Zero-Knowledge Audit Envelope Encryption (WebCrypto).
+ * Client-Side Zero-Knowledge Audit Envelope Encryption & Passphrase-Protected
+ * Multi-Admin Key Vault (WebCrypto).
  *
  * Security model ("Can Aegis servers read customer payroll?"):
- *   NO — cryptographically impossible.
+ *   NO — cryptographically impossible for on-chain shielded payroll and stored
+ *   audit manifests. Aegis servers never receive individual salaries, employee
+ *   wallets, leaf blinding salts, Merkle sum proofs, or private decryption keys.
  *
- * How it works:
- * 1. Each organization holds an RSA-OAEP-256 (2048-bit) keypair client-side.
- *    Only the SPKI public key is registered; the private key never leaves the
- *    organization's browser/vault.
- * 2. On every payroll batch, the browser generates a fresh random 256-bit
- *    AES-GCM Data Encryption Key (DEK), encrypts the batch manifest with a
- *    random 12-byte IV and canonical AAD (`orgId|payrollRunId|merkleRoot|tokenSymbol`),
- *    and wraps the DEK to the organization's public key (`orgWrappedDek`).
- * 3. Aegis servers and Postgres store ONLY the ciphertext (`EncryptedAuditEnvelope`).
- *    Compromising both Postgres AND `AEGIS_MASTER_SECRET` still cannot decrypt
- *    any payroll manifest.
- * 4. To grant scoped auditor access, the organization's browser unwraps ONLY
- *    the DEKs for batches inside `[valid_from, valid_until]` and `allowed_tokens`,
- *    re-wraps those DEKs to the auditor's public key (`auditorWrappedDek`), and
- *    submits ONLY the wrapped ciphertexts. The auditor decrypts manifests locally
- *    in their browser using their own private key.
- *
- * Cryptographic vs. Policy boundaries:
- * - Confidentiality from Aegis servers: CRYPTOGRAPHIC (server never holds private keys).
- * - Batch & token scope isolation: CRYPTOGRAPHIC (out-of-scope DEKs are never wrapped
- *   for the auditor's public key).
- * - Time-window expiry & key revocation: API DELIVERY POLICY (revoking a key or passing
- *   `valid_until` blocks further ciphertext delivery from `/api/audit/decrypt`; like all
- *   E2EE systems, it cannot retroactively erase plaintext already decrypted locally).
+ * Key Custody & Multi-Admin Lifecycle (see docs/KEY_MANAGEMENT_POLICY.md):
+ * 1. Organization admin private keys are NEVER stored in plaintext in
+ *    `window.localStorage` or `sessionStorage`.
+ * 2. Each admin's RSA-OAEP-256 private key is encrypted client-side with a
+ *    strong passphrase via PBKDF2-SHA256 (600,000 iterations) + AES-256-GCM
+ *    (`EncryptedPrivateKeyVault`) before being backed up to `/api/org/key-vault`
+ *    or exported as an offline Recovery Kit JSON.
+ * 3. Unlocked keys live strictly in ephemeral JavaScript memory for the active
+ *    session and are wiped when locked or when the tab closes.
+ * 4. Every payroll batch's random 256-bit AES-GCM DEK is wrapped to ALL active
+ *    organization admins (`orgWrappedDeks` — e.g., Primary Finance Admin +
+ *    Backup Controller), preventing single-admin lockout and enabling clean
+ *    offboarding rotation without server access to plaintext.
  */
 
 const AES_IV_LENGTH = 12;
+const PBKDF2_SALT_LENGTH = 16;
+export const VAULT_PBKDF2_ITERATIONS = 600_000;
+export const MIN_VAULT_PASSPHRASE_LENGTH = 12;
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+export type OrgAdminRole = "primary" | "backup_controller" | "recovery";
 
 export interface AuditKeyPair {
   /** Base64-encoded SubjectPublicKeyInfo (SPKI) RSA-OAEP-256 public key */
   publicKeySpkiBase64: string;
-  /** Base64-encoded PKCS#8 RSA-OAEP-256 private key (CLIENT-SIDE ONLY — never upload) */
+  /** Base64-encoded PKCS#8 RSA-OAEP-256 private key (MEMORY-ONLY when unlocked) */
   privateKeyPkcs8Base64: string;
   /** SHA-256 hex fingerprint of SPKI public key bytes (first 16 hex chars) */
   fingerprint: string;
 }
 
+export interface EncryptedPrivateKeyVault {
+  version: 1;
+  kdf: "PBKDF2-SHA256";
+  iterations: number;
+  cipher: "AES-256-GCM";
+  orgId: string;
+  adminLabel: string;
+  role: OrgAdminRole;
+  publicKeySpkiBase64: string;
+  fingerprint: string;
+  saltBase64: string;
+  ivBase64: string;
+  ciphertextBase64: string;
+  aad: string;
+  createdAt: string;
+}
+
 export interface EncryptedAuditEnvelope {
   version: 2;
   scheme: "RSA-OAEP-256+AES-256-GCM";
-  /** First 16 hex chars of SHA-256(org SPKI public key) */
+  /** First 16 hex chars of SHA-256(primary org admin SPKI public key) */
   orgPublicKeyFingerprint: string;
   /** Base64(iv(12) || ciphertext || authTag(16)) encrypted under random 256-bit DEK */
   encryptedManifest: string;
-  /** Base64 RSA-OAEP-256 wrapped 32-byte DEK for the organization's public key */
+  /** Primary admin's Base64 RSA-OAEP-256 wrapped 32-byte DEK */
   orgWrappedDek: string;
+  /**
+   * Multi-admin map: `adminFingerprint -> Base64 RSA-OAEP-256 wrapped 32-byte DEK`.
+   * Allows Primary Finance Admin + Backup Controller (2+ admins) to unwrap and
+   * rotate keys independently without single-person lockout.
+   */
+  orgWrappedDeks?: Record<string, string>;
   /** Canonical GCM AAD string binding org, run, Merkle root, and token */
   aad: string;
 }
@@ -118,8 +139,20 @@ export function buildEnvelopeAad(params: {
 }
 
 /**
- * Generates an RSA-OAEP-256 (2048-bit) keypair for an organization or auditor.
- * MUST be executed client-side; never transmit `privateKeyPkcs8Base64` to the server.
+ * Builds canonical GCM AAD binding a passphrase-encrypted private key vault
+ * to its organization, admin role, and public-key fingerprint.
+ */
+export function buildKeyVaultAad(params: {
+  orgId: string;
+  role: OrgAdminRole;
+  fingerprint: string;
+}): string {
+  return `aegis:vault:v1|${params.orgId}|${params.role}|${params.fingerprint}`;
+}
+
+/**
+ * Generates an RSA-OAEP-256 (2048-bit) keypair for an organization admin or auditor.
+ * MUST be executed client-side; never transmit `privateKeyPkcs8Base64` in plaintext.
  */
 export async function generateAuditKeyPair(): Promise<AuditKeyPair> {
   const subtle = getSubtle();
@@ -171,15 +204,241 @@ async function importPrivateKey(pkcs8Base64: string): Promise<CryptoKey> {
   );
 }
 
+async function deriveVaultWrappingKey(
+  passphrase: string,
+  salt: Uint8Array,
+  iterations: number
+): Promise<CryptoKey> {
+  const subtle = getSubtle();
+  const baseKey = await subtle.importKey(
+    "raw",
+    toArrayBuffer(encoder.encode(passphrase)),
+    { name: "PBKDF2" },
+    false,
+    ["deriveKey"]
+  );
+
+  return subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: toArrayBuffer(salt),
+      iterations,
+      hash: "SHA-256",
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+/**
+ * Encrypts an organization admin's RSA-OAEP private key client-side under a
+ * strong passphrase using PBKDF2-SHA256 (600,000 iterations) + AES-256-GCM.
+ *
+ * The resulting `EncryptedPrivateKeyVault` is safe to persist in Postgres
+ * (`/api/org/key-vault`) or export as an offline Recovery Kit JSON.
+ */
+export async function encryptPrivateKeyWithPassphrase(
+  keyPair: AuditKeyPair,
+  passphrase: string,
+  meta: {
+    orgId: string;
+    adminLabel: string;
+    role: OrgAdminRole;
+    iterations?: number;
+  }
+): Promise<EncryptedPrivateKeyVault> {
+  if (!passphrase || passphrase.length < MIN_VAULT_PASSPHRASE_LENGTH) {
+    throw new Error(
+      `Vault passphrase must be at least ${MIN_VAULT_PASSPHRASE_LENGTH} characters.`
+    );
+  }
+
+  const iterations = meta.iterations ?? VAULT_PBKDF2_ITERATIONS;
+  if (iterations < 100_000) {
+    throw new Error("PBKDF2 iterations must be at least 100,000.");
+  }
+
+  const subtle = getSubtle();
+  const salt = new Uint8Array(PBKDF2_SALT_LENGTH);
+  const iv = new Uint8Array(AES_IV_LENGTH);
+  globalThis.crypto.getRandomValues(salt);
+  globalThis.crypto.getRandomValues(iv);
+
+  const aad = buildKeyVaultAad({
+    orgId: meta.orgId,
+    role: meta.role,
+    fingerprint: keyPair.fingerprint,
+  });
+
+  const wrappingKey = await deriveVaultWrappingKey(passphrase, salt, iterations);
+  const ciphertext = new Uint8Array(
+    await subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: toArrayBuffer(iv),
+        additionalData: toArrayBuffer(encoder.encode(aad)),
+      },
+      wrappingKey,
+      toArrayBuffer(encoder.encode(keyPair.privateKeyPkcs8Base64))
+    )
+  );
+
+  return {
+    version: 1,
+    kdf: "PBKDF2-SHA256",
+    iterations,
+    cipher: "AES-256-GCM",
+    orgId: meta.orgId,
+    adminLabel: meta.adminLabel,
+    role: meta.role,
+    publicKeySpkiBase64: keyPair.publicKeySpkiBase64,
+    fingerprint: keyPair.fingerprint,
+    saltBase64: bytesToBase64(salt),
+    ivBase64: bytesToBase64(iv),
+    ciphertextBase64: bytesToBase64(ciphertext),
+    aad,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Unlocks a passphrase-encrypted admin key vault strictly in client memory.
+ * Fails loudly on wrong passphrase, tampered ciphertext, or tampered vault metadata.
+ */
+export async function decryptPrivateKeyWithPassphrase(
+  vault: EncryptedPrivateKeyVault,
+  passphrase: string
+): Promise<AuditKeyPair> {
+  const expectedAad = buildKeyVaultAad({
+    orgId: vault.orgId,
+    role: vault.role,
+    fingerprint: vault.fingerprint,
+  });
+  if (vault.aad !== expectedAad) {
+    throw new Error("Key vault AAD does not match vault org/role/fingerprint metadata.");
+  }
+
+  const expectedFp = getPublicKeyFingerprint(vault.publicKeySpkiBase64);
+  if (expectedFp !== vault.fingerprint) {
+    throw new Error("Key vault fingerprint does not match stored SPKI public key.");
+  }
+
+  const subtle = getSubtle();
+  const salt = base64ToBytes(vault.saltBase64);
+  const iv = base64ToBytes(vault.ivBase64);
+  const ciphertext = base64ToBytes(vault.ciphertextBase64);
+
+  const wrappingKey = await deriveVaultWrappingKey(passphrase, salt, vault.iterations);
+
+  let plaintextBytes: ArrayBuffer;
+  try {
+    plaintextBytes = await subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: toArrayBuffer(iv),
+        additionalData: toArrayBuffer(encoder.encode(vault.aad)),
+      },
+      wrappingKey,
+      toArrayBuffer(ciphertext)
+    );
+  } catch {
+    throw new Error("Incorrect vault passphrase or corrupted key vault.");
+  }
+
+  const privateKeyPkcs8Base64 = decoder.decode(plaintextBytes);
+  // Sanity-check key parses cleanly as PKCS#8 RSA-OAEP-256
+  await importPrivateKey(privateKeyPkcs8Base64);
+
+  return {
+    publicKeySpkiBase64: vault.publicKeySpkiBase64,
+    privateKeyPkcs8Base64,
+    fingerprint: vault.fingerprint,
+  };
+}
+
+/**
+ * Exports a passphrase-encrypted vault as a portable offline Recovery Kit JSON.
+ */
+export function serializeRecoveryKit(vault: EncryptedPrivateKeyVault): string {
+  return JSON.stringify(
+    {
+      format: "aegis-key-recovery-kit-v1",
+      warning:
+        "This file contains your passphrase-encrypted Aegis organization audit private key. Store offline in a corporate password manager or hardware vault. Aegis cannot recover your passphrase.",
+      vault,
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * Parses an exported offline Recovery Kit JSON file back into an EncryptedPrivateKeyVault.
+ */
+export function parseRecoveryKit(jsonText: string): EncryptedPrivateKeyVault {
+  const parsed = JSON.parse(jsonText) as {
+    format?: string;
+    vault?: EncryptedPrivateKeyVault;
+  };
+  if (parsed?.format !== "aegis-key-recovery-kit-v1" || !parsed.vault) {
+    throw new Error("Invalid Aegis Recovery Kit file format.");
+  }
+  const v = parsed.vault;
+  if (
+    v.version !== 1 ||
+    v.kdf !== "PBKDF2-SHA256" ||
+    v.cipher !== "AES-256-GCM" ||
+    !v.ciphertextBase64 ||
+    !v.saltBase64 ||
+    !v.ivBase64 ||
+    !v.publicKeySpkiBase64
+  ) {
+    throw new Error("Recovery Kit vault payload is incomplete or corrupted.");
+  }
+  return v;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Ephemeral In-Memory Session Cache (ZERO localStorage private keys)
+// ═══════════════════════════════════════════════════════════════
+
+const unlockedOrgKeyMemory = new Map<string, AuditKeyPair>();
+
+/**
+ * Holds an unlocked organization keypair strictly in volatile JS memory for
+ * the current tab session. Never persisted in plaintext to `localStorage`.
+ */
+export function cacheUnlockedOrgKeyInMemory(orgId: string, keyPair: AuditKeyPair): void {
+  unlockedOrgKeyMemory.set(orgId, keyPair);
+}
+
+/**
+ * Retrieves the currently unlocked organization keypair from volatile memory,
+ * or `null` if the vault is locked.
+ */
+export function getUnlockedOrgKeyFromMemory(orgId: string): AuditKeyPair | null {
+  return unlockedOrgKeyMemory.get(orgId) ?? null;
+}
+
+/**
+ * Immediately wipes the unlocked organization keypair from volatile memory.
+ */
+export function lockOrgKeyInMemory(orgId: string): void {
+  unlockedOrgKeyMemory.delete(orgId);
+}
+
 /**
  * Encrypts a batch payroll manifest client-side using a fresh random 256-bit
- * AES-GCM DEK wrapped to the organization's RSA-OAEP-256 public key.
+ * AES-GCM DEK wrapped to ALL active organization admin public keys
+ * (e.g. Primary Finance Admin + Backup Controller).
  *
  * Aegis servers receive ONLY the returned `envelope` and can never decrypt it.
  */
 export async function encryptManifestClientSide(
   manifestJson: string,
-  orgPublicKeySpkiBase64: string,
+  orgPublicKeysSpki: string | string[],
   aadParams: {
     orgId: string;
     payrollRunId: string;
@@ -187,6 +446,14 @@ export async function encryptManifestClientSide(
     tokenSymbol: string;
   }
 ): Promise<{ envelope: EncryptedAuditEnvelope; rawDekBytes: Uint8Array }> {
+  const pubKeyList = Array.isArray(orgPublicKeysSpki)
+    ? orgPublicKeysSpki.filter(Boolean)
+    : [orgPublicKeysSpki].filter(Boolean);
+
+  if (pubKeyList.length === 0) {
+    throw new Error("At least one active organization admin public key is required.");
+  }
+
   const subtle = getSubtle();
   const aad = buildEnvelopeAad(aadParams);
 
@@ -221,22 +488,33 @@ export async function encryptManifestClientSide(
   packed.set(iv, 0);
   packed.set(ciphertextWithTag, iv.length);
 
-  // 3. Wrap raw 32-byte DEK to organization's RSA-OAEP-256 public key
-  const orgPubKey = await importPublicKey(orgPublicKeySpkiBase64);
-  const wrappedDekBytes = new Uint8Array(
-    await subtle.encrypt(
-      { name: "RSA-OAEP" },
-      orgPubKey,
-      toArrayBuffer(rawDekBytes)
-    )
-  );
+  // 3. Wrap the same 32-byte DEK to every active admin's RSA-OAEP-256 public key
+  const orgWrappedDeks: Record<string, string> = {};
+  let primaryFingerprint = "";
+  let primaryWrappedDek = "";
+
+  for (let i = 0; i < pubKeyList.length; i++) {
+    const spki = pubKeyList[i];
+    const fp = getPublicKeyFingerprint(spki);
+    const pubKey = await importPublicKey(spki);
+    const wrappedBytes = new Uint8Array(
+      await subtle.encrypt({ name: "RSA-OAEP" }, pubKey, toArrayBuffer(rawDekBytes))
+    );
+    const wrappedB64 = bytesToBase64(wrappedBytes);
+    orgWrappedDeks[fp] = wrappedB64;
+    if (i === 0) {
+      primaryFingerprint = fp;
+      primaryWrappedDek = wrappedB64;
+    }
+  }
 
   const envelope: EncryptedAuditEnvelope = {
     version: 2,
     scheme: "RSA-OAEP-256+AES-256-GCM",
-    orgPublicKeyFingerprint: getPublicKeyFingerprint(orgPublicKeySpkiBase64),
+    orgPublicKeyFingerprint: primaryFingerprint,
     encryptedManifest: bytesToBase64(packed),
-    orgWrappedDek: bytesToBase64(wrappedDekBytes),
+    orgWrappedDek: primaryWrappedDek,
+    orgWrappedDeks,
     aad,
   };
 
@@ -244,25 +522,41 @@ export async function encryptManifestClientSide(
 }
 
 /**
- * Unwraps a batch DEK using the organization's private key (client-side only)
- * and re-wraps it to an authorized auditor's RSA-OAEP-256 public key.
- *
- * Only in-scope batches are re-wrapped, cryptographically enforcing scope.
+ * Resolves the wrapped DEK for a given admin fingerprint from an envelope
+ * (supports both multi-admin `orgWrappedDeks` and legacy single `orgWrappedDek`).
  */
-export async function reWrapDekForAuditor(
-  orgWrappedDekBase64: string,
-  orgPrivateKeyPkcs8Base64: string,
-  auditorPublicKeySpkiBase64: string
+export function resolveAdminWrappedDek(
+  envelope: Pick<EncryptedAuditEnvelope, "orgWrappedDek" | "orgWrappedDeks" | "orgPublicKeyFingerprint">,
+  adminFingerprint: string
+): string | null {
+  if (envelope.orgWrappedDeks && envelope.orgWrappedDeks[adminFingerprint]) {
+    return envelope.orgWrappedDeks[adminFingerprint];
+  }
+  if (envelope.orgPublicKeyFingerprint === adminFingerprint && envelope.orgWrappedDek) {
+    return envelope.orgWrappedDek;
+  }
+  return null;
+}
+
+/**
+ * Unwraps a batch DEK using an active organization admin's private key
+ * (client-side only) and re-wraps it to a target RSA-OAEP-256 public key
+ * (either an authorized auditor OR a newly onboarded admin during key rotation).
+ */
+export async function reWrapDekForRecipientPublicKey(
+  existingWrappedDekBase64: string,
+  activeAdminPrivateKeyPkcs8Base64: string,
+  targetPublicKeySpkiBase64: string
 ): Promise<string> {
   const subtle = getSubtle();
-  const orgPrivKey = await importPrivateKey(orgPrivateKeyPkcs8Base64);
-  const auditorPubKey = await importPublicKey(auditorPublicKeySpkiBase64);
+  const activePrivKey = await importPrivateKey(activeAdminPrivateKeyPkcs8Base64);
+  const targetPubKey = await importPublicKey(targetPublicKeySpkiBase64);
 
   const rawDekBytes = new Uint8Array(
     await subtle.decrypt(
       { name: "RSA-OAEP" },
-      orgPrivKey,
-      toArrayBuffer(base64ToBytes(orgWrappedDekBase64))
+      activePrivKey,
+      toArrayBuffer(base64ToBytes(existingWrappedDekBase64))
     )
   );
 
@@ -270,40 +564,81 @@ export async function reWrapDekForAuditor(
     throw new Error("Unwrapped DEK has invalid length.");
   }
 
-  const auditorWrapped = new Uint8Array(
+  const reWrapped = new Uint8Array(
     await subtle.encrypt(
       { name: "RSA-OAEP" },
-      auditorPubKey,
+      targetPubKey,
       toArrayBuffer(rawDekBytes)
     )
   );
 
-  return bytesToBase64(auditorWrapped);
+  return bytesToBase64(reWrapped);
 }
 
 /**
- * Decrypts an `EncryptedAuditEnvelope` locally on the client using either the
- * organization's private key (with `envelope.orgWrappedDek`) OR an auditor's
- * private key (with `auditorWrappedDekBase64`).
- *
- * Also verifies that `expectedAad` (if provided, reconstructed from on-chain
- * root + run metadata) matches `envelope.aad` before decrypting.
+ * Unwraps a batch DEK using an org admin's private key (client-side only)
+ * and re-wraps it to an authorized auditor's RSA-OAEP-256 public key.
+ * Only in-scope batches are re-wrapped, cryptographically enforcing scope.
+ */
+export async function reWrapDekForAuditor(
+  orgWrappedDekBase64: string,
+  orgPrivateKeyPkcs8Base64: string,
+  auditorPublicKeySpkiBase64: string
+): Promise<string> {
+  return reWrapDekForRecipientPublicKey(
+    orgWrappedDekBase64,
+    orgPrivateKeyPkcs8Base64,
+    auditorPublicKeySpkiBase64
+  );
+}
+
+/**
+ * Rotates admin access on a batch DEK client-side (e.g., when Primary Admin
+ * departs and Backup Controller onboards a replacement admin).
+ */
+export async function reWrapDekForNewAdmin(
+  existingWrappedDekBase64: string,
+  activeAdminPrivateKeyPkcs8Base64: string,
+  newAdminPublicKeySpkiBase64: string
+): Promise<string> {
+  return reWrapDekForRecipientPublicKey(
+    existingWrappedDekBase64,
+    activeAdminPrivateKeyPkcs8Base64,
+    newAdminPublicKeySpkiBase64
+  );
+}
+
+/**
+ * Decrypts an `EncryptedAuditEnvelope` locally on the client using either an
+ * organization admin's private key (via `adminFingerprint` or `orgWrappedDek`)
+ * OR an auditor's private key (via `wrappedDekBase64`).
  */
 export async function decryptManifestClientSide(
   envelope: EncryptedAuditEnvelope,
   privateKeyPkcs8Base64: string,
   options?: {
     wrappedDekBase64?: string;
+    adminFingerprint?: string;
     expectedAad?: string;
   }
 ): Promise<string> {
   if (options?.expectedAad && envelope.aad !== options.expectedAad) {
-    throw new Error("Envelope AAD does not match expected batch metadata / on-chain Merkle root.");
+    throw new Error(
+      "Envelope AAD does not match expected batch metadata / on-chain Merkle root."
+    );
   }
 
   const subtle = getSubtle();
   const privKey = await importPrivateKey(privateKeyPkcs8Base64);
-  const wrappedDekB64 = options?.wrappedDekBase64 || envelope.orgWrappedDek;
+
+  let wrappedDekB64 = options?.wrappedDekBase64;
+  if (!wrappedDekB64 && options?.adminFingerprint) {
+    wrappedDekB64 =
+      resolveAdminWrappedDek(envelope, options.adminFingerprint) ?? undefined;
+  }
+  if (!wrappedDekB64) {
+    wrappedDekB64 = envelope.orgWrappedDek;
+  }
 
   const rawDekBytes = new Uint8Array(
     await subtle.decrypt(
@@ -340,31 +675,4 @@ export async function decryptManifestClientSide(
   );
 
   return decoder.decode(plaintext);
-}
-
-/**
- * Browser-local helper to retrieve or generate the organization's E2EE audit
- * keypair in browser storage (private key stays strictly local to the browser).
- */
-export async function getOrCreateLocalOrgAuditKeyPair(
-  orgId: string
-): Promise<AuditKeyPair> {
-  const storageKey = `aegis:org-audit-keypair:v2:${orgId}`;
-  if (typeof window !== "undefined" && window.localStorage) {
-    const existing = window.localStorage.getItem(storageKey);
-    if (existing) {
-      try {
-        const parsed = JSON.parse(existing) as AuditKeyPair;
-        if (parsed.publicKeySpkiBase64 && parsed.privateKeyPkcs8Base64 && parsed.fingerprint) {
-          return parsed;
-        }
-      } catch {
-        // Re-generate below if corrupted
-      }
-    }
-    const generated = await generateAuditKeyPair();
-    window.localStorage.setItem(storageKey, JSON.stringify(generated));
-    return generated;
-  }
-  return generateAuditKeyPair();
 }

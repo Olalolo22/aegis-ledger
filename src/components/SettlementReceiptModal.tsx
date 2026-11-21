@@ -127,11 +127,16 @@ export function SettlementReceiptModal({
               {receipt.fiatAmount.toLocaleString()}
             </div>
             <span style={{ fontSize: 10.5, color: "#9ca3af", fontFamily: "var(--mono)", display: "block" }}>
-              ≈ ${receipt.usdAmount.toLocaleString()} USDC (@ {receipt.exchangeRate} {receipt.fiatCurrency})
+              ≈ ${receipt.usdAmount.toLocaleString()} USDC (@ {receipt.exchangeRate} {receipt.fiatCurrency} · {receipt.fxRateSource === "partner_applied" ? "Partner Applied" : "Sandbox Partner"})
             </span>
             {(receipt.fxProvider || receipt.fxQuotedAt) && (
               <span style={{ fontSize: 9.5, color: "#6b7280", fontFamily: "var(--mono)", display: "block", marginTop: 2 }}>
-                FX: {receipt.fxProvider || "Live Spot"}{receipt.fxQuotedAt ? ` · ${new Date(receipt.fxQuotedAt).toISOString()}` : ""}
+                Rate: {receipt.fxProvider || "Partner Rate"}{receipt.fxQuotedAt ? ` · ${new Date(receipt.fxQuotedAt).toISOString()}` : ""}
+              </span>
+            )}
+            {receipt.referenceMidMarketRate !== undefined && (
+              <span style={{ fontSize: 9, color: "#6b7280", fontFamily: "var(--mono)", display: "block", marginTop: 2 }}>
+                Sanity Ref: {receipt.referenceMidMarketRate} {receipt.fiatCurrency} (spread {receipt.fxSpreadBps ?? 0} bps · {receipt.fxSanityCheckPassed !== false ? "✓ within guardrail" : "⚠ outlier"})
               </span>
             )}
           </div>

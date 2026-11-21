@@ -168,7 +168,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const [scanning, setScanning] = useState(false);
   const [timeline, setTimeline] = useState(100);
 
-  const { execute, status, scope, transactions } = useAuditorEngine();
+  const { execute, status, error, progress, scope, reconciliation, summary, transactions } = useAuditorEngine();
 
   useEffect(() => {
     if (authed && localToken && status === "idle") {
@@ -228,7 +228,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
         data: {
           ...n.data,
           label: decrypted ? "Company Treasury" : "0xc8d2···3f9a",
-          sublabel: decrypted ? "MagicBlock PER (Intel TDX Enclave) — Verified" : "Confidential TEE Enclave State",
+          sublabel: decrypted ? "MagicBlock PER (L1-Anchored · Client-Side E2EE)" : "Confidential TEE Enclave State",
         }
       };
     }
@@ -274,11 +274,66 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           <div className={styles.authedPill}>
             <span className={styles.authedDot} />
             <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)" }}>
-              Authenticated · Session: time-limited · auto-expires
+              Authenticated · Browser-local E2EE · L1 reconciled
             </span>
           </div>
         </div>
       </div>
+
+      {status === "error" && error && (
+        <div
+          style={{
+            background: "rgba(239, 68, 68, 0.08)",
+            border: "1px solid rgba(239, 68, 68, 0.35)",
+            borderRadius: 10,
+            padding: "14px 18px",
+            marginBottom: 16,
+            fontFamily: "var(--mono)",
+            fontSize: 11.5,
+            color: "#dc2626",
+          }}
+        >
+          <strong>AUDIT VERIFICATION FAILED:</strong> {error}
+        </div>
+      )}
+
+      {reconciliation && (
+        <div
+          style={{
+            background: reconciliation.completeZeroOmissions
+              ? "rgba(16, 185, 129, 0.08)"
+              : "rgba(239, 68, 68, 0.08)",
+            border: reconciliation.completeZeroOmissions
+              ? "1px solid rgba(16, 185, 129, 0.3)"
+              : "1px solid rgba(239, 68, 68, 0.45)",
+            borderRadius: 10,
+            padding: "12px 16px",
+            marginBottom: 16,
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, color: reconciliation.completeZeroOmissions ? "#059669" : "#dc2626" }}>
+              {reconciliation.completeZeroOmissions
+                ? `✓ CROSS-BATCH L1 COMPLETENESS VERIFIED: 0 WITHHELD BATCHES (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled)`
+                : `⚠ AUDIT FINDING: ${reconciliation.undisclosedAnchors.length} SOLANA L1 ANCHORED BATCH(ES) WITHHELD FROM DISCLOSURE`}
+            </span>
+            <span style={{ fontSize: 10, color: "var(--dim)" }}>
+              Source: {reconciliation.verifiedBy === "auditor_browser_l1_rpc" ? "Direct Auditor L1 RPC" : reconciliation.verifiedBy === "demo" ? "Demo Ledger" : "Server L1 RPC"} · ER Wire Verified: {reconciliation.erTransfersVerifiedCount}
+            </span>
+          </div>
+          {reconciliation.undisclosedAnchors.length > 0 && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              {reconciliation.undisclosedAnchors.map((a) => (
+                <div key={a.signature} style={{ fontSize: 10, color: "#b91c1c" }}>
+                  • Undisclosed L1 anchor: tx {a.signature.slice(0, 14)}... · root {a.merkleRoot.slice(0, 16)}... ({a.leafCount} leaves, slot {a.slot})
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={`${styles.card} ${styles.timelineCard}`}>
         <div className={styles.timelineHeader}>
@@ -334,7 +389,9 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                   <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
                     <IconHourglass size={24} style={{ color: "var(--mid)" }} />
                   </div>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--mid)" }}>Deciphering ledger...</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--mid)" }}>
+                    {progress || (status === "error" ? "Verification halted" : "Deciphering & verifying against Solana L1...")}
+                  </span>
                 </div>
               </div>
             )}
@@ -347,7 +404,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           <div className={styles.toggleRow}>
             <div>
               <div className={styles.toggleTitle}>{decrypted ? "Decrypted Ledger" : "Public Ciphertext"}</div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{decrypted ? "Plaintext · verified" : "Scrambled on-chain hashes"}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--dim)" }}>{decrypted ? "Plaintext · L1 & ER verified" : "Scrambled on-chain hashes"}</span>
             </div>
             <button className={styles.toggle} onClick={handleDecryptToggle} style={{ background: decrypted ? "var(--green)" : "var(--mist)" }} disabled={!isDone || scanning}>
               <span className={styles.toggleThumb} style={{ transform: decrypted ? "translateX(20px)" : "none" }} />
@@ -358,7 +415,20 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
               { label: "Transactions", val: filteredTxs.length.toString() },
               { label: "Total outflow", val: decrypted ? `$${(filteredTxs.reduce((s, t) => s + Math.abs(t.netAmount), 0) / 1e6).toLocaleString()}` : "ENCRYPTED" },
               { label: "Recipients", val: decrypted ? `${uniqueRecipientsCount} wallets` : "HIDDEN" },
-              { label: "Proof status", val: "✓ Groth16", col: "var(--green)" },
+              {
+                label: "Proof status",
+                val: summary?.verifiedChainAnchors ? "✓ L1 Merkle + ER Wire" : "✓ L1 Merkle Sum Tree",
+                col: "var(--green)",
+              },
+              {
+                label: "Withheld batches",
+                val: reconciliation
+                  ? reconciliation.completeZeroOmissions
+                    ? "0 (L1 reconciled)"
+                    : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`
+                  : "Checking...",
+                col: reconciliation && !reconciliation.completeZeroOmissions ? "#dc2626" : "var(--green)",
+              },
             ].map(s => (
               <div key={s.label} className={styles.statRow}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--dim)" }}>{s.label}</span>
@@ -368,7 +438,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           </div>
           <div className={styles.readOnlyNote}>
             <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--blue)", lineHeight: 1.6, display: "block", marginTop: 16 }}>
-              Viewing key is cryptographic read-only. It cannot authorise any transaction.
+              Viewing key is cryptographic read-only. Decryption, Merkle completeness, ER wire checks, and L1 anchor reconciliation all run in your browser.
             </span>
           </div>
         </div>

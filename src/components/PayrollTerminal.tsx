@@ -75,12 +75,12 @@ const TEE_LOG_STEPS = [
   { msg: " ✓ Ephemeral delegation confirmed on MagicBlock validator.", col: "var(--green)" },
   { msg: "› Requesting wallet signature for Private SPL transfers (split + randomized delays)...", col: "var(--dim)" },
   { msg: " ✓ Signatures authorized. Submitting strictly to TEE validator RPC...", col: "var(--green)" },
-  { msg: "› Executing private state transitions inside Intel TDX enclave...", col: "var(--dim)" },
-  { msg: " ✓ On-chain Private SPL transfers broadcast to MagicBlock PER.", col: "var(--green)" },
-  { msg: "› Verifying Merkle Sum Tree completeness & sealing AES-256-GCM audit manifest...", col: "var(--dim)" },
-  { msg: " ✓ Encrypted audit manifest sealed under HKDF org viewing key.", col: "var(--green)" },
-  { msg: "› Dispatching off-ramp settlement hooks (NGN / KES local rails)...", col: "var(--dim)" },
-  { msg: " ✓ Batch confirmed and verifiable via scoped auditor viewing keys.", col: "var(--green)" },
+  { msg: "› Anchoring Binary Merkle Sum Tree root on Solana L1 (zero salaries leaked)...", col: "var(--dim)" },
+  { msg: " ✓ Full 64-hex leaf commitments & L1 Merkle root verified.", col: "var(--green)" },
+  { msg: "› Sealing multi-admin RSA-OAEP-256 + AES-256-GCM audit envelope locally...", col: "var(--dim)" },
+  { msg: " ✓ Blind-server confirmation complete — server saw zero individual salaries.", col: "var(--green)" },
+  { msg: "› Dispatching off-ramp settlement hooks (partner-applied FX + mid-market check)...", col: "var(--dim)" },
+  { msg: " ✓ Batch confirmed and verifiable via scoped client-side E2EE viewing keys.", col: "var(--green)" },
 ];
 
 function ExecutionModal({
@@ -352,8 +352,8 @@ export default function PayrollTerminal() {
         rail: isKes ? "kes_mpesa" : "ngn_bank",
         destinationAccount: recipient.destinationAccount || "Bank Account",
         noteCommitment: demoCommitment,
-        exchangeRate: quotedRate,
-        fxProvider,
+        referenceMidMarketRate: quotedRate,
+        referenceFxProvider: fxProvider,
         fxQuotedAt,
         fxQuoteId,
       },
@@ -425,9 +425,157 @@ export default function PayrollTerminal() {
     });
   };
 
+  // Passphrase-Protected Multi-Admin Organization Key Vault (MEMORY-ONLY when unlocked; zero raw localStorage keys)
+  const [vaultPassphrase, setVaultPassphrase] = useState("");
+  const [vaultUnlockedFp, setVaultUnlockedFp] = useState<string | null>(null);
+  const [vaultActiveAdmins, setVaultActiveAdmins] = useState<number>(0);
+  const [latestEncryptedVault, setLatestEncryptedVault] = useState<any | null>(null);
+  const [vaultStatusMsg, setVaultStatusMsg] = useState<string | null>(null);
+  const [vaultError, setVaultError] = useState<string | null>(null);
+  const [vaultBusy, setVaultBusy] = useState(false);
+
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [generatedAuditorPrivKey, setGeneratedAuditorPrivKey] = useState<string | null>(null);
   const [auditKeyError, setAuditKeyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/org/key-vault?org_id=${encodeURIComponent(DEMO_ORG_ID)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setVaultActiveAdmins(Number(d.active_admin_count || 0));
+          const activeWithBlob = (d.vaults || []).find(
+            (v: any) => v.status === "active" && v.encrypted_vault
+          );
+          if (activeWithBlob?.encrypted_vault) {
+            setLatestEncryptedVault(activeWithBlob.encrypted_vault);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleUnlockOrInitVault = async (role: "primary" | "backup_controller" = "primary") => {
+    setVaultError(null);
+    setVaultStatusMsg(null);
+    if (vaultPassphrase.length < 12) {
+      setVaultError("Passphrase must be at least 12 characters (PBKDF2-SHA256 600k iterations).");
+      return;
+    }
+
+    setVaultBusy(true);
+    try {
+      const {
+        cacheUnlockedOrgKeyInMemory,
+        decryptPrivateKeyWithPassphrase,
+        encryptPrivateKeyWithPassphrase,
+        generateAuditKeyPair,
+      } = await import("@/lib/e2ee");
+
+      // Check existing encrypted vaults on server (server holds ciphertext only)
+      const existingRes = await fetch(`/api/org/key-vault?org_id=${encodeURIComponent(DEMO_ORG_ID)}`);
+      const existingData = existingRes.ok ? await existingRes.json() : { vaults: [] };
+      const existingActive = (existingData.vaults || []).filter((v: any) => v.status === "active");
+
+      // If unlocking an existing primary vault
+      if (role === "primary" && existingActive.some((v: any) => v.encrypted_vault)) {
+        let unlocked = null;
+        let matchedVault = null;
+        for (const v of existingActive) {
+          if (!v.encrypted_vault) continue;
+          try {
+            unlocked = await decryptPrivateKeyWithPassphrase(v.encrypted_vault, vaultPassphrase);
+            matchedVault = v.encrypted_vault;
+            break;
+          } catch {
+            // Try next active admin vault matching this passphrase
+          }
+        }
+        if (!unlocked) {
+          throw new Error("Incorrect vault passphrase for this organization's active admin vaults.");
+        }
+        cacheUnlockedOrgKeyInMemory(DEMO_ORG_ID, unlocked);
+        setVaultUnlockedFp(unlocked.fingerprint);
+        setLatestEncryptedVault(matchedVault);
+        setVaultActiveAdmins(existingActive.length);
+        setVaultPassphrase("");
+        setVaultStatusMsg(`Vault unlocked in memory (${unlocked.fingerprint}) · ${existingActive.length} active admin(s).`);
+        return;
+      }
+
+      // Otherwise create a new passphrase-encrypted admin vault (primary or backup controller)
+      const keyPair = await generateAuditKeyPair();
+      const adminLabel =
+        role === "backup_controller"
+          ? `Backup Controller #${existingActive.length + 1}`
+          : "Primary Finance Admin";
+      const encryptedVault = await encryptPrivateKeyWithPassphrase(keyPair, vaultPassphrase, {
+        orgId: DEMO_ORG_ID,
+        adminLabel,
+        role,
+      });
+
+      const saveRes = await fetch("/api/org/key-vault", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_id: DEMO_ORG_ID,
+          admin_label: adminLabel,
+          role,
+          public_key_spki: keyPair.publicKeySpkiBase64,
+          fingerprint: keyPair.fingerprint,
+          encrypted_vault: encryptedVault,
+        }),
+      });
+
+      // Even if DB migration 005 isn't applied yet, hold unlocked key in volatile memory & allow Recovery Kit export
+      if (role === "primary" || !vaultUnlockedFp) {
+        cacheUnlockedOrgKeyInMemory(DEMO_ORG_ID, keyPair);
+        setVaultUnlockedFp(keyPair.fingerprint);
+      }
+      setLatestEncryptedVault(encryptedVault);
+      setVaultPassphrase("");
+
+      if (saveRes.ok) {
+        const nextCount = existingActive.length + 1;
+        setVaultActiveAdmins(nextCount);
+        setVaultStatusMsg(
+          role === "backup_controller"
+            ? `Backup admin registered (${keyPair.fingerprint}) · ${nextCount} active admins wrap future batch DEKs.`
+            : `Passphrase vault initialized (${keyPair.fingerprint}) · unlocked in memory only.`
+        );
+      } else {
+        setVaultActiveAdmins(Math.max(1, existingActive.length + 1));
+        setVaultStatusMsg(
+          `Key unlocked in memory (${keyPair.fingerprint}). Download Recovery Kit JSON (run migration 005 for DB vault sync).`
+        );
+      }
+    } catch (e) {
+      setVaultError(e instanceof Error ? e.message : "Key vault unlock failed");
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const handleExportRecoveryKit = async () => {
+    if (!latestEncryptedVault) return;
+    const { serializeRecoveryKit } = await import("@/lib/e2ee");
+    const json = serializeRecoveryKit(latestEncryptedVault);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aegis-recovery-kit-${latestEncryptedVault.fingerprint}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLockVault = async () => {
+    const { lockOrgKeyInMemory } = await import("@/lib/e2ee");
+    lockOrgKeyInMemory(DEMO_ORG_ID);
+    setVaultUnlockedFp(null);
+    setVaultStatusMsg("Key vault locked — private key wiped from browser memory.");
+  };
 
   const handleGenerateAuditorKey = async () => {
     try {
@@ -437,20 +585,28 @@ export default function PayrollTerminal() {
 
       const {
         generateAuditKeyPair,
-        getOrCreateLocalOrgAuditKeyPair,
+        getUnlockedOrgKeyFromMemory,
         reWrapDekForAuditor,
+        resolveAdminWrappedDek,
       } = await import("@/lib/e2ee");
+
+      // 1. Require unlocked passphrase-protected org key in memory (zero raw localStorage keys)
+      const orgKeyPair = getUnlockedOrgKeyFromMemory(DEMO_ORG_ID);
+      if (!orgKeyPair) {
+        setAuditKeyError(
+          "Unlock your passphrase-protected Organization Key Vault above before issuing an auditor key."
+        );
+        return;
+      }
 
       const auditorIdentity = "Internal Compliance";
       const validFrom = new Date(Date.now() - 365 * 86400000).toISOString();
       const validUntil = new Date(Date.now() + 86400000).toISOString();
       const allowedTokens: Array<"USDC" | "SOL"> = ["USDC", "SOL"];
 
-      // 1. Load org's browser-local E2EE keypair & generate a fresh keypair for this auditor
-      const orgKeyPair = await getOrCreateLocalOrgAuditKeyPair(DEMO_ORG_ID);
       const auditorKeyPair = await generateAuditKeyPair();
 
-      // 2. Fetch in-scope completed batch orgWrappedDeks and re-wrap strictly in-browser
+      // 2. Fetch in-scope completed batch wrapped DEKs and re-wrap strictly in-browser
       const wrappedBatchKeys: Record<string, string> = {};
       const runsUrl = new URL("/api/payroll", window.location.origin);
       runsUrl.searchParams.set("org_id", DEMO_ORG_ID);
@@ -462,12 +618,17 @@ export default function PayrollTerminal() {
       if (runsRes.ok) {
         const runsData = await runsRes.json();
         for (const run of runsData.runs || []) {
-          if (
-            run.org_wrapped_dek &&
-            run.org_public_key_fingerprint === orgKeyPair.fingerprint
-          ) {
+          const adminWrapped = resolveAdminWrappedDek(
+            {
+              orgWrappedDek: run.org_wrapped_dek,
+              orgWrappedDeks: run.org_wrapped_deks,
+              orgPublicKeyFingerprint: run.org_public_key_fingerprint,
+            },
+            orgKeyPair.fingerprint
+          );
+          if (adminWrapped) {
             wrappedBatchKeys[run.id] = await reWrapDekForAuditor(
-              run.org_wrapped_dek,
+              adminWrapped,
               orgKeyPair.privateKeyPkcs8Base64,
               auditorKeyPair.publicKeySpkiBase64
             );
@@ -675,8 +836,127 @@ export default function PayrollTerminal() {
             </div>
           </div>
 
-          {/* Integrated Auditor Key Generator */}
+          {/* Passphrase-Protected Multi-Admin Org Key Vault + Auditor Key Generator */}
           <div className={styles.complianceBox}>
+            <div style={{ paddingBottom: 10, marginBottom: 10, borderBottom: "1px solid rgba(8, 9, 11, 0.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                <div>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 600, color: "#08090b", display: "block" }}>
+                    Org E2EE Key Vault {vaultUnlockedFp ? `· Unlocked (${vaultUnlockedFp.slice(0, 8)})` : "· Locked"}
+                  </span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "#8e98a6" }}>
+                    PBKDF2-SHA256 + AES-256-GCM · Memory-only (0 localStorage keys) · {vaultActiveAdmins} active admin(s)
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {latestEncryptedVault && (
+                    <button
+                      onClick={handleExportRecoveryKit}
+                      style={{
+                        background: "transparent",
+                        color: "#08090b",
+                        border: "1px solid rgba(8, 9, 11, 0.2)",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        fontFamily: "var(--mono)",
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Recovery Kit ↓
+                    </button>
+                  )}
+                  {vaultUnlockedFp && (
+                    <button
+                      onClick={handleLockVault}
+                      style={{
+                        background: "transparent",
+                        color: "#dc2626",
+                        border: "1px solid rgba(220, 38, 38, 0.25)",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        fontFamily: "var(--mono)",
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Lock
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  type="password"
+                  value={vaultPassphrase}
+                  onChange={(e) => setVaultPassphrase(e.target.value)}
+                  placeholder={vaultUnlockedFp ? "Passphrase for backup admin (12+ chars)" : "Vault passphrase (min 12 chars)"}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    fontFamily: "var(--mono)",
+                    fontSize: 10,
+                    padding: "5px 8px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    background: "#fff",
+                    color: "#08090b",
+                  }}
+                />
+                {!vaultUnlockedFp ? (
+                  <button
+                    onClick={() => handleUnlockOrInitVault("primary")}
+                    disabled={vaultBusy}
+                    style={{
+                      background: "#08090b",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "5px 10px",
+                      fontFamily: "var(--mono)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {vaultBusy ? "Deriving..." : "Unlock / Init"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleUnlockOrInitVault("backup_controller")}
+                    disabled={vaultBusy}
+                    style={{
+                      background: "#059669",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "5px 10px",
+                      fontFamily: "var(--mono)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {vaultBusy ? "Wrapping..." : "+ Backup Admin"}
+                  </button>
+                )}
+              </div>
+
+              {vaultError && (
+                <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, color: "#dc2626" }}>
+                  [VAULT ERROR] {vaultError}
+                </div>
+              )}
+              {vaultStatusMsg && (
+                <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, color: "#059669" }}>
+                  ✓ {vaultStatusMsg}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 600, color: "#08090b", display: "block" }}>

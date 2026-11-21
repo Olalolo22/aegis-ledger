@@ -2,8 +2,9 @@ import { z } from "zod";
 
 /**
  * Validation schemas for all API inputs.
- * Every route MUST validate request bodies through these schemas
- * before processing — no raw user input reaches business logic.
+ * Every route MUST validate request bodies through `.strict()` schemas
+ * before processing — no plaintext individual salaries, employee wallets,
+ * leaf salts, or Merkle sum-tree proofs are ever accepted by blind payroll routes.
  */
 
 const solanaPubkeySchema = z
@@ -25,36 +26,46 @@ const hexSha256Schema = z
   .string()
   .regex(/^[0-9a-fA-F]{64}$/, "Must be a 64-character hex SHA-256 digest");
 
+const keyFingerprintSchema = z
+  .string()
+  .regex(/^[0-9a-fA-F]{16}$/, "Must be a 16-character hex public key fingerprint");
+
 const supportedTokenSymbols = ["USDC", "USDT", "SOL"] as const;
-const settlementRailSchema = z.enum(["onchain_shielded", "ngn_bank", "kes_mpesa"]);
 
-const payrollRecipientSchema = z.object({
-  wallet: solanaPubkeySchema,
-  amount: z
-    .string()
-    .regex(/^\d+$/, "Amount must be a non-negative integer string")
-    .refine((val) => BigInt(val) > 0n, "Amount must be greater than zero"),
-  token: z.enum(supportedTokenSymbols).optional(),
-  settlementRail: settlementRailSchema.optional().default("onchain_shielded"),
-  destinationAccount: z.string().max(128).optional(),
-});
+// ═══════════════════════════════════════════════════════════════
+// BLIND PAYROLL INITIATION Schema (Aggregate Totals Only — ZERO Per-Recipient Data)
+// ═══════════════════════════════════════════════════════════════
 
-export const payrollRequestSchema = z.object({
-  org_id: z.string().uuid("org_id must be a valid UUID"),
-  token_symbol: z.enum(supportedTokenSymbols, {
-    message: `token_symbol must be one of: ${supportedTokenSymbols.join(", ")}`,
-  }),
-  token_mint: solanaPubkeySchema,
-  initiated_by: solanaPubkeySchema,
-  recipients: z
-    .array(payrollRecipientSchema)
-    .min(1, "Must have at least one recipient")
-    .max(50, "Maximum 50 recipients per batch"),
-  rail: z.literal("tee").optional().default("tee"),
-});
+export const payrollRequestSchema = z
+  .object({
+    org_id: z.string().uuid("org_id must be a valid UUID"),
+    token_symbol: z.enum(supportedTokenSymbols, {
+      message: `token_symbol must be one of: ${supportedTokenSymbols.join(", ")}`,
+    }),
+    token_mint: solanaPubkeySchema,
+    initiated_by: solanaPubkeySchema,
+    /** Number of recipients in the batch (1..50); individual identities stay client-side */
+    recipient_count: z
+      .number()
+      .int()
+      .min(1, "Must have at least one recipient")
+      .max(50, "Maximum 50 recipients per batch"),
+    /** Aggregate batch total in base units (never per-employee salary) */
+    total_amount_base_units: z
+      .string()
+      .regex(/^\d+$/, "total_amount_base_units must be a non-negative integer string")
+      .refine((val) => BigInt(val) > 0n, "Total amount must be greater than zero"),
+    /** Aggregate on-chain shielded portion in base units (for ephemeral deposit preflight) */
+    onchain_total_base_units: z
+      .string()
+      .regex(/^\d+$/, "onchain_total_base_units must be a non-negative integer string")
+      .optional()
+      .default("0"),
+    rail: z.literal("tee").optional().default("tee"),
+  })
+  .strict();
 
 export type PayrollRequest = z.infer<typeof payrollRequestSchema>;
-export type PayrollRecipientInput = z.infer<typeof payrollRecipientSchema>;
 
 export const TOKEN_MINTS: Record<string, string> = {
   USDC: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
@@ -87,7 +98,7 @@ export const generateKeyRequestSchema = z
       .string()
       .min(128, "auditor_public_key must be a valid Base64 SPKI public key")
       .max(2048, "auditor_public_key too long"),
-    /** Per-batch DEKs re-wrapped client-side by the org admin to auditor_public_key */
+    /** Per-batch DEKs re-wrapped client-side by an org admin to auditor_public_key */
     wrapped_batch_keys: z
       .record(z.string().uuid(), z.string().min(64).max(2048))
       .optional()
@@ -129,42 +140,26 @@ export const decryptRequestSchema = z
 export type DecryptRequest = z.infer<typeof decryptRequestSchema>;
 
 // ═══════════════════════════════════════════════════════════════
-// PAYROLL CONFIRM Schema (L1 Anchor + On-Chain Transfer Proofs + E2EE Envelope)
+// BLIND PAYROLL CONFIRM Schema (L1 Anchor + Blinded Leaf Hashes + E2EE Envelope ONLY)
+//
+// SECURITY INVARIANT:
+// `.strict()` rejects `leaf_proofs`, `amountBaseUnits`, `saltHex`,
+// `onchain_settlements`, or any per-employee fields. All individual salaries,
+// wallets, salts, Merkle sum proofs, and ER transfer signatures live
+// exclusively inside `e2ee_envelope` (undecryptable by Aegis servers).
 // ═══════════════════════════════════════════════════════════════
-
-const merkleSiblingSchema = z.object({
-  hash: hexSha256Schema,
-  sum: z.string().regex(/^\d+$/),
-  count: z.number().int().min(0),
-  position: z.enum(["left", "right"]),
-});
-
-export const merkleProofSchema = z.object({
-  leafIndex: z.number().int().min(0),
-  leafHash: hexSha256Schema,
-  amountBaseUnits: z.string().regex(/^\d+$/),
-  siblings: z.array(merkleSiblingSchema),
-  root: hexSha256Schema,
-  totalSum: z.string().regex(/^\d+$/),
-  leafCount: z.number().int().min(1),
-});
 
 export const e2eeEnvelopeSchema = z
   .object({
     version: z.literal(2),
     scheme: z.literal("RSA-OAEP-256+AES-256-GCM"),
-    orgPublicKeyFingerprint: z.string().regex(/^[0-9a-fA-F]{16}$/),
+    orgPublicKeyFingerprint: keyFingerprintSchema,
     encryptedManifest: z.string().min(40),
     orgWrappedDek: z.string().min(64).max(2048),
+    orgWrappedDeks: z
+      .record(keyFingerprintSchema, z.string().min(64).max(2048))
+      .optional(),
     aad: z.string().min(10).max(512),
-  })
-  .strict();
-
-export const onChainSettlementSchema = z
-  .object({
-    leafIndex: z.number().int().min(0),
-    signature: solanaSignatureSchema,
-    saltHex: z.string().regex(/^[0-9a-fA-F]{32,64}$/),
   })
   .strict();
 
@@ -173,33 +168,79 @@ export const payrollConfirmSchema = z
     payroll_run_id: z.string().uuid("payroll_run_id must be a valid UUID"),
     /** Solana L1 transaction signature carrying `aegis:merkle:v1:<root>:<count>` */
     anchor_tx_signature: solanaSignatureSchema,
-    /** All on-chain transaction signatures for this batch (deposits, transfers, anchor) */
-    tx_signatures: z
+    /** Optional treasury L1 -> PER funding deposit signatures (aggregate only; zero employee ER tx sigs) */
+    deposit_tx_signatures: z
       .array(solanaSignatureSchema)
-      .min(1, "Must have at least one transaction signature")
-      .max(100, "Maximum 100 transaction signatures per batch"),
-    /** Ordered Binary Merkle Sum Tree leaf commitment hashes */
+      .max(10, "Maximum 10 treasury deposit signatures")
+      .optional()
+      .default([]),
+    /** Ordered blinded 64-hex SHA-256 leaf commitment hashes (zero amounts, wallets, or salts) */
     commitment_hashes: z
       .array(hexSha256Schema)
       .min(1, "Must have at least one commitment hash")
       .max(50, "Maximum 50 commitment hashes per batch"),
     /** L1-anchored Binary Merkle Sum Tree root */
     merkle_root: hexSha256Schema,
-    /** Per-leaf O(log N) Merkle Sum Tree inclusion proofs (no plaintext wallets/salts) */
-    leaf_proofs: z
-      .array(merkleProofSchema)
-      .min(1, "Must include inclusion proof for every leaf")
-      .max(50, "Maximum 50 leaf proofs per batch"),
-    /** Exact on-chain MagicBlock Private SPL transfer signatures verified against leaves */
-    onchain_settlements: z
-      .array(onChainSettlementSchema)
-      .max(50, "Maximum 50 on-chain settlements per batch"),
     /** Client-side RSA-OAEP-256 + AES-256-GCM encrypted manifest (undecryptable by server) */
     e2ee_envelope: e2eeEnvelopeSchema,
   })
   .strict();
 
 export type PayrollConfirmRequest = z.infer<typeof payrollConfirmSchema>;
+
+// ═══════════════════════════════════════════════════════════════
+// ORG KEY VAULT Schemas (Passphrase-Encrypted Multi-Admin Custody)
+// ═══════════════════════════════════════════════════════════════
+
+export const orgAdminRoleSchema = z.enum([
+  "primary",
+  "backup_controller",
+  "recovery",
+]);
+
+export const encryptedPrivateKeyVaultSchema = z
+  .object({
+    version: z.literal(1),
+    kdf: z.literal("PBKDF2-SHA256"),
+    iterations: z.number().int().min(100_000).max(2_000_000),
+    cipher: z.literal("AES-256-GCM"),
+    orgId: z.string().uuid(),
+    adminLabel: z.string().min(2).max(128),
+    role: orgAdminRoleSchema,
+    publicKeySpkiBase64: z.string().min(128).max(2048),
+    fingerprint: keyFingerprintSchema,
+    saltBase64: z.string().min(16).max(128),
+    ivBase64: z.string().min(12).max(64),
+    ciphertextBase64: z.string().min(100).max(8192),
+    aad: z.string().min(10).max(512),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export const registerOrgKeyVaultSchema = z
+  .object({
+    org_id: z.string().uuid(),
+    admin_label: z.string().min(2).max(128),
+    role: orgAdminRoleSchema,
+    public_key_spki: z.string().min(128).max(2048),
+    fingerprint: keyFingerprintSchema,
+    /** Optional passphrase-encrypted vault blob (server NEVER sees passphrase or plaintext key) */
+    encrypted_vault: encryptedPrivateKeyVaultSchema.nullable().optional(),
+  })
+  .strict();
+
+export const rotateOrgKeyVaultSchema = z
+  .object({
+    org_id: z.string().uuid(),
+    revoke_fingerprint: keyFingerprintSchema,
+    new_admin_fingerprint: keyFingerprintSchema.optional(),
+    /** Client-side re-wrapped DEKs keyed by payroll_run_id for the newly added admin */
+    rewrapped_batch_deks: z
+      .record(z.string().uuid(), z.string().min(64).max(2048))
+      .optional()
+      .default({}),
+  })
+  .strict();
 
 // ═══════════════════════════════════════════════════════════════
 // TREASURY SWAP Schemas

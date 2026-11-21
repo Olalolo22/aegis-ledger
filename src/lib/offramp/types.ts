@@ -1,4 +1,5 @@
 export type SupportedRail = "ngn_bank" | "kes_mpesa";
+export type FxRateSource = "partner_applied" | "sandbox_simulated_partner";
 
 export interface DestinationAccountDetails {
   bankName?: string;
@@ -17,11 +18,15 @@ export interface DisbursementRecipient {
   rail: SupportedRail;
   destinationAccount: string;
   noteCommitment: string;
-  /** Server-quoted FX rate stamped at dispatch time */
+  /** Partner-applied FX execution rate (authoritative rate stamped on receipt) */
   exchangeRate?: number;
-  /** Live FX quote provider attribution */
+  /** Live mid-market benchmark rate used strictly as a sanity-check guardrail */
+  referenceMidMarketRate?: number;
+  /** Attribution for the reference mid-market sanity-check feed */
+  referenceFxProvider?: string;
+  /** Attribution for the authoritative FX rate source */
   fxProvider?: string;
-  /** ISO-8601 timestamp when the FX quote was locked server-side */
+  /** ISO-8601 timestamp when the FX quote / sanity benchmark was locked */
   fxQuotedAt?: string;
   /** Unique quote identifier for accounting & reconciliation */
   fxQuoteId?: string;
@@ -43,12 +48,23 @@ export interface DisbursementReceipt {
   fiatAmount: number;
   fiatCurrency: "NGN" | "KES";
   usdAmount: number;
+  /** Authoritative payout partner applied rate (reconciles 1:1 with partner statement) */
   exchangeRate: number;
-  /** Attribution for the live FX quote provider */
+  /** Explicitly indicates whether `exchangeRate` came from a live partner or sandbox simulation */
+  fxRateSource: FxRateSource;
+  /** Mid-market benchmark rate recorded strictly as a sanity-check reference */
+  referenceMidMarketRate?: number;
+  /** Provider for the mid-market sanity benchmark (e.g. open.er-api.com) */
+  referenceFxProvider?: string;
+  /** Basis-point spread between partner applied rate and mid-market benchmark */
+  fxSpreadBps?: number;
+  /** True when partner applied rate passed the mid-market deviation guardrail */
+  fxSanityCheckPassed?: boolean;
+  /** Attribution for the authoritative applied rate provider */
   fxProvider?: string;
-  /** ISO-8601 timestamp when the FX rate was quoted at dispatch */
+  /** ISO-8601 timestamp when the rate was locked */
   fxQuotedAt?: string;
-  /** Server-generated FX quote ID for audit trail */
+  /** Quote / partner execution reference ID for reconciliation */
   fxQuoteId?: string;
   railReference: string;
   settledAt: string;

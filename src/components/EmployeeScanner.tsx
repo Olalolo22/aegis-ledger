@@ -53,21 +53,31 @@ export default function EmployeeScanner() {
 
     const receipt: DisbursementReceipt = {
       disbursementId: `disb_claim_${p.id.slice(0, 10)}`,
-      batchRoot: p.batchCommitmentRoot?.replace("aegis:tee:batch:", "") || "abaca0a0049263512b022b7d52d27564d782103f9012a45",
+      batchRoot:
+        p.batchCommitmentRoot?.replace(/^aegis:(?:tee:batch|merkle:v1):/, "") ||
+        "abaca0a0049263512b022b7d52d27564d782103f9012a4500000000000000000",
       noteCommitment: p.commitmentHash,
       recipientWallet: p.id,
       maskedAccount: p.destinationAccount || (isNgn ? "Providus Bank · 0128****12" : "Safaricom M-Pesa · +254 712 *** 44"),
       fiatAmount,
       fiatCurrency: currency,
       usdAmount,
-      exchangeRate: p.exchangeRate || (isKes ? 130 : 1330),
+      exchangeRate:
+        p.exchangeRate ||
+        (usdAmount > 0 ? Math.round((fiatAmount / usdAmount) * 100) / 100 : 0),
+      fxRateSource: "sandbox_simulated_partner",
+      fxProvider: isKes
+        ? "Kotani Pay Partner Quote (Sandbox)"
+        : "Yellow Card / NIBSS Partner Quote (Sandbox)",
       railReference: p.railReference || (isNgn ? "NIBSS/261019/8F42A190" : "MPESA/8F42A1904128"),
       settledAt: p.date || new Date().toISOString(),
       status: "SETTLED",
       network: "solana-devnet",
       provider: isKes ? "Kotani Pay (M-Pesa B2C)" : isNgn ? "Yellow Card / NIBSS Direct Rail" : "MagicBlock TEE Shielded Pool",
       privacyProof: {
-        teeAttestation: p.batchCommitmentRoot || "aegis:tee:batch:abaca0a0049263512b022b7d52d27564",
+        teeAttestation:
+          p.batchCommitmentRoot ||
+          "aegis:merkle:v1:abaca0a0049263512b022b7d52d27564d782103f9012a4500000000000000000",
         onChainTrace: "NONE (Attested in TEE Merkle Root)",
         solscanStatus: "CONFIDENTIAL",
         hashSignature: p.commitmentHash,

@@ -9,24 +9,33 @@ import {
 } from "@/lib/crypto";
 import { buildEnvelopeAad, getPublicKeyFingerprint } from "@/lib/e2ee";
 import { L1_DEVNET_RPC } from "@/lib/magicblock";
-import { verifyAnchorTransactionOnChain } from "@/lib/onchainVerify";
+import {
+  enumerateTreasuryAnchorsOnL1,
+  reconcileAuditedBatchesAgainstL1,
+  verifyAnchorTransactionOnChain,
+  type EnumeratedL1Anchor,
+} from "@/lib/onchainVerify";
 import { decryptRequestSchema } from "@/lib/validation";
 
 /**
  * POST /api/audit/decrypt
  *
- * Zero-knowledge audit envelope delivery & independent Solana L1 root anchor verifier.
+ * Zero-Knowledge Audit Envelope Delivery + Independent Solana L1 Root Anchor
+ * & Cross-Batch Completeness Reconciliation.
  *
  * Security invariants:
  * 1. Aegis servers CANNOT decrypt customer payroll manifests. This route returns
  *    client-encrypted `e2ee_envelope` blobs + the auditor's `auditor_wrapped_dek`
- *    so decryption and Binary Merkle Sum Tree completeness checks execute locally
- *    inside the auditor's browser using the auditor's private key.
- * 2. Before returning any batch, this route INDEPENDENTLY pulls each batch's
- *    `anchor_tx_signature` directly from Solana L1 RPC, parses `aegis:merkle:v1:<root>:<count>`,
- *    and verifies `onChainRoot === payroll_runs.merkle_root`, `onChainLeafCount === recipient_count`,
- *    `signer === initiated_by`, and `e2ee_envelope.aad` matches the L1-anchored root.
- *    Even a compromised Postgres database cannot forge an on-chain verified audit batch.
+ *    so decryption, Binary Merkle Sum Tree completeness, AND settled MagicBlock
+ *    ER byte decoding execute locally inside the auditor's browser.
+ * 2. Before returning any batch, this route independently pulls each batch's
+ *    `anchor_tx_signature` directly from Solana L1 RPC and checks root, leaf count,
+ *    signer, and `e2ee_envelope.aad`.
+ * 3. Cross-Batch Completeness ("Proof Nothing Was Withheld"): enumerates EVERY
+ *    `aegis:merkle:v1:<root>:<count>` memo signed by the organization's treasury
+ *    pubkey(s) on Solana L1 inside `[valid_from, valid_until]` and reconciles
+ *    against delivered batches. Any anchored-but-undisclosed batch is flagged
+ *    as an explicit audit finding (`reconciliation.undisclosed_anchors`).
  */
 
 interface AuditJwtPayload {
@@ -42,11 +51,16 @@ interface AuditJwtPayload {
   iss: string;
 }
 
+const SOLANA_PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{32,48}$/;
+
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return NextResponse.json(
-      { error: "Missing or malformed Authorization header. Expected: Bearer <token>" },
+      {
+        error:
+          "Missing or malformed Authorization header. Expected: Bearer <token>",
+      },
       { status: 401 }
     );
   }
@@ -57,7 +71,10 @@ export async function POST(request: NextRequest) {
     jwtSecret = deriveJwtSigningKey();
   } catch {
     return NextResponse.json(
-      { error: "Server configuration error: AEGIS_MASTER_SECRET not properly configured" },
+      {
+        error:
+          "Server configuration error: AEGIS_MASTER_SECRET not properly configured",
+      },
       { status: 500 }
     );
   }
@@ -69,7 +86,8 @@ export async function POST(request: NextRequest) {
     });
     payload = verified as unknown as AuditJwtPayload;
   } catch (jwtErr) {
-    const message = jwtErr instanceof Error ? jwtErr.message : "JWT verification failed";
+    const message =
+      jwtErr instanceof Error ? jwtErr.message : "JWT verification failed";
     return NextResponse.json(
       { error: "Invalid or expired audit token", detail: message },
       { status: 401 }
@@ -146,6 +164,13 @@ export async function POST(request: NextRequest) {
     });
     decryptViewingKey(encryptedBlob, vk.key_id, scopeAad);
 
+    // Load organization's treasury pubkey for cross-batch L1 anchor enumeration
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("id, treasury_pubkey")
+      .eq("id", vk.org_id)
+      .single();
+
     // Fetch completed runs strictly inside authorized temporal & token scope
     const { data: runs, error: runsError } = await supabase
       .from("payroll_runs")
@@ -176,6 +201,7 @@ export async function POST(request: NextRequest) {
         if (!run.anchor_tx_signature || !run.merkle_root) {
           return {
             payroll_run_id: run.id,
+            initiated_by: run.initiated_by,
             token_symbol: run.token_symbol,
             merkle_root: run.merkle_root || "",
             leaf_count: run.recipient_count,
@@ -186,7 +212,8 @@ export async function POST(request: NextRequest) {
             chain_anchor: {
               verified: false,
               signature: run.anchor_tx_signature || null,
-              error: "Missing Solana L1 anchor_tx_signature or merkle_root; cannot verify against chain.",
+              error:
+                "Missing Solana L1 anchor_tx_signature or merkle_root; cannot verify against chain.",
             },
             e2ee_envelope: run.e2ee_envelope || null,
             auditor_wrapped_dek: auditorWrappedDek,
@@ -221,6 +248,7 @@ export async function POST(request: NextRequest) {
 
         return {
           payroll_run_id: run.id,
+          initiated_by: run.initiated_by,
           token_symbol: run.token_symbol,
           merkle_root: run.merkle_root,
           leaf_count: run.recipient_count,
@@ -245,6 +273,57 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    // Cross-Batch L1 Completeness Reconciliation ("Proof Nothing Was Withheld")
+    const treasuryPubkeysSet = new Set<string>();
+    if (org?.treasury_pubkey && SOLANA_PUBKEY_RE.test(org.treasury_pubkey)) {
+      treasuryPubkeysSet.add(org.treasury_pubkey);
+    }
+    for (const run of runs || []) {
+      if (run.initiated_by && SOLANA_PUBKEY_RE.test(run.initiated_by)) {
+        treasuryPubkeysSet.add(run.initiated_by);
+      }
+    }
+    const treasuryPubkeys = Array.from(treasuryPubkeysSet);
+
+    const allL1Anchors: EnumeratedL1Anchor[] = [];
+    let totalScannedSignatures = 0;
+    let enumerationError: string | null = null;
+
+    for (const treasuryPubkey of treasuryPubkeys) {
+      try {
+        const enumResult = await enumerateTreasuryAnchorsOnL1(
+          l1Connection,
+          treasuryPubkey,
+          {
+            validFromIso: vk.valid_from,
+            validUntilIso: vk.valid_until,
+            maxSignatures: 200,
+          }
+        );
+        totalScannedSignatures += enumResult.scannedSignatureCount;
+        allL1Anchors.push(...enumResult.anchors);
+      } catch (enumErr) {
+        enumerationError =
+          enumErr instanceof Error
+            ? enumErr.message
+            : "L1 treasury anchor enumeration failed";
+      }
+    }
+
+    const reconciliation = reconcileAuditedBatchesAgainstL1(
+      allL1Anchors,
+      auditedBatches.map((b) => ({
+        payroll_run_id: b.payroll_run_id,
+        anchor_tx_signature: b.chain_anchor.signature,
+        merkle_root: b.chain_anchor.on_chain_root || b.merkle_root,
+        anchor_verified: b.chain_anchor.verified,
+      })),
+      {
+        treasuryPubkeysChecked: treasuryPubkeys,
+        scannedSignatureCount: totalScannedSignatures,
+      }
+    );
+
     const verifiedAnchorCount = auditedBatches.filter(
       (b) => b.chain_anchor.verified && b.aad_matches_chain_root
     ).length;
@@ -255,6 +334,7 @@ export async function POST(request: NextRequest) {
           org_id: vk.org_id,
           viewing_key_id: vk.id,
           decryption_mode: "client_side_e2ee",
+          treasury_pubkeys: treasuryPubkeys,
           auditor_public_key_fingerprint: vk.auditor_public_key
             ? getPublicKeyFingerprint(vk.auditor_public_key)
             : null,
@@ -265,9 +345,24 @@ export async function POST(request: NextRequest) {
           },
           integrity: {
             all_chain_anchors_verified:
-              auditedBatches.length > 0 && verifiedAnchorCount === auditedBatches.length,
+              auditedBatches.length > 0 &&
+              verifiedAnchorCount === auditedBatches.length,
             verified_chain_anchor_count: verifiedAnchorCount,
             total_batch_count: auditedBatches.length,
+            complete_zero_omissions:
+              enumerationError === null && reconciliation.completeZeroOmissions,
+          },
+          reconciliation: {
+            treasury_pubkeys_checked: reconciliation.treasuryPubkeysChecked,
+            scanned_signature_count: reconciliation.scannedSignatureCount,
+            total_l1_anchors_in_window: reconciliation.totalL1AnchorsInWindow,
+            delivered_matched_count: reconciliation.deliveredMatchedCount,
+            undisclosed_anchors: reconciliation.undisclosedAnchors,
+            unanchored_delivered_run_ids:
+              reconciliation.unanchoredDeliveredRunIds,
+            complete_zero_omissions:
+              enumerationError === null && reconciliation.completeZeroOmissions,
+            enumeration_error: enumerationError,
           },
           batches: auditedBatches,
         },
@@ -275,7 +370,10 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    console.error("[Aegis Audit] Envelope fetch / L1 anchor verification error:", error);
+    console.error(
+      "[Aegis Audit] Envelope fetch / L1 anchor reconciliation error:",
+      error
+    );
     return NextResponse.json(
       {
         error: "Failed to verify viewing key scope or Solana L1 Merkle anchors",

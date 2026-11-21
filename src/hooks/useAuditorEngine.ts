@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { Connection } from "@solana/web3.js";
 import type { Node, Edge } from "reactflow";
 import { MarkerType } from "reactflow";
 import {
@@ -13,17 +14,30 @@ import {
   verifyMerkleInclusionProof,
   type MerkleInclusionProof,
 } from "@/lib/merkle";
+import { L1_DEVNET_RPC, getErConnection } from "@/lib/magicblock";
+import {
+  enumerateTreasuryAnchorsOnL1,
+  reconcileAuditedBatchesAgainstL1,
+  verifyMagicBlockTransferOnChain,
+  type EnumeratedL1Anchor,
+} from "@/lib/onchainVerify";
 
 /**
- * useAuditorEngine — Client-Side Zero-Knowledge Auditor Decryption Engine.
+ * useAuditorEngine — Client-Side Zero-Knowledge Auditor Verification Engine.
  *
- * Security Invariant:
- * - Aegis servers NEVER decrypt payroll manifests.
- * - `/api/audit/decrypt` independently pulls each batch's Merkle root off Solana L1
- *   RPC and delivers the client-encrypted `e2ee_envelope` + `auditor_wrapped_dek`.
- * - This hook decrypts each manifest locally in the auditor's browser using the
- *   auditor's private key (never sent to any server) and verifies full Binary
- *   Merkle Sum Tree completeness directly against the L1-anchored root.
+ * Security Invariants verified directly inside the auditor's browser:
+ * 1. Decrypts client-encrypted `e2ee_envelope` blobs using ONLY the auditor's
+ *    private key (never sent to any server).
+ * 2. Reconstructs every batch's full Binary SHA-256 Merkle Sum Tree and proves
+ *    intra-batch completeness against the Solana L1-anchored root.
+ * 3. Decodes every settled `onchain_shielded` MagicBlock Private SPL transfer
+ *    directly from MagicBlock ER RPC (`SPLxh1LVZz...` discriminant `0x10`),
+ *    requiring the full 64-hex leaf memo and proving that actual settled bytes
+ *    match the committed leaf (catching 300-vs-3,800 underpayment without
+ *    Aegis servers ever seeing a salary or salt).
+ * 4. Cross-batch completeness ("Proof Nothing Was Withheld"): enumerates ALL
+ *    `aegis:merkle:v1` memos signed by the treasury on Solana L1 during the
+ *    audit window and flags any anchored-but-undisclosed batch as a finding.
  */
 
 export type AuditorEngineStatus =
@@ -48,10 +62,22 @@ export interface DecryptedTransaction {
   anchorTxSignature?: string;
   chainAnchorVerified?: boolean;
   completenessVerified?: boolean;
+  erTransferVerified?: boolean;
   settlementRail?: string;
   mint?: string;
   decimals?: number;
   symbol?: string;
+}
+
+export interface AuditorReconciliationReport {
+  verifiedBy: "auditor_browser_l1_rpc" | "server_l1_rpc" | "demo";
+  treasuryPubkeysChecked: string[];
+  totalL1AnchorsInWindow: number;
+  deliveredMatchedCount: number;
+  undisclosedAnchors: EnumeratedL1Anchor[];
+  unanchoredDeliveredRunIds: string[];
+  completeZeroOmissions: boolean;
+  erTransfersVerifiedCount: number;
 }
 
 interface AuditJwtClaims {
@@ -77,6 +103,7 @@ export interface AuditScope {
 
 export interface AuditedBatchEnvelope {
   payroll_run_id: string;
+  initiated_by?: string;
   token_symbol: string;
   merkle_root: string;
   leaf_count: number;
@@ -103,6 +130,7 @@ interface DecryptedBatchManifest {
   version: number;
   payrollRunId: string;
   orgId: string;
+  initiatedBy?: string;
   tokenSymbol: string;
   merkleRoot: string;
   anchorTxSignature?: string;
@@ -119,6 +147,7 @@ interface DecryptedBatchManifest {
     runNonce: string;
     commitmentHash: string;
     merkleProof: MerkleInclusionProof;
+    settlementTxSignature?: string;
   }>;
 }
 
@@ -131,6 +160,7 @@ export interface AuditorEngineResult {
   error: string | null;
   progress: string | null;
   scope: AuditScope | null;
+  reconciliation: AuditorReconciliationReport | null;
   nodes: Node[];
   edges: Edge[];
   transactions: DecryptedTransaction[];
@@ -142,6 +172,7 @@ export interface AuditorEngineResult {
     filteredCount: number;
     verifiedChainAnchors?: number;
     totalBatches?: number;
+    erTransfersVerifiedCount?: number;
   } | null;
 }
 
@@ -263,12 +294,12 @@ export function buildReactFlowData(transactions: DecryptedTransaction[]): {
 
 function generateDemoTransactions(): DecryptedTransaction[] {
   return [
-    { txType: "withdrawal", amount: 4500e6, fee: 0, netAmount: -4500e6, runningBalance: -4500e6, timestamp: new Date("2026-02-15").getTime(), recipient: "61ro7AEx...pMPunJf", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true },
-    { txType: "withdrawal", amount: 3200e6, fee: 0, netAmount: -3200e6, runningBalance: -7700e6, timestamp: new Date("2026-03-10").getTime(), recipient: "7nYF4xZ8...De1234", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true },
-    { txType: "withdrawal", amount: 8750e6, fee: 0, netAmount: -8750e6, runningBalance: -16450e6, timestamp: new Date("2026-05-12").getTime(), recipient: "9pAG5xR8...De5678", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true },
-    { txType: "withdrawal", amount: 2400e6, fee: 0, netAmount: -2400e6, runningBalance: -18850e6, timestamp: new Date("2026-06-28").getTime(), recipient: "2qBH6yS9...Ef9012", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true },
-    { txType: "withdrawal", amount: 6100e6, fee: 0, netAmount: -6100e6, runningBalance: -24950e6, timestamp: new Date("2026-08-20").getTime(), recipient: "3rCI7zT0...Eg0123", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true },
-    { txType: "withdrawal", amount: 9500e6, fee: 0, netAmount: -9500e6, runningBalance: -34450e6, timestamp: new Date("2026-11-05").getTime(), recipient: "GxK6sHpq...RaTKT", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true },
+    { txType: "withdrawal", amount: 4500e6, fee: 0, netAmount: -4500e6, runningBalance: -4500e6, timestamp: new Date("2026-02-15").getTime(), recipient: "61ro7AEx...pMPunJf", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
+    { txType: "withdrawal", amount: 3200e6, fee: 0, netAmount: -3200e6, runningBalance: -7700e6, timestamp: new Date("2026-03-10").getTime(), recipient: "7nYF4xZ8...De1234", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
+    { txType: "withdrawal", amount: 8750e6, fee: 0, netAmount: -8750e6, runningBalance: -16450e6, timestamp: new Date("2026-05-12").getTime(), recipient: "9pAG5xR8...De5678", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
+    { txType: "withdrawal", amount: 2400e6, fee: 0, netAmount: -2400e6, runningBalance: -18850e6, timestamp: new Date("2026-06-28").getTime(), recipient: "2qBH6yS9...Ef9012", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
+    { txType: "withdrawal", amount: 6100e6, fee: 0, netAmount: -6100e6, runningBalance: -24950e6, timestamp: new Date("2026-08-20").getTime(), recipient: "3rCI7zT0...Eg0123", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
+    { txType: "withdrawal", amount: 9500e6, fee: 0, netAmount: -9500e6, runningBalance: -34450e6, timestamp: new Date("2026-11-05").getTime(), recipient: "GxK6sHpq...RaTKT", symbol: "USDC", decimals: 6, chainAnchorVerified: true, completenessVerified: true, erTransferVerified: true },
   ];
 }
 
@@ -277,6 +308,8 @@ export function useAuditorEngine(): AuditorEngineResult {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [scope, setScope] = useState<AuditScope | null>(null);
+  const [reconciliation, setReconciliation] =
+    useState<AuditorReconciliationReport | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [transactions, setTransactions] = useState<DecryptedTransaction[]>([]);
@@ -289,6 +322,7 @@ export function useAuditorEngine(): AuditorEngineResult {
       executingRef.current = true;
       setStatus("loading_data");
       setError(null);
+      setReconciliation(null);
       const isDemo = accessToken === "demo-token";
 
       try {
@@ -316,6 +350,8 @@ export function useAuditorEngine(): AuditorEngineResult {
         let raw: DecryptedTransaction[] = [];
         let verifiedChainAnchors = 0;
         let totalBatches = 0;
+        let erTransfersVerifiedCount = 0;
+        let reconReport: AuditorReconciliationReport | null = null;
 
         if (isDemo) {
           setStatus("decrypting");
@@ -324,6 +360,17 @@ export function useAuditorEngine(): AuditorEngineResult {
           raw = generateDemoTransactions();
           verifiedChainAnchors = 1;
           totalBatches = 1;
+          erTransfersVerifiedCount = raw.length;
+          reconReport = {
+            verifiedBy: "demo",
+            treasuryPubkeysChecked: ["DemoTreasury1111111111111111111111111111111"],
+            totalL1AnchorsInWindow: 1,
+            deliveredMatchedCount: 1,
+            undisclosedAnchors: [],
+            unanchoredDeliveredRunIds: [],
+            completeZeroOmissions: true,
+            erTransfersVerifiedCount,
+          };
         } else {
           if (!auditorPrivateKeyPkcs8?.trim()) {
             throw new Error(
@@ -354,6 +401,7 @@ export function useAuditorEngine(): AuditorEngineResult {
             : [];
           totalBatches = batches.length;
 
+          const erConnection = getErConnection();
           let cumulativeOutflow = 0;
 
           for (const batch of batches) {
@@ -378,10 +426,10 @@ export function useAuditorEngine(): AuditorEngineResult {
             });
 
             setProgress(
-              `Decrypting batch ${batch.payroll_run_id.slice(0, 8)}... locally in browser & verifying against L1 root...`
+              `Decrypting batch ${batch.payroll_run_id.slice(0, 8)}... locally in browser & verifying Merkle Sum Tree...`
             );
 
-            // Decrypt strictly client-side with auditor's private key
+            // 1. Decrypt strictly client-side with auditor's private key
             const plaintextJson = await decryptManifestClientSide(
               batch.e2ee_envelope,
               auditorPrivateKeyPkcs8.trim(),
@@ -392,7 +440,7 @@ export function useAuditorEngine(): AuditorEngineResult {
             );
             const manifest = JSON.parse(plaintextJson) as DecryptedBatchManifest;
 
-            // Verify FULL Binary Merkle Sum Tree completeness against the SOLANA L1 ROOT
+            // 2. Verify FULL Binary Merkle Sum Tree completeness against the SOLANA L1 ROOT
             const completeness = verifyBatchCompleteness(
               manifest.entries,
               onChainRoot,
@@ -406,11 +454,52 @@ export function useAuditorEngine(): AuditorEngineResult {
               );
             }
 
+            const expectedSender = manifest.initiatedBy || batch.initiated_by;
             const settledMs = new Date(batch.settled_at).getTime();
+
             for (const entry of manifest.entries) {
               const proofOk =
                 verifyMerkleInclusionProof(entry.merkleProof, onChainRoot) &&
                 entry.merkleProof.leafHash === entry.commitmentHash;
+
+              if (!proofOk) {
+                throw new Error(
+                  `Batch ${batch.payroll_run_id} leaf ${entry.index} failed O(log N) Merkle inclusion verification.`
+                );
+              }
+
+              // 3. Client-side MagicBlock ER Wire Decoding for every on-chain shielded transfer
+              //    (proves settled bytes match claimed salary + full 64-hex leaf memo without server ever seeing salaries)
+              let erTransferVerified = false;
+              if (
+                entry.settlementRail === "onchain_shielded" &&
+                entry.settlementTxSignature &&
+                expectedSender
+              ) {
+                setProgress(
+                  `Decoding settled MagicBlock ER transfer for leaf ${entry.index} against L1 Merkle root...`
+                );
+                const transferCheck = await verifyMagicBlockTransferOnChain(
+                  erConnection,
+                  {
+                    signature: entry.settlementTxSignature,
+                    leafIndex: entry.index,
+                    expectedSender,
+                    expectedCommitmentHash: entry.commitmentHash,
+                    saltHex: entry.saltHex,
+                    runNonce: entry.runNonce,
+                    merkleProof: entry.merkleProof,
+                    anchoredMerkleRoot: onChainRoot,
+                  }
+                );
+                if (!transferCheck.verified) {
+                  throw new Error(
+                    `Batch ${batch.payroll_run_id} leaf ${entry.index} failed client-side MagicBlock ER transfer verification: ${transferCheck.error}`
+                  );
+                }
+                erTransferVerified = true;
+                erTransfersVerifiedCount += 1;
+              }
 
               const amountNum = Number(entry.amountBaseUnits);
               cumulativeOutflow += amountNum;
@@ -430,15 +519,89 @@ export function useAuditorEngine(): AuditorEngineResult {
                 anchorTxSignature: batch.chain_anchor.signature || undefined,
                 chainAnchorVerified: true,
                 completenessVerified: completeness.valid && proofOk,
+                erTransferVerified,
                 settlementRail: entry.settlementRail,
-                signature: batch.tx_signatures?.[0],
+                signature: entry.settlementTxSignature || batch.chain_anchor.signature || batch.tx_signatures?.[0],
               });
+            }
+          }
+
+          // 4. Independent Browser-Side L1 Cross-Batch Completeness Check ("Proof Nothing Was Withheld")
+          const treasuryPubkeys: string[] = Array.isArray(data.audit?.treasury_pubkeys)
+            ? data.audit.treasury_pubkeys
+            : [];
+          const serverRecon = data.audit?.reconciliation;
+
+          setProgress(
+            "Enumerating Solana L1 treasury anchors to verify zero withheld batches..."
+          );
+
+          try {
+            if (treasuryPubkeys.length > 0) {
+              const l1Connection = new Connection(L1_DEVNET_RPC, "confirmed");
+              const browserL1Anchors: EnumeratedL1Anchor[] = [];
+              let scanned = 0;
+
+              for (const pubkey of treasuryPubkeys) {
+                const resEnum = await enumerateTreasuryAnchorsOnL1(
+                  l1Connection,
+                  pubkey,
+                  {
+                    validFromIso: auditScope.valid_from,
+                    validUntilIso: auditScope.valid_until,
+                    maxSignatures: 200,
+                  }
+                );
+                scanned += resEnum.scannedSignatureCount;
+                browserL1Anchors.push(...resEnum.anchors);
+              }
+
+              const browserRecon = reconcileAuditedBatchesAgainstL1(
+                browserL1Anchors,
+                batches.map((b) => ({
+                  payroll_run_id: b.payroll_run_id,
+                  anchor_tx_signature: b.chain_anchor.signature,
+                  merkle_root: b.chain_anchor.on_chain_root || b.merkle_root,
+                  anchor_verified: b.chain_anchor.verified,
+                })),
+                {
+                  treasuryPubkeysChecked: treasuryPubkeys,
+                  scannedSignatureCount: scanned,
+                }
+              );
+
+              reconReport = {
+                verifiedBy: "auditor_browser_l1_rpc",
+                treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
+                totalL1AnchorsInWindow: browserRecon.totalL1AnchorsInWindow,
+                deliveredMatchedCount: browserRecon.deliveredMatchedCount,
+                undisclosedAnchors: browserRecon.undisclosedAnchors,
+                unanchoredDeliveredRunIds: browserRecon.unanchoredDeliveredRunIds,
+                completeZeroOmissions: browserRecon.completeZeroOmissions,
+                erTransfersVerifiedCount,
+              };
+            }
+          } catch {
+            // Fall back to server L1 enumeration report if browser L1 RPC is rate-limited
+            if (serverRecon) {
+              reconReport = {
+                verifiedBy: "server_l1_rpc",
+                treasuryPubkeysChecked: serverRecon.treasury_pubkeys_checked || [],
+                totalL1AnchorsInWindow: serverRecon.total_l1_anchors_in_window || 0,
+                deliveredMatchedCount: serverRecon.delivered_matched_count || 0,
+                undisclosedAnchors: serverRecon.undisclosed_anchors || [],
+                unanchoredDeliveredRunIds:
+                  serverRecon.unanchored_delivered_run_ids || [],
+                completeZeroOmissions: Boolean(serverRecon.complete_zero_omissions),
+                erTransfersVerifiedCount,
+              };
             }
           }
         }
 
         setStatus("formatting");
         setTransactions(raw);
+        setReconciliation(reconReport);
         const { nodes: rfNodes, edges: rfEdges } = buildReactFlowData(raw);
         setNodes(rfNodes);
         setEdges(rfEdges);
@@ -450,6 +613,7 @@ export function useAuditorEngine(): AuditorEngineResult {
           filteredCount: raw.length,
           verifiedChainAnchors,
           totalBatches,
+          erTransfersVerifiedCount,
         });
         setProgress(null);
         setStatus("complete");
@@ -472,6 +636,7 @@ export function useAuditorEngine(): AuditorEngineResult {
     error,
     progress,
     scope,
+    reconciliation,
     nodes,
     edges,
     transactions,
