@@ -102,9 +102,19 @@ export interface AuditorTreasurySetResolution {
   serverListWasStrictSubset: boolean;
 }
 
+export interface WalletEnumerationStat {
+  treasuryPubkey: string;
+  source: "auditor_declared" | "manifest" | "both";
+  scannedSignatureCount: number;
+  anchorsFound: number;
+  truncated: boolean;
+}
+
 export interface CrossBatchReconciliation {
-  verdictStatus: "complete" | "incomplete" | "not_evaluated";
+  verdictStatus: "complete" | "incomplete" | "not_evaluated" | "no_anchors_in_window";
   treasuryPubkeysChecked: string[];
+  perWalletStats: WalletEnumerationStat[];
+  zeroActivityDeclaredWallets: string[];
   scannedSignatureCount: number;
   scanTruncated: boolean;
   serverOmittedTreasuryPubkeys: string[];
@@ -824,7 +834,11 @@ export async function enumerateTreasuryAnchorsOnL1(
  * 4. The server's advisory treasury list omitted an authoritative treasury wallet
  *    (`serverOmittedTreasuryPubkeys.length > 0`).
  * 5. `requireAuditorDeclaredTreasury` is enabled and the auditor did not supply
- *    at least one out-of-band treasury wallet (`missingAuditorDeclaredTreasury`).
+ *    at least one out-of-band treasury wallet (`missingAuditorDeclaredTreasury` -> `not_evaluated`).
+ * 6. An auditor-declared treasury wallet returned `0` lifetime signatures on L1
+ *    (`zeroActivityDeclaredWallets.length > 0` -> likely typo or wrong cluster).
+ * 7. Zero L1 anchors were found across the audit window (`totalL1AnchorsInWindow === 0`
+ *    -> neutral `no_anchors_in_window` state with `completeZeroOmissions: null`, never vacuous green).
  */
 export function reconcileAuditedBatchesAgainstL1(
   l1Anchors: EnumeratedL1Anchor[],
@@ -836,6 +850,7 @@ export function reconcileAuditedBatchesAgainstL1(
   }>,
   meta?: {
     treasuryPubkeysChecked?: string[];
+    perWalletStats?: WalletEnumerationStat[];
     scannedSignatureCount?: number;
     scanTruncated?: boolean;
     serverOmittedTreasuryPubkeys?: string[];
@@ -879,6 +894,14 @@ export function reconcileAuditedBatchesAgainstL1(
   const scanTruncated = Boolean(meta?.scanTruncated);
   const serverOmittedTreasuryPubkeys = meta?.serverOmittedTreasuryPubkeys ?? [];
   const serverTreasuryListWasSubset = serverOmittedTreasuryPubkeys.length > 0;
+  const perWalletStats = meta?.perWalletStats ?? [];
+  const zeroActivityDeclaredWallets = perWalletStats
+    .filter(
+      (w) =>
+        (w.source === "auditor_declared" || w.source === "both") &&
+        w.scannedSignatureCount === 0
+    )
+    .map((w) => w.treasuryPubkey);
   const missingAuditorDeclaredTreasury = Boolean(
     meta?.requireAuditorDeclaredTreasury &&
       (!meta?.auditorDeclaredTreasuryPubkeys ||
@@ -891,6 +914,8 @@ export function reconcileAuditedBatchesAgainstL1(
     return {
       verdictStatus: "not_evaluated",
       treasuryPubkeysChecked: [],
+      perWalletStats: [],
+      zeroActivityDeclaredWallets: [],
       scannedSignatureCount: 0,
       scanTruncated: false,
       serverOmittedTreasuryPubkeys: [],
@@ -904,26 +929,71 @@ export function reconcileAuditedBatchesAgainstL1(
     };
   }
 
-  const completeZeroOmissions =
-    !scanTruncated &&
-    !serverTreasuryListWasSubset &&
-    undisclosedAnchors.length === 0 &&
-    unanchoredDeliveredRunIds.length === 0;
+  const hasFinding =
+    scanTruncated ||
+    serverTreasuryListWasSubset ||
+    zeroActivityDeclaredWallets.length > 0 ||
+    undisclosedAnchors.length > 0 ||
+    unanchoredDeliveredRunIds.length > 0;
+
+  const treasuryPubkeysChecked =
+    meta?.treasuryPubkeysChecked ??
+    Array.from(new Set(l1Anchors.map((a) => a.treasuryPubkey)));
+  const scannedSignatureCount = meta?.scannedSignatureCount ?? l1Anchors.length;
+
+  if (hasFinding) {
+    return {
+      verdictStatus: "incomplete",
+      treasuryPubkeysChecked,
+      perWalletStats,
+      zeroActivityDeclaredWallets,
+      scannedSignatureCount,
+      scanTruncated,
+      serverOmittedTreasuryPubkeys,
+      serverTreasuryListWasSubset,
+      missingAuditorDeclaredTreasury: false,
+      totalL1AnchorsInWindow: uniqueL1Anchors.size,
+      deliveredMatchedCount,
+      undisclosedAnchors,
+      unanchoredDeliveredRunIds,
+      completeZeroOmissions: false,
+    };
+  }
+
+  // Vacuous-green guard: 0 anchors in window is neutral (nothing to reconcile), never green.
+  if (uniqueL1Anchors.size === 0) {
+    return {
+      verdictStatus: "no_anchors_in_window",
+      treasuryPubkeysChecked,
+      perWalletStats,
+      zeroActivityDeclaredWallets: [],
+      scannedSignatureCount,
+      scanTruncated: false,
+      serverOmittedTreasuryPubkeys: [],
+      serverTreasuryListWasSubset: false,
+      missingAuditorDeclaredTreasury: false,
+      totalL1AnchorsInWindow: 0,
+      deliveredMatchedCount: 0,
+      undisclosedAnchors: [],
+      unanchoredDeliveredRunIds: [],
+      completeZeroOmissions: null,
+    };
+  }
 
   return {
-    verdictStatus: completeZeroOmissions ? "complete" : "incomplete",
-    treasuryPubkeysChecked:
-      meta?.treasuryPubkeysChecked ??
-      Array.from(new Set(l1Anchors.map((a) => a.treasuryPubkey))),
-    scannedSignatureCount: meta?.scannedSignatureCount ?? l1Anchors.length,
-    scanTruncated,
-    serverOmittedTreasuryPubkeys,
-    serverTreasuryListWasSubset,
+    verdictStatus: "complete",
+    treasuryPubkeysChecked,
+    perWalletStats,
+    zeroActivityDeclaredWallets: [],
+    scannedSignatureCount,
+    scanTruncated: false,
+    serverOmittedTreasuryPubkeys: [],
+    serverTreasuryListWasSubset: false,
     missingAuditorDeclaredTreasury: false,
     totalL1AnchorsInWindow: uniqueL1Anchors.size,
     deliveredMatchedCount,
-    undisclosedAnchors,
-    unanchoredDeliveredRunIds,
-    completeZeroOmissions,
+    undisclosedAnchors: [],
+    unanchoredDeliveredRunIds: [],
+    completeZeroOmissions: true,
   };
 }

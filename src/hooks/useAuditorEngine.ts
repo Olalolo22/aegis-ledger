@@ -23,6 +23,7 @@ import {
   verifyAnchorTransactionOnChain,
   verifyMagicBlockTransferOnChain,
   type EnumeratedL1Anchor,
+  type WalletEnumerationStat,
 } from "@/lib/onchainVerify";
 
 /**
@@ -61,8 +62,9 @@ export function isDemoTokenAllowed(
  * 5. Derives the L1 enumeration wallet set strictly from
  *    `auditorEnteredPubkeys ∪ decryptedManifests.initiatedBy` (flagging whenever
  *    the server's advisory list is a strict subset), paginates Solana L1 directly,
- *    surfaces `scannedSignatureCount` + `scanTruncated`, and forces
- *    `completeZeroOmissions = false` on any withheld anchor, omitted wallet, or truncation.
+ *    surfaces per-wallet `scannedSignatureCount` + `scanTruncated`, refuses a whole-org
+ *    verdict when no treasury wallet is declared, refuses vacuous green on 0/0 anchors,
+ *    and flags any auditor-declared wallet with 0 lifetime signatures.
  */
 
 export type AuditorEngineStatus =
@@ -96,9 +98,16 @@ export interface DecryptedTransaction {
 
 export interface AuditorReconciliationReport {
   verifiedBy: "auditor_browser_l1_rpc" | "demo";
-  crossBatchVerdict: "complete" | "incomplete" | "not_evaluated" | "demo";
+  crossBatchVerdict:
+    | "complete"
+    | "incomplete"
+    | "not_evaluated"
+    | "no_anchors_in_window"
+    | "demo";
   l1RpcEndpoint: string;
   treasuryPubkeysChecked: string[];
+  perWalletStats: WalletEnumerationStat[];
+  zeroActivityDeclaredWallets: string[];
   auditorEnteredTreasuryPubkeys: string[];
   serverOmittedTreasuryPubkeys: string[];
   serverTreasuryListWasSubset: boolean;
@@ -410,6 +419,8 @@ export function useAuditorEngine(): AuditorEngineResult {
             crossBatchVerdict: "demo",
             l1RpcEndpoint,
             treasuryPubkeysChecked: [],
+            perWalletStats: [],
+            zeroActivityDeclaredWallets: [],
             auditorEnteredTreasuryPubkeys: [],
             serverOmittedTreasuryPubkeys: [],
             serverTreasuryListWasSubset: false,
@@ -656,6 +667,8 @@ export function useAuditorEngine(): AuditorEngineResult {
               crossBatchVerdict: "not_evaluated",
               l1RpcEndpoint,
               treasuryPubkeysChecked: [],
+              perWalletStats: [],
+              zeroActivityDeclaredWallets: [],
               auditorEnteredTreasuryPubkeys: [],
               serverOmittedTreasuryPubkeys: [],
               serverTreasuryListWasSubset: false,
@@ -682,11 +695,19 @@ export function useAuditorEngine(): AuditorEngineResult {
               serverAdvisoryPubkeys: serverAdvisoryTreasuryPubkeys,
             });
 
+            const auditorDeclaredSet = new Set(
+              treasuryResolution.auditorEnteredPubkeys
+            );
+            const manifestPubkeySet = new Set(
+              treasuryResolution.manifestPubkeys
+            );
+
             setProgress(
               `Enumerating all Solana L1 anchors across ${treasuryResolution.enumerationPubkeys.length} treasury wallet(s) directly via ${l1RpcEndpoint}...`
             );
 
             const browserL1Anchors: EnumeratedL1Anchor[] = [];
+            const perWalletStats: WalletEnumerationStat[] = [];
             let scanned = 0;
             let anyTruncated = false;
 
@@ -704,6 +725,23 @@ export function useAuditorEngine(): AuditorEngineResult {
                 scanned += resEnum.scannedSignatureCount;
                 anyTruncated = anyTruncated || resEnum.truncated;
                 browserL1Anchors.push(...resEnum.anchors);
+
+                const inAuditor = auditorDeclaredSet.has(pubkey);
+                const inManifest = manifestPubkeySet.has(pubkey);
+                const source: WalletEnumerationStat["source"] =
+                  inAuditor && inManifest
+                    ? "both"
+                    : inAuditor
+                      ? "auditor_declared"
+                      : "manifest";
+
+                perWalletStats.push({
+                  treasuryPubkey: pubkey,
+                  source,
+                  scannedSignatureCount: resEnum.scannedSignatureCount,
+                  anchorsFound: resEnum.anchors.length,
+                  truncated: resEnum.truncated,
+                });
               }
             } catch (rpcErr) {
               const detail =
@@ -718,6 +756,7 @@ export function useAuditorEngine(): AuditorEngineResult {
               browserVerifiedBatchesForRecon,
               {
                 treasuryPubkeysChecked: treasuryResolution.enumerationPubkeys,
+                perWalletStats,
                 scannedSignatureCount: scanned,
                 scanTruncated: anyTruncated,
                 serverOmittedTreasuryPubkeys:
@@ -733,6 +772,9 @@ export function useAuditorEngine(): AuditorEngineResult {
               crossBatchVerdict: browserRecon.verdictStatus,
               l1RpcEndpoint,
               treasuryPubkeysChecked: browserRecon.treasuryPubkeysChecked,
+              perWalletStats: browserRecon.perWalletStats,
+              zeroActivityDeclaredWallets:
+                browserRecon.zeroActivityDeclaredWallets,
               auditorEnteredTreasuryPubkeys:
                 treasuryResolution.auditorEnteredPubkeys,
               serverOmittedTreasuryPubkeys:

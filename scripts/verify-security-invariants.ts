@@ -672,6 +672,105 @@ async function run() {
   assert.equal(declaredScopeRecon.missingAuditorDeclaredTreasury, false);
   assert.equal(declaredScopeRecon.completeZeroOmissions, true);
 
+  // Vacuous-green guard: 0 anchors in window on an active declared wallet MUST return neutral no_anchors_in_window (null, NOT true)
+  const emptyWindowRecon = reconcileAuditedBatchesAgainstL1([], [], {
+    treasuryPubkeysChecked: [payer.publicKey.toBase58()],
+    perWalletStats: [
+      {
+        treasuryPubkey: payer.publicKey.toBase58(),
+        source: "auditor_declared",
+        scannedSignatureCount: 12,
+        anchorsFound: 0,
+        truncated: false,
+      },
+    ],
+    scannedSignatureCount: 12,
+    scanTruncated: false,
+    requireAuditorDeclaredTreasury: true,
+    auditorDeclaredTreasuryPubkeys: [payer.publicKey.toBase58()],
+  });
+  assert.equal(emptyWindowRecon.verdictStatus, "no_anchors_in_window");
+  assert.equal(
+    emptyWindowRecon.completeZeroOmissions,
+    null,
+    "0/0 anchors in window MUST NOT produce a vacuous green completeZeroOmissions: true"
+  );
+
+  // Zero-activity declared wallet (0 lifetime sigs -> typo or wrong cluster) MUST fail green even when manifest wallet matched
+  const typoWallet = Keypair.generate().publicKey.toBase58();
+  const typoDeclaredRecon = reconcileAuditedBatchesAgainstL1(
+    l1Anchors,
+    [
+      { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+    ],
+    {
+      treasuryPubkeysChecked: [typoWallet, payer.publicKey.toBase58()],
+      perWalletStats: [
+        {
+          treasuryPubkey: typoWallet,
+          source: "auditor_declared",
+          scannedSignatureCount: 0,
+          anchorsFound: 0,
+          truncated: false,
+        },
+        {
+          treasuryPubkey: payer.publicKey.toBase58(),
+          source: "manifest",
+          scannedSignatureCount: 40,
+          anchorsFound: 3,
+          truncated: false,
+        },
+      ],
+      scannedSignatureCount: 40,
+      scanTruncated: false,
+      requireAuditorDeclaredTreasury: true,
+      auditorDeclaredTreasuryPubkeys: [typoWallet],
+    }
+  );
+  assert.equal(typoDeclaredRecon.verdictStatus, "incomplete");
+  assert.equal(typoDeclaredRecon.completeZeroOmissions, false);
+  assert.deepEqual(typoDeclaredRecon.zeroActivityDeclaredWallets, [typoWallet]);
+  assert.equal(typoDeclaredRecon.perWalletStats.length, 2);
+
+  // Funded dormant reserve wallet (>= 1 lifetime sig, 0 anchors) alongside active primary treasury MUST pass cleanly with full visibility
+  const reserveWallet = Keypair.generate().publicKey.toBase58();
+  const fundedReserveRecon = reconcileAuditedBatchesAgainstL1(
+    l1Anchors,
+    [
+      { payroll_run_id: "run-1", anchor_tx_signature: "A".repeat(88), merkle_root: "a".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-2", anchor_tx_signature: "B".repeat(88), merkle_root: "b".repeat(64), anchor_verified: true },
+      { payroll_run_id: "run-3", anchor_tx_signature: "C".repeat(88), merkle_root: "c".repeat(64), anchor_verified: true },
+    ],
+    {
+      treasuryPubkeysChecked: [payer.publicKey.toBase58(), reserveWallet],
+      perWalletStats: [
+        {
+          treasuryPubkey: payer.publicKey.toBase58(),
+          source: "both",
+          scannedSignatureCount: 40,
+          anchorsFound: 3,
+          truncated: false,
+        },
+        {
+          treasuryPubkey: reserveWallet,
+          source: "auditor_declared",
+          scannedSignatureCount: 2,
+          anchorsFound: 0,
+          truncated: false,
+        },
+      ],
+      scannedSignatureCount: 42,
+      scanTruncated: false,
+      requireAuditorDeclaredTreasury: true,
+      auditorDeclaredTreasuryPubkeys: [payer.publicKey.toBase58(), reserveWallet],
+    }
+  );
+  assert.equal(fundedReserveRecon.verdictStatus, "complete");
+  assert.equal(fundedReserveRecon.completeZeroOmissions, true);
+  assert.deepEqual(fundedReserveRecon.zeroActivityDeclaredWallets, []);
+
   // Direct test of enumerateTreasuryAnchorsOnL1 pagination + truncation detection
   const mockSigHistory = [
     { signature: "sig-5", slot: 500, err: null, blockTime: 1760500000, memo: "unrelated" },

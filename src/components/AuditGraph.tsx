@@ -316,6 +316,9 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
   const showFlow = isDone;
   const isCrossBatchNotEvaluated =
     reconciliation?.crossBatchVerdict === "not_evaluated";
+  const isNoAnchorsInWindow =
+    reconciliation?.crossBatchVerdict === "no_anchors_in_window";
+  const isCrossBatchNeutral = isCrossBatchNotEvaluated || isNoAnchorsInWindow;
   const isCrossBatchComplete =
     reconciliation?.crossBatchVerdict === "complete";
   const isCrossBatchFinding =
@@ -342,7 +345,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                   ? { background: "#d97706" }
                   : isCrossBatchFinding
                     ? { background: "#dc2626" }
-                    : isCrossBatchNotEvaluated
+                    : isCrossBatchNeutral
                       ? { background: "#64748b" }
                       : undefined
               }
@@ -356,7 +359,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                     ? "#d97706"
                     : isCrossBatchFinding
                       ? "#dc2626"
-                      : isCrossBatchNotEvaluated
+                      : isCrossBatchNeutral
                         ? "var(--dim)"
                         : "var(--green)",
               }}
@@ -365,9 +368,11 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                 ? "Demo fixture · UNVERIFIED (not checked on Solana L1)"
                 : isCrossBatchNotEvaluated
                   ? "Per-batch view · Browser E2EE & L1 verified (cross-batch not run)"
-                  : isCrossBatchFinding
-                    ? "Authenticated · Browser E2EE · RECONCILIATION FINDING"
-                    : "Authenticated · Browser-local E2EE · L1 reconciled"}
+                  : isNoAnchorsInWindow
+                    ? "Authenticated · No L1 anchors in audit window"
+                    : isCrossBatchFinding
+                      ? "Authenticated · Browser E2EE · RECONCILIATION FINDING"
+                      : "Authenticated · Browser-local E2EE · L1 reconciled"}
             </span>
           </div>
         </div>
@@ -396,7 +401,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             background:
               reconciliation.verifiedBy === "demo"
                 ? "rgba(217, 119, 6, 0.08)"
-                : isCrossBatchNotEvaluated
+                : isCrossBatchNeutral
                   ? "rgba(100, 116, 139, 0.08)"
                   : isCrossBatchComplete
                     ? "rgba(16, 185, 129, 0.08)"
@@ -404,7 +409,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
             border:
               reconciliation.verifiedBy === "demo"
                 ? "1px solid rgba(217, 119, 6, 0.4)"
-                : isCrossBatchNotEvaluated
+                : isCrossBatchNeutral
                   ? "1px solid rgba(100, 116, 139, 0.35)"
                   : isCrossBatchComplete
                     ? "1px solid rgba(16, 185, 129, 0.3)"
@@ -423,7 +428,7 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                 color:
                   reconciliation.verifiedBy === "demo"
                     ? "#b45309"
-                    : isCrossBatchNotEvaluated
+                    : isCrossBatchNeutral
                       ? "var(--ink)"
                       : isCrossBatchComplete
                         ? "#059669"
@@ -434,24 +439,29 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                 ? "⚠ SIMULATED DEMO FIXTURE — NOT VERIFIED ON SOLANA L1 OR MAGICBLOCK ER"
                 : isCrossBatchNotEvaluated
                   ? "PER-BATCH VIEW ONLY — WHOLE-ORG CROSS-BATCH COMPLETENESS NOT EVALUATED"
-                  : isCrossBatchComplete
-                    ? `✓ CROSS-BATCH L1 COMPLETENESS VERIFIED: 0 WITHHELD BATCHES (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled across ${reconciliation.treasuryPubkeysChecked.length} declared/manifest wallet(s))`
-                    : `⚠ CROSS-BATCH COMPLETENESS NOT PROVEN: ${[
-                        reconciliation.undisclosedAnchors.length > 0
-                          ? `${reconciliation.undisclosedAnchors.length} WITHHELD L1 ANCHOR(S)`
-                          : null,
-                        reconciliation.serverTreasuryListWasSubset
-                          ? `${reconciliation.serverOmittedTreasuryPubkeys.length} SERVER-OMITTED TREASURY WALLET(S)`
-                          : null,
-                        reconciliation.scanTruncated
-                          ? `L1 SCAN TRUNCATED AT ${reconciliation.scannedSignatureCount.toLocaleString()} SIGS`
-                          : null,
-                        reconciliation.unanchoredDeliveredRunIds.length > 0
-                          ? `${reconciliation.unanchoredDeliveredRunIds.length} UNANCHORED RUN(S)`
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}`}
+                  : isNoAnchorsInWindow
+                    ? `NO L1 ANCHORS FOUND IN THIS WINDOW — NOTHING TO RECONCILE (0 anchors across ${reconciliation.treasuryPubkeysChecked.length} declared wallet(s))`
+                    : isCrossBatchComplete
+                      ? `✓ CROSS-BATCH L1 COMPLETENESS VERIFIED: 0 WITHHELD BATCHES (${reconciliation.deliveredMatchedCount}/${reconciliation.totalL1AnchorsInWindow} L1 anchors reconciled across ${reconciliation.treasuryPubkeysChecked.length} declared/manifest wallet(s))`
+                      : `⚠ CROSS-BATCH COMPLETENESS NOT PROVEN: ${[
+                          reconciliation.undisclosedAnchors.length > 0
+                            ? `${reconciliation.undisclosedAnchors.length} WITHHELD L1 ANCHOR(S)`
+                            : null,
+                          reconciliation.serverTreasuryListWasSubset
+                            ? `${reconciliation.serverOmittedTreasuryPubkeys.length} SERVER-OMITTED TREASURY WALLET(S)`
+                            : null,
+                          reconciliation.zeroActivityDeclaredWallets.length > 0
+                            ? `${reconciliation.zeroActivityDeclaredWallets.length} ZERO-ACTIVITY DECLARED WALLET(S)`
+                            : null,
+                          reconciliation.scanTruncated
+                            ? `L1 SCAN TRUNCATED AT ${reconciliation.scannedSignatureCount.toLocaleString()} SIGS`
+                            : null,
+                          reconciliation.unanchoredDeliveredRunIds.length > 0
+                            ? `${reconciliation.unanchoredDeliveredRunIds.length} UNANCHORED RUN(S)`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}`}
             </span>
             <span style={{ fontSize: 10, color: "var(--dim)" }}>
               Source: {reconciliation.verifiedBy === "demo" ? "Demo Fixture (Unverified)" : `Direct Auditor L1 RPC (${reconciliation.l1RpcEndpoint})`}
@@ -463,6 +473,17 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
           {isCrossBatchNotEvaluated && (
             <div style={{ marginTop: 6, fontSize: 10, color: "var(--dim)" }}>
               No org treasury wallet was declared by the auditor, so no whole-org zero-omission verdict was computed. Each delivered batch below is verified per-batch directly against Solana L1 and MagicBlock ER; re-authenticate with the org&apos;s declared Solana treasury wallet(s) to run whole-org L1 anchor enumeration.
+            </div>
+          )}
+          {isNoAnchorsInWindow && (
+            <div style={{ marginTop: 6, fontSize: 10, color: "var(--dim)" }}>
+              Zero Aegis Merkle anchors were found on Solana L1 inside the authorized audit window across the scanned wallet(s). Because the anchor set is empty, no green completeness verdict is issued.
+            </div>
+          )}
+          {reconciliation.zeroActivityDeclaredWallets.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 10, color: "#b91c1c" }}>
+              • Auditor-declared wallet(s) returned 0 lifetime signatures on this Solana RPC (possible typo, unfunded address, or wrong cluster):{" "}
+              {reconciliation.zeroActivityDeclaredWallets.join(", ")}
             </div>
           )}
           {reconciliation.serverTreasuryListWasSubset && (
@@ -483,6 +504,38 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                   • Undisclosed L1 anchor ({a.treasuryPubkey.slice(0, 8)}...): tx {a.signature.slice(0, 14)}... · root {a.merkleRoot.slice(0, 16)}... ({a.leafCount} leaves, slot {a.slot})
                 </div>
               ))}
+            </div>
+          )}
+          {reconciliation.perWalletStats.length > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px solid rgba(148, 163, 184, 0.2)", display: "flex", flexDirection: "column", gap: 3 }}>
+              <div style={{ fontSize: 9.5, color: "var(--dim)", textTransform: "uppercase" }}>
+                Per-Wallet Solana L1 Scan Breakdown:
+              </div>
+              {reconciliation.perWalletStats.map((w) => {
+                const isZeroDeclared =
+                  (w.source === "auditor_declared" || w.source === "both") &&
+                  w.scannedSignatureCount === 0;
+                const sourceLabel =
+                  w.source === "both"
+                    ? "declared + manifest"
+                    : w.source === "auditor_declared"
+                      ? "auditor-declared"
+                      : "manifest-only";
+                return (
+                  <div
+                    key={w.treasuryPubkey}
+                    style={{
+                      fontSize: 10,
+                      color: isZeroDeclared || w.truncated ? "#b91c1c" : "var(--dim)",
+                    }}
+                  >
+                    • {w.treasuryPubkey.slice(0, 8)}...{w.treasuryPubkey.slice(-6)} ({sourceLabel}) —{" "}
+                    {w.scannedSignatureCount.toLocaleString()} sigs scanned · {w.anchorsFound} L1 anchor(s)
+                    {isZeroDeclared ? " [⚠ 0 LIFETIME SIGS — CHECK ADDRESS/CLUSTER]" : ""}
+                    {w.truncated ? " [⚠ TRUNCATED]" : ""}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -606,17 +659,21 @@ export default function AuditGraph({ accessToken }: { accessToken?: string }) {
                     ? "N/A (Demo)"
                     : isCrossBatchNotEvaluated
                       ? "Not evaluated (no wallet declared)"
-                      : isCrossBatchComplete
-                        ? "0 withheld (L1 reconciled)"
-                        : reconciliation.scanTruncated
-                          ? "⚠ SCAN TRUNCATED"
-                          : reconciliation.serverTreasuryListWasSubset
-                            ? "⚠ OMITTED WALLET"
-                            : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`,
+                      : isNoAnchorsInWindow
+                        ? "No anchors in window (0/0)"
+                        : isCrossBatchComplete
+                          ? "0 withheld (L1 reconciled)"
+                          : reconciliation.zeroActivityDeclaredWallets.length > 0
+                            ? "⚠ 0-SIG DECLARED WALLET"
+                            : reconciliation.scanTruncated
+                              ? "⚠ SCAN TRUNCATED"
+                              : reconciliation.serverTreasuryListWasSubset
+                                ? "⚠ OMITTED WALLET"
+                                : `⚠ ${reconciliation.undisclosedAnchors.length} FINDING`,
                 col:
                   reconciliation?.verifiedBy === "demo"
                     ? "#d97706"
-                    : isCrossBatchNotEvaluated
+                    : isCrossBatchNeutral
                       ? "var(--dim)"
                       : isCrossBatchFinding
                         ? "#dc2626"
